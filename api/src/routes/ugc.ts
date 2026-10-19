@@ -815,6 +815,28 @@ ugc.post('/creators/:id/photo-note', async (c) => {
   return ok(c, { saved: true });
 });
 
+// Owner 2026-10-19: «окно решения» — on any business exclamation mark the Owner writes his decision;
+// Diana answers the blogger by it at the next minute and the mark is lifted.
+ugc.post('/creators/:id/decision', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const text = textValue(body.text, 500);
+  if (!text) return fail(c, 422, [{ code: 'empty', message: 'Напишите решение' }]);
+  const handles = ((await c.env.DB.prepare(`SELECT normalized_handle h FROM ugc_creator_platforms WHERE creator_id=?1`).bind(c.req.param('id')).all<{ h: string }>()).results ?? []).map((r) => String(r.h).toLowerCase());
+  if (!handles.length) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+  const conv = await c.env.DB.prepare(`SELECT conversation_id cid FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username) IN (${handles.map((_, i) => `?${i + 1}`).join(',')}) ORDER BY created_at DESC LIMIT 1`).bind(...handles).first<{ cid: string }>();
+  if (!conv) return fail(c, 404, [{ code: 'no_conversation', message: 'Переписки нет' }]);
+  const last = await c.env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id=?1`).bind(conv.cid).first<{ t: string }>();
+  const now = Date.now();
+  await c.env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(`ig_owner_decision:${conv.cid}`, JSON.stringify({ at: last?.t, text, by: access.name ?? null }), now).run();
+  await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`ig_reply_escalated:${conv.cid}`).run();
+  await c.env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.next_at',?1),updated_at=?1 WHERE key='adaptive:ig_dm' AND json_extract(value,'$.running_since') IS NULL`).bind(now).run();
+  return ok(c, { saved: true });
+});
+
 ugc.post('/collaborations', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;

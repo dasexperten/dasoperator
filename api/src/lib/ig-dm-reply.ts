@@ -27,6 +27,8 @@ const HANDLED_KEY = (cid: string) => `ig_reply:${cid}`;
 const PASTE_ONLY_SINCE = '2026-10-17T05:12:00';
 const STATE_KEY = (cid: string) => `ig_reply_escalated:${cid}`;
 export const PHOTO_NOTE_KEY = (cid: string) => `ig_photo_note:${cid}`;
+// Owner 2026-10-19: the Owner's decision on a business exclamation mark, written on /ugc, for the blogger's current message.
+export const DECISION_KEY = (cid: string) => `ig_owner_decision:${cid}`;
 const PHOTO_HOLD_MS = 30 * 60_000;
 
 type Msg = { id?: string; direction: string; text: string | null; attachments_json: string | null; created_at: string; unsupported?: boolean };
@@ -288,6 +290,11 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       }
     }
     const photoSeen = unseenPhoto && Boolean(ownerNote);
+    let ownerDecision = '';
+    {
+      const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(DECISION_KEY(w.cid)).first<{ value: string }>();
+      try { const n = JSON.parse(row?.value ?? 'null'); if (n && n.at === w.t && String(n.text ?? '').trim()) ownerDecision = String(n.text).trim().slice(0, 500); } catch { /* no decision */ }
+    }
     const lines = history.map((m) => {
       const body = (m.text && m.text.trim()) || (m.unsupported ? (ownerNote ? `[фото; Владелец посмотрел его в приложении: ${ownerNote}]` : '[фото, которое не открылось у нас в программе: мы его НЕ видели]') : m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
       return `${m.direction === 'in' ? 'Блогер' : 'Мы'} (${m.created_at.slice(5, 16)}): ${body}`;
@@ -305,7 +312,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m)))?.created_at : undefined;
     const scenarioSent = Boolean(orderAt && history.some((m) => m.direction === 'out' && m.created_at > orderAt && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|отличный выбор|своя идея|карточк|как лучше снять/i.test(m.text ?? ''))));
     const ladder = orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
-    const context = `${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
+    const context = `${ownerDecision ? `РЕШЕНИЕ ВЛАДЕЛЬЦА по текущему сообщению блогера: ${ownerDecision}. Это решение окончательное: ответь блогеру строго по нему, своими словами и в своём тоне, не спорь с ним и не передавай вопрос Владельцу повторно.\n` : ''}${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // Both sides are essential: «да» only makes sense with our preceding question.
     let prepared;
@@ -367,7 +374,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         break;
       }
       try { const j = JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] ?? 'null'); const d = Array.isArray(j?.replies) ? j.replies.join(' / ') : j?.reply; if (d) lastDraft = String(d); } catch { /* not JSON: no draft */ }
-      out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
+      out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart, ownerDecided: Boolean(ownerDecision) });
       // mari.d_w 2026-10-18: a payout is already open — repeated requisites are not a new registration
       // and must never stop the conversation (the surname check blocked her for 15 minutes).
       if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) out.requisites = null;

@@ -171,3 +171,9 @@ test('a refusal never sounds like a refusal (noza_finds 2026-10-18)', () => {
   }
   assert.notEqual(guardReply(JSON.stringify({ reply: 'Лучше через поиск, так ваша покупка поможет нашей карточке)', escalate: false, reason: 'ok' }), { paid: false, inCount: 2, lastIn: 'можно артикул' }).reason, 'refusal tone');
 });
+test('Owner decision on /ugc lifts the «Owner decides» stops for that message (Owner 2026-10-19)', () => {
+  const j = JSON.stringify({ reply: 'Хорошо, оформите возврат, мы не против.', escalate: false, reason: 'owner decision' });
+  const lastIn = 'Можно я сделаю возврат и верну деньги?';
+  assert.equal(guardReply(j, { lastIn }).reason, 'return or money back, Owner decides');
+  assert.equal(guardReply(j, { lastIn, ownerDecided: true }).reply, 'Хорошо, оформите возврат, мы не против.');
+});

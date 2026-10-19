@@ -155,10 +155,11 @@ export function shortParts(parts) {
 export const HARD_ASK = /(возврат|вернуть\s+(деньги|заказ|товар)|верну\s+(деньги|заказ)|отправ\S*\s+(обратно\s+)?деньги|деньги\s+(обратно|назад)|отмен\S*\s+заказ|заказ\S*\s+отмен)/i;
 const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
 
-export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allowBrush = false } = {}) {
-  if (PAID_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'paid request, Owner decides' };
+export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allowBrush = false, ownerDecided = false } = {}) {
+  // Owner 2026-10-19: once the Owner wrote his decision on /ugc, the «Owner decides» stops are lifted for that message.
+  if (!ownerDecided && PAID_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'paid request, Owner decides' };
   // Owner 2026-10-17 (blog_lezginka_22): returns, refunds, cancelled orders and money going back are hard questions; ask the Owner first.
-  if (HARD_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
+  if (!ownerDecided && HARD_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
   const ordered = /(^|[^а-яё])(заказала|заказал|оформила заказ|оформил заказ)([^а-яё]|$)/i.test(String(lastIn)) && !/скрин|чек|номер заказа/i.test(String(lastIn));
   let parsed;
   try {
@@ -199,7 +200,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   // Owner 2026-10-19: «Диана, ERP служит тебе» — tone is Diana's, the ERP does not veto it.
   // Owner 2026-10-17: one person, one program — never a second account, a second program or a new basket.
   if (/(втор(ой|ого|ому)\s+аккаунт|отдельн(ая|ую|ой)\s+программ|ещё\s+одн[ау]\s+программ|ник\s+второго|нов(ую|ая)\s+корзин)/i.test(reply)) return { reply: null, escalate: true, reason: 'one person, one program; ask what she means' };
-  if (HARD_ASK.test(reply)) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
+  if (!ownerDecided && HARD_ASK.test(reply)) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
   if (/(\+?7|8)[\s(-]*9\d{2}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}/.test(reply)) return { reply: null, escalate: true, reason: 'do not repeat phone and recipient to the blogger' };
   if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
   // Owner 2026-10-17: there is always another option, the blogger's own scenario, even without the face.

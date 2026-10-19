@@ -264,6 +264,28 @@ function CreatorPayment({ creator }: { creator: Creator }) {
 
 // Owner 2026-10-18: Gold is awarded by hand after watching the reel — a star next to «posted».
 // Owner 2026-10-18: a photo the ERP cannot open — the Owner looks in the app and tells Diana what is on it.
+// Owner 2026-10-19: decision window on every business exclamation mark — one line, Diana answers by it.
+function DecisionNote({ creatorId, onSaved }: { creatorId: string; onSaved: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  if (done) return <p className="ugc-photo-note" role="status"><strong>Решение передано Диане.</strong> Она ответит блогеру в ближайшую минуту.</p>;
+  return <form className="ugc-photo-note" onSubmit={async (event) => {
+    event.preventDefault();
+    if (!text.trim()) { setError('Напишите решение'); return; }
+    setBusy(true); setError('');
+    const r = await apiPost(`/api/ugc/creators/${creatorId}/decision`, { text: text.trim() });
+    setBusy(false);
+    if (r.success) { setText(''); setDone(true); onSaved(); window.dispatchEvent(new Event('ugc:reload')); } else setError(r.errors?.[0]?.message ?? 'Не сохранилось');
+  }}>
+    <label htmlFor={`decision-${creatorId}`}>Ваше решение для Дианы</label>
+    <textarea id={`decision-${creatorId}`} value={text} onChange={(event) => { setText(event.target.value); if (error) setError(''); }} rows={2} placeholder="Например: ссылки нет, вежливо попроси ссылку на пост" />
+    <button type="submit" disabled={busy}>{busy ? 'Передаю…' : 'Передать Диане'}</button>
+    {error ? <span role="alert">{error}</span> : null}
+  </form>;
+}
+
 function PhotoNote({ creatorId, onSaved }: { creatorId: string; onSaved: () => void }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -518,6 +540,7 @@ function AttentionMark({ attention, name, onOpen }: { attention: NonNullable<Cre
     {pos ? createPortal(<span className="ugc-attn-card" role="tooltip" style={{ top: pos.top, left: pos.left }}>
       <strong>{attention.label}</strong>
       <span className="ugc-attn-reason">{attention.reason}</span>
+      {attention.kind === 'business' ? <span className="ugc-attn-head">Нажмите на знак, чтобы написать решение</span> : null}
       {last.length ? <span className="ugc-attn-head">Последнее от блогера</span> : null}
       {last.map((m) => <span key={m.id} className="ugc-attn-msg">
         {m.text ? <span>{m.text}</span> : null}
@@ -1060,7 +1083,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
   return <section className="ugc-creator-card ugc-card p-4 md:p-6" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
     <div className="ugc-card-top">{lead ? <BloggerAvatar profile={lead} /> : null}<div className="ugc-card-who"><h2 id="ugc-creator-title">{lead ? `@${lead.handle}` : creator.display_name || 'Автор'}</h2>{sub ? <span>{sub}</span> : null}</div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
     {creator.attention ? <p className="ugc-card-attention"><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
-    {creator.attention?.code === 'photo_for_owner' ? <PhotoNote creatorId={creator.id} onSaved={onSaved} /> : null}
+    {creator.attention?.code === 'photo_for_owner' ? <PhotoNote creatorId={creator.id} onSaved={onSaved} /> : creator.attention?.kind === 'business' ? <DecisionNote creatorId={creator.id} onSaved={onSaved} /> : null}
     <section className="ugc-card-sec"><div className="ugc-card-label">Аудитория</div>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} showHandle={creator.profiles.length > 1} />)}</section>
     <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
     <section className="ugc-card-sec" aria-labelledby={`payouts-${creator.id}`}><div id={`payouts-${creator.id}`} className="ugc-card-label">Оплата</div>

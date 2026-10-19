@@ -504,12 +504,18 @@ function AttentionPhoto({ id, index }: { id: string; index: number }) {
 }
 
 function AttentionMark({ attention, name, onOpen }: { attention: NonNullable<Creator['attention']>; name: string; onOpen: () => void }) {
-  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLButtonElement | null>(null);
   const last = attention.last_in ?? [];
-  return <span className="ugc-attn" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-    <button type="button" onClick={onOpen} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} aria-label={`${attention.label}: ${name}`}
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(window.innerWidth - 336, r.right - 320)) });
+  };
+  const hide = () => setPos(null);
+  return <span className="ugc-attn" onMouseEnter={show} onMouseLeave={hide}>
+    <button ref={ref} type="button" onClick={onOpen} onFocus={show} onBlur={hide} aria-label={`${attention.label}: ${name}`}
       className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button>
-    {open ? <span className="ugc-attn-card" role="tooltip">
+    {pos ? createPortal(<span className="ugc-attn-card" role="tooltip" style={{ top: pos.top, left: pos.left }}>
       <strong>{attention.label}</strong>
       <span className="ugc-attn-reason">{attention.reason}</span>
       {last.length ? <span className="ugc-attn-head">Последнее от блогера</span> : null}
@@ -517,7 +523,7 @@ function AttentionMark({ attention, name, onOpen }: { attention: NonNullable<Cre
         {m.text ? <span>{m.text}</span> : null}
         {Array.from({ length: Math.min(m.images, 2) }, (_, i) => <AttentionPhoto key={i} id={m.id} index={i} />)}
       </span>)}
-    </span> : null}
+    </span>, document.body) : null}
   </span>;
 }
 

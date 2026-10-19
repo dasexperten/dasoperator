@@ -416,7 +416,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 
 /* Owner 2026-10-19: hover card on the exclamation mark — the blogger's last words or photo. */
 .ugc-attn { position: relative; display: inline-flex; }
-.ugc-attn-card { position: absolute; z-index: 40; top: 46px; right: 0; width: 320px; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: #ffffff; color: #1c1917; border: 1px solid #a8a29e; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); text-align: left; white-space: normal; letter-spacing: 0; font-size: 13px; line-height: 18px; }
+.ugc-attn-card { position: fixed; z-index: 1000; width: 320px; max-height: 70vh; overflow: auto; pointer-events: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: #ffffff; color: #1c1917; border: 1px solid #a8a29e; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); text-align: left; white-space: normal; letter-spacing: 0; font-size: 13px; line-height: 18px; }
 .ugc-attn-card strong { font-weight: 800; font-size: 14px; color: #1c1917; }
 .ugc-attn-reason { color: #44403c; }
 .ugc-attn-head { margin-top: 4px; font-weight: 800; color: #7a4e25; }

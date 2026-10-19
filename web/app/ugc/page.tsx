@@ -976,8 +976,8 @@ export default function UgcPage() {
           <thead><tr className="border-b border-stone-200 bg-stone-50">
             <th scope="col" className="ugc-c-creator">Автор</th>
             <th scope="col" className="ugc-c-platform">Сеть</th>
-            <th scope="col" className="ugc-c-num ugc-c-followers">Подписчики</th>
-            <th scope="col" className="ugc-c-num ugc-c-activity" title="Последний контакт, выплата или публикация">Активность</th>
+            <th scope="col" className="ugc-c-num ugc-c-followers" title="Подписчики">Followers</th>
+            <th scope="col" className="ugc-c-num ugc-c-activity" title="Дата последнего контакта с блогером: сообщение, выплата или публикация">Контакт</th>
             <th scope="col" className="ugc-c-num ugc-c-pay">Оплата</th>
             <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
             <th scope="col" className="ugc-c-media ugc-sec-3">Контент</th>

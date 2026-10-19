@@ -347,14 +347,16 @@ function CreatorModal({ creator, onClose, onSaved }: { creator: Creator; onClose
 
 // Owner 2026-10-19: «Очередь браузера · N». On a computer one button for this machine (PC or Mac);
 // on a phone two. A click starts sending at once in the Owner's own Chrome on that machine.
+type PayDays = { today: { n: number; minor: number }; yesterday: { n: number; minor: number } };
 function BrowserQueueButton() {
   const [count, setCount] = useState<number | null>(null);
+  const [pay, setPay] = useState<PayDays | null>(null);
   const [targets, setTargets] = useState<Array<'pc' | 'mac'>>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [writable, setWritable] = useState(false);
   const refresh = useCallback(async () => {
-    try { const r = await apiGet<{ count: number }>('/api/ugc/browser-queue'); if (r.success && r.result) setCount(r.result.count); } catch { /* the count stays as it was */ }
+    try { const r = await apiGet<{ count: number; pay?: PayDays }>('/api/ugc/browser-queue'); if (r.success && r.result) { setCount(r.result.count); setPay(r.result.pay ?? null); } } catch { /* the count stays as it was */ }
   }, []);
   useEffect(() => {
     const user = getUser(); setWritable(user?.role === 'admin' || ['full', 'rw'].includes(user?.permissions?.['/ugc'] ?? ''));
@@ -365,7 +367,7 @@ function BrowserQueueButton() {
     return () => window.clearInterval(timer);
   }, [refresh]);
   if (!writable || count == null) return null;
-  const label = (t: 'pc' | 'mac') => targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь браузера · ${count}`;
+  const label = (t: 'pc' | 'mac') => targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь · ${count}`;
   return <span className="ugc-bq">{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={busy || count === 0}
     title={count === 0 ? 'Очередь пуста' : `Отправить ${count} в Chrome на ${t === 'pc' ? 'ПК' : 'Mac'}`}
     onClick={async () => {
@@ -376,7 +378,7 @@ function BrowserQueueButton() {
         else setMessage(`Запущено на ${t === 'pc' ? 'ПК' : 'Mac'}: ${r.result.count}`);
       } catch { setMessage('Ответ не получен'); }
       finally { setBusy(false); window.setTimeout(() => { void refresh(); }, 90_000); }
-    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{message ? <span role="status">{message}</span> : null}</span>;
+    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{pay ? <span className="ugc-bq-pay" title="Оплаты блогерам: сегодня и вчера"><span className="ugc-bq-pay-today">{pay.today.n} · {formatRub(pay.today.minor)}</span><span>{pay.yesterday.n} · {formatRub(pay.yesterday.minor)}</span></span> : null}{message ? <span className="ugc-bq-status" role="status">{message}</span> : null}</span>;
 }
 
 function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: () => Promise<void> }) {
@@ -394,7 +396,7 @@ function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: (
       else { setMessage(`Проверено: ${response.result.attempted} · обновлено: ${response.result.updated}`); await onSaved(); }
     } catch { setMessage('Ответ не получен. Проверьте время последней загрузки.'); }
     finally { setBusy(false); }
-  }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? 'Загружаю профиль…' : profileId ? 'Обновить профиль' : 'Загрузить профили'}</button>{message ? <span role="status">{message}</span> : null}</span>;
+  }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? 'Загружаю…' : profileId ? 'Обновить профиль' : 'Профили'}</button>{message ? <span role="status">{message}</span> : null}</span>;
 }
 
 // Reuse private authenticated image reads across the desktop list, phone list and card.
@@ -897,7 +899,7 @@ export default function UgcPage() {
         </div>
       </section>
 
-      <div className="ugc-profile-tools"><span className="ugc-profile-schedule">Профили · ежедневно в 06:00</span><BrowserQueueButton /><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive{data.inactive_count != null ? ` · ${data.inactive_count}` : ''}</span></label><ProfileRefresh onSaved={load} /></div>
+      <div className="ugc-profile-tools"><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive</span></label><ProfileRefresh onSaved={load} /><BrowserQueueButton /></div>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">

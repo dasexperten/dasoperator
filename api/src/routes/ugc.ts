@@ -687,7 +687,16 @@ ugc.get('/browser-queue', async (c) => {
   const items = queueItems(await browserQueueRows(c));
   const last = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
   let lastRun: unknown = null; try { lastRun = last ? JSON.parse(last.value) : null; } catch { lastRun = null; }
-  return ok(c, { count: items.length, handles: items.map((i) => i.handle), configured: Boolean(c.env.BROWSER_QUEUE_FIRE_URL && c.env.BROWSER_QUEUE_FIRE_TOKEN), last_run: lastRun });
+  // Owner 2026-10-19: in the corner — payouts to bloggers, today (green) and yesterday, by Yerevan day.
+  const dayMs = 86_400_000, offset = 4 * 3_600_000;
+  const todayStart = Math.floor((Date.now() + offset) / dayMs) * dayMs - offset;
+  const sumDay = async (from: number, to: number) => {
+    const r = await c.env.DB.prepare(`SELECT COUNT(*) n, COALESCE(SUM(amount_minor),0) minor FROM ugc_payouts WHERE status='paid' AND paid_at >= ?1 AND paid_at < ?2`)
+      .bind(new Date(from).toISOString(), new Date(to).toISOString()).first<{ n: number; minor: number }>();
+    return { n: Number(r?.n ?? 0), minor: Number(r?.minor ?? 0) };
+  };
+  const pay = { today: await sumDay(todayStart, todayStart + dayMs), yesterday: await sumDay(todayStart - dayMs, todayStart) };
+  return ok(c, { count: items.length, pay, handles: items.map((i) => i.handle), configured: Boolean(c.env.BROWSER_QUEUE_FIRE_URL && c.env.BROWSER_QUEUE_FIRE_TOKEN), last_run: lastRun });
 });
 ugc.post('/browser-queue/run', async (c) => {
   const access = await requireAccess(c, true);

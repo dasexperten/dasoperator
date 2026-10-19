@@ -8,6 +8,7 @@ import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecen
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
+import { cooldownLeft, fireText, isTarget, queueItems } from '../lib/browser-queue.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
@@ -672,6 +673,75 @@ ugc.patch('/creators/:id', async (c) => {
     updatedAt, id, nextOrigin, archivedAt,
   ).run();
   return ok(c, { id, updated_at: updatedAt });
+});
+
+// Owner 2026-10-19: «Очередь браузера · N» on /ugc. The click starts the browser task at once on the
+// Owner's PC or Mac; the task reports each blogger back through /browser-queue/done with a one-run key.
+const BQ_UPSERT = `INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`;
+async function browserQueueRows(c: any) {
+  return ((await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'browser_queue:%' ORDER BY updated_at`).all()).results ?? []) as Array<{ key: string; value: string }>;
+}
+ugc.get('/browser-queue', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const items = queueItems(await browserQueueRows(c));
+  const last = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+  let lastRun: unknown = null; try { lastRun = last ? JSON.parse(last.value) : null; } catch { lastRun = null; }
+  return ok(c, { count: items.length, handles: items.map((i) => i.handle), configured: Boolean(c.env.BROWSER_QUEUE_FIRE_URL && c.env.BROWSER_QUEUE_FIRE_TOKEN), last_run: lastRun });
+});
+ugc.post('/browser-queue/run', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { body = {}; }
+  const target = String(body.target ?? '');
+  if (!isTarget(target)) return fail(c, 422, [{ code: 'target', message: 'Выберите ПК или Mac' }]);
+  if (!c.env.BROWSER_QUEUE_FIRE_URL || !c.env.BROWSER_QUEUE_FIRE_TOKEN) return fail(c, 503, [{ code: 'not_configured', message: 'Запуск ещё не подключён' }]);
+  const items = queueItems(await browserQueueRows(c));
+  if (!items.length) return fail(c, 409, [{ code: 'empty', message: 'Очередь пуста' }]);
+  const now = Date.now();
+  const lastRow = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+  let lastAt = 0; try { lastAt = Number(JSON.parse(lastRow?.value ?? '{}').at_ms) || 0; } catch { lastAt = 0; }
+  const wait = cooldownLeft(lastAt, now);
+  if (wait) return fail(c, 409, [{ code: 'cooldown', message: `Отправка уже идёт. Повторить через ${Math.ceil(wait / 60)} мин` }]);
+  const run = crypto.randomUUID();
+  const key = crypto.randomUUID().replace(/-/g, '');
+  const doneUrl = `${new URL(c.req.url).origin}/api/ugc/browser-queue/done`;
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_run:${run}`, JSON.stringify({ key, target, handles: items.map((i) => i.handle), at: new Date(now).toISOString(), by: access.name ?? null, results: {} }), now).run();
+  let res: Response;
+  try {
+    res = await fetch(c.env.BROWSER_QUEUE_FIRE_URL, { method: 'POST', headers: { Authorization: `Bearer ${c.env.BROWSER_QUEUE_FIRE_TOKEN}`, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }, body: JSON.stringify({ text: fireText({ target, run, key, doneUrl, items }) }), signal: AbortSignal.timeout(20_000) });
+  } catch {
+    return fail(c, 502, [{ code: 'fire_failed', message: 'Запуск не ответил. Попробуйте ещё раз' }]);
+  }
+  if (!res.ok) {
+    const msg = res.status === 429 ? 'Лимит запусков на этот час исчерпан' : res.status === 401 ? 'Ключ запуска не принят' : `Запуск не принят (${res.status})`;
+    return fail(c, 502, [{ code: 'fire_rejected', message: msg }]);
+  }
+  const out = await res.json().catch(() => ({})) as { claude_code_session_url?: string };
+  await c.env.DB.prepare(BQ_UPSERT).bind('browser_run:last', JSON.stringify({ run, target, count: items.length, at: new Date(now).toISOString(), at_ms: now, session_url: out.claude_code_session_url ?? null }), now).run();
+  return ok(c, { started: true, target, count: items.length });
+});
+// Called by the browser task, not by a person: the one-run key from the launch text is the pass.
+ugc.post('/browser-queue/done', async (c) => {
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const run = String(body.run ?? ''); const key = String(body.key ?? '');
+  const handle = String(body.handle ?? '').toLowerCase().replace(/^@/, '').trim();
+  const row = run ? await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_run:${run}`).first<{ value: string }>() : null;
+  let state: any = null; try { state = row ? JSON.parse(row.value) : null; } catch { state = null; }
+  if (!state || !key || state.key !== key) return fail(c, 403, [{ code: 'forbidden', message: 'Unknown run' }]);
+  if (!handle || !state.handles?.includes(handle)) return fail(c, 422, [{ code: 'handle', message: 'Handle not in this run' }]);
+  const now = Date.now();
+  const sent = body.sent === true;
+  if (sent) {
+    const q = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).first<{ value: string }>();
+    await c.env.DB.prepare(BQ_UPSERT).bind(`browser_sent:${handle}:${new Date(now).toISOString()}`, q?.value ?? '{}', now).run();
+    await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  }
+  state.results = { ...(state.results ?? {}), [handle]: sent ? 'sent' : `skipped: ${String(body.reason ?? '').slice(0, 200)}` };
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_run:${run}`, JSON.stringify(state), now).run();
+  return ok(c, { recorded: true });
 });
 
 // Owner 2026-10-18 (05_seferova_05): the Owner sees the photo in the app and tells Diana what is on it.

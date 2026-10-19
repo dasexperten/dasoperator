@@ -1336,3 +1336,23 @@ input[type="number"] {
   main .erp-compact-page:is(.px-8, .p-6) { padding: 12px !important; }
   main .erp-compact-page .erp-empty-help { padding: 12px !important; }
 }
+
+/* Owner 2026-10-19: Pulse lists on the phone — every item is two lines.
+   Line 1: partner (bold, left) · sum (bold, right). Line 2: small date · status icon. */
+.pulse-list { display: none; }
+@media (max-width: 767px) {
+  main .pulse-table { display: none !important; }
+  main .pulse-list { display: flex; flex-direction: column; }
+  main .pulse-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+    column-gap: 12px; row-gap: 2px; padding: 10px 14px; min-height: 56px;
+    color: var(--fg-1); text-decoration: none; border-bottom: 1px solid var(--border-hairline);
+  }
+  main .pulse-row:last-child { border-bottom: none; }
+  main .pulse-row:active { background: var(--paper-sunk); }
+  main .pulse-row-title { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main .pulse-row-amount { font-size: 15px; font-weight: 800; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  main .pulse-row-date { font-size: 12px; font-weight: 600; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main .pulse-row-mark { justify-self: end; display: inline-flex; }
+  main .pulse-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; }
+}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, Loader2 } from 'lucide-react';
+import { ArrowUpRight, Loader2, FilePen, FileText, ClipboardList, Factory, Package, Truck, CircleCheck, CircleX, ArrowDownLeft, ArrowUpRight as ArrowOut } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import {
   getOperations,
@@ -73,6 +73,36 @@ const STATUS_TONES: Record<string, { bg: string; fg: string }> = {
   delivered:         { bg: 'rgba(46,125,79,0.10)',  fg: 'var(--status-success)' },
   cancelled:         { bg: 'rgba(229,32,44,0.10)',  fg: 'var(--brand-rot)' },
 };
+
+// Owner 2026-10-19: on the phone every item is two lines — partner and sum on top,
+// a small date and the status as an icon underneath.
+const STATUS_ICONS: Record<string, typeof FileText> = {
+  draft: FilePen, issued: FileText, order_fulfilment: ClipboardList, production: Factory,
+  stocked: Package, shipped: Truck, delivered: CircleCheck, cancelled: CircleX,
+};
+
+function StatusIcon({ status }: { status: string }) {
+  const tone = STATUS_TONES[status] ?? STATUS_TONES.draft!;
+  const Icon = STATUS_ICONS[status] ?? FileText;
+  const label = status.replace('_', ' ');
+  return (
+    <span className="pulse-status-icon" role="img" aria-label={label} title={label}
+      style={{ backgroundColor: tone.bg, color: tone.fg }}>
+      <Icon className="h-4 w-4" aria-hidden="true" />
+    </span>
+  );
+}
+
+function CompactRow({ href, title, amount, date, mark }: { href: string; title: string; amount: string; date: string; mark: ReactNode }) {
+  return (
+    <Link href={href} className="pulse-row">
+      <span className="pulse-row-title">{title}</span>
+      <span className="pulse-row-amount">{amount}</span>
+      <span className="pulse-row-date">{date}</span>
+      <span className="pulse-row-mark">{mark}</span>
+    </Link>
+  );
+}
 
 function StatusChip({ status }: { status: string }) {
   const tone = STATUS_TONES[status] ?? STATUS_TONES.draft!;
@@ -242,7 +272,17 @@ export default function HomeDashboard() {
           ) : recentOps.length === 0 ? (
             <EmptyRow colSpan={5} message="No operations yet — create one from a partner page" />
           ) : (
-            <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
+            <>
+            <div className="pulse-list" aria-label="Recent operations">
+              {recentOps.map((op) => (
+                <CompactRow key={op.id} href={`/operations/${op.id}`}
+                  title={op.partner_trade_name ?? op.reference ?? op.id.slice(0, 12)}
+                  amount={`${formatMoney(op.total_amount, op.currency)} ${op.currency}`}
+                  date={`${formatDateShort(op.operation_date)} · ${op.reference ?? op.id.slice(0, 12)}`}
+                  mark={<StatusIcon status={op.status} />} />
+              ))}
+            </div>
+            <table className="pulse-table w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
                   <Th>Reference</Th>
@@ -294,6 +334,7 @@ export default function HomeDashboard() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       </section>
@@ -317,7 +358,19 @@ export default function HomeDashboard() {
           ) : recentPayments.length === 0 ? (
             <EmptyRow colSpan={4} message="No payments recorded yet" />
           ) : (
-            <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
+            <>
+            <div className="pulse-list" aria-label="Recent payments">
+              {recentPayments.map((p) => (
+                <CompactRow key={p.id} href={`/partners/${p.partner_id}`}
+                  title={p.partner_trade_name ?? p.partner_id}
+                  amount={`${p.direction === 'outgoing' ? '−' : '+'}${formatMoney(p.amount, p.currency)} ${p.currency}`}
+                  date={formatDateShort(p.payment_date)}
+                  mark={<span className="pulse-status-icon" role="img" aria-label={p.direction} title={p.direction === 'incoming' ? 'incoming' : 'outgoing'}
+                    style={p.direction === 'incoming' ? { backgroundColor: 'rgba(46,125,79,0.10)', color: 'var(--status-success)' } : { backgroundColor: 'rgba(229,32,44,0.10)', color: 'var(--brand-rot)' }}>
+                    {p.direction === 'incoming' ? <ArrowDownLeft className="h-4 w-4" aria-hidden="true" /> : <ArrowOut className="h-4 w-4" aria-hidden="true" />}</span>} />
+              ))}
+            </div>
+            <table className="pulse-table w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
                   <Th>Date</Th>
@@ -355,6 +408,7 @@ export default function HomeDashboard() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       </section>

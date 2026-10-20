@@ -257,9 +257,10 @@ function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
   </span>;
 }
 
+// Owner 2026-10-20: the payment column shows only current ERP payouts; old register sums live in the card.
 function CreatorPayment({ creator }: { creator: Creator }) {
-  if (creator.payout || !creator.payment_register?.length) return <PayoutBadge payout={creator.payout} />;
-  return <RegisterAmounts records={creator.payment_register} />;
+  if (!creator.payout) return null;
+  return <PayoutBadge payout={creator.payout} />;
 }
 
 // Owner 2026-10-18: Gold is awarded by hand after watching the reel — a star next to «posted».

@@ -476,6 +476,9 @@ ugc.get('/', async (c) => {
     payouts_paid: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).length,
     payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
     paid_konsol: paidCounters(payoutRows),
+    // Owner 2026-10-20: own RUB in Konsol next to the paid line, and what the queue needs (with the 30 ₽ fee).
+    konsol_own_minor: await import('../lib/konsol-balance').then((m) => m.konsolOwnRub(c.env)).catch(() => null),
+    queue_need_minor: payoutRows.filter((row) => (row.status === 'awaiting_approval' || row.status === 'approved') && !row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0) + 3000, 0),
   };
   const productCounts = new Map<string, number>();
   for (const row of metricRows.results ?? []) {

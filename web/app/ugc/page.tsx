@@ -164,7 +164,7 @@ type LinkSummary = {
 type UgcPayload = {
   creators: Creator[];
   inactive_count?: number;
-  payout_summary?: { paid_konsol?: { today: PaidCount; yesterday: PaidCount } };
+  payout_summary?: { paid_konsol?: { today: PaidCount; yesterday: PaidCount }; konsol_own_minor?: number | null; queue_need_minor?: number };
   summary: { creators: number; profiles: number; content_items: number; active_outreach: number; published: number } & LinkSummary;
   platforms: { platform: string; creator_count: number }[];
   products: { sku: string; name: string; content_count: number }[];
@@ -697,10 +697,13 @@ function cacheSafe(payload: UgcPayload): UgcPayload {
   return { ...payload, creators: payload.creators.map((c) => ({ ...c, payout: c.payout ? strip(c.payout) : c.payout, payouts: c.payouts?.map(strip) })) };
 }
 
-function PaidCounter({ paid }: { paid?: { today: PaidCount; yesterday: PaidCount } }) {
+function PaidCounter({ paid, own, need }: { paid?: { today: PaidCount; yesterday: PaidCount }; own?: number | null; need?: number }) {
   if (!paid) return null;
-  const part = (label: string, p: PaidCount) => <span>{label}: <b>{p.count}</b> на <b>{formatRub(p.minor) || '0 ₽'}</b></span>;
-  return <div className="ugc-paid-counter" title="Только выплаты, исполненные в Консоли">Оплачено блогерам · {part('сегодня', paid.today)} · {part('вчера', paid.yesterday)}</div>;
+  const part = (label: string, p: PaidCount) => <span>{label}: <b>{p.count}</b> на <b>{formatRub(p.minor) || '0 ₽'}</b></span>;
+  // Owner 2026-10-20: own RUB in Konsol on the same line; red when it cannot cover the queue.
+  const short = own != null && (need ?? 0) > own;
+  return <div className="ugc-paid-counter" data-short={short ? 'yes' : undefined} title="Только выплаты, исполненные в Консоли">Оплачено блогерам · {part('сегодня', paid.today)} · {part('вчера', paid.yesterday)}
+    {own != null ? <> · <span className="ugc-konsol-own">на счёте Консоли <b>{formatRub(own) || '0 ₽'}</b>{short ? <>, не хватает <b>{formatRub((need ?? 0) - own)}</b></> : null}</span></> : null}</div>;
 }
 
 function Kpi({ label, value, exact, note, accent }: { label: string; value: string; exact: string; note: string; accent: string }) {
@@ -948,7 +951,7 @@ export default function UgcPage() {
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
 
       {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
-      <PaidCounter paid={data.payout_summary?.paid_konsol} />
+      <PaidCounter paid={data.payout_summary?.paid_konsol} own={data.payout_summary?.konsol_own_minor} need={data.payout_summary?.queue_need_minor} />
       <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
         <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
         <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />

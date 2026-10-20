@@ -159,8 +159,13 @@ async function notifyBloggerOnce(env: Env, row: Record<string, any>, text: strin
       return sent;
 }
 
-export function executeUgcPayout(env: Env, id: string) {
-  return executePayout(id, deps(env));
+export async function executeUgcPayout(env: Env, id: string) {
+  const out = await executePayout(id, deps(env));
+  // Owner 2026-10-20: a click stopped for lack of own RUB tells him the shortfall for the whole queue at once.
+  if (!out.ok && out.code === 'own_rub_low') await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
+  // A successful payment may leave the rest of the queue uncovered.
+  if (out.ok) await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
+  return out;
 }
 
 /** Re-reads one payout's payment from Konsol and applies its status. */

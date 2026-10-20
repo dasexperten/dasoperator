@@ -69,6 +69,8 @@ async function registerPayout(env: Env, handle: string, r: CleanRequisites, doub
     env.DB.prepare(`INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`)
       .bind(id, r.phone, r.first_name, r.last_name, r.patronymic, now),
   ]);
+  // Owner 2026-10-20: a new brown button is the moment to check that Konsol can pay the queue.
+  await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
   return true;
 }
 

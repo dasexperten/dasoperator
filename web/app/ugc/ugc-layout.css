@@ -437,3 +437,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-table .ugc-payout-cell .ugc-notice { grid-column: 2; }
 .ugc-table .ugc-payout-cell .ugc-payout-reason { grid-column: 2; max-width: none; text-align: left; white-space: nowrap; font-size: 12px; line-height: 15px; }
 .ugc-table .ugc-payout-cell:not(:has(.ugc-notice)) .ugc-payout { grid-row: 1; }
+
+/* Owner 2026-10-20: own RUB in Konsol on the paid line; red plate when the queue cannot be paid. */
+.ugc-paid-counter[data-short="yes"] { border-left-color: #b91c1c; }
+.ugc-paid-counter[data-short="yes"] .ugc-konsol-own { background: #fee2e2; color: #7f1d1d; padding: 1px 6px; border-radius: 4px; font-weight: 700; }

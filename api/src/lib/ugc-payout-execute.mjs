@@ -143,7 +143,7 @@ export async function executePayout(id, deps) {
   const own = checkOwnRub(accounts.body, amount, now);
   if (!own.ok) {
     await notifyOwner(ownRubStopText(own, row));
-    return result(409, { ok: false, code: own.code, message: own.code === 'own_rub_low' ? `Own RUB ${formatRub(own.own_minor)} < amount + 30 ₽` : own.reason });
+    return result(409, { ok: false, code: own.code, message: own.code === 'own_rub_low' ? `На своём счёте Консоли ${formatRub(own.own_minor)}, а нужно ${formatRub(own.need_minor ?? (amount + 3000))}. Пополните счёт, овердрафт не трогаем` : own.reason });
   }
 
   const claimed = await store.claim(row.id, deps.claimToken, new Date(now).toISOString());

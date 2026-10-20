@@ -53,6 +53,15 @@ export async function ensureCreator(env: Env, handle: string): Promise<{cid: str
   return { cid, pid };
 }
 
+/** Owner 2026-10-21: a reply that closes the exchange and needs no answer. Anything else is a real message. */
+export function isClosingReply(text: string, hasMedia: boolean): boolean {
+  if (hasMedia) return false;
+  const t = text.trim().toLowerCase().replace(/[!.,)(\s]+/g, ' ').trim();
+  if (!t) return true;
+  if (/^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(text.trim())) return true;
+  return /^(да\s*)?(хорошо|ок|окей|ok|ладно|поняла|понял|понятно|всё поняла|все поняла|договорились|супер|отлично|класс|конечно|да конечно|спасибо( большое| вам| огромное)?|благодарю|это вам спасибо|и вам спасибо|взаимно|пришлю|жду|ждите|хорошо спасибо|спасибо хорошо|да|ага|угу)( [\p{Extended_Pictographic}\u200d\ufe0f]+)?$/u.test(t);
+}
+
 /** One awaiting payout per blogger; an existing open row is reused. */
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
   const now = Date.now();
@@ -418,6 +427,15 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       if (VOICE_VETO && !rejected && out.reply) {
         try { const v = await checkDianaVoice(env, String((prepared as { voice?: string }).voice ?? ''), out.reply, incoming.slice(-2).map((m) => m.text ?? '').join(' ')); if (!v.ok) voiceWhy = v.why || 'тон не в голосе Дианы'; }
         catch { voiceUnavailable = true; break; }
+      }
+      // Owner 2026-10-21 (zhuldiz_maratkyzy_official: «в Казахстане, карта ВТБ, Ozon есть» — Diana stayed silent):
+      // silence is allowed only after a closing reply («хорошо», «спасибо», «ок», an emoji). On a real message
+      // Diana is asked once more to answer; still silent — the conversation goes to the Owner, never closed unseen.
+      const pendingIn = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
+      const realMessage = pendingIn.some((m) => !isClosingReply(m.text ?? '', Boolean(m.attachments_json && m.attachments_json !== '[]')));
+      if (!out.reply && !out.escalate && realMessage) {
+        if (pass === 0) { feedback = `\nБЛОГЕР НАПИСАЛ ПО ДЕЛУ, А ТЫ НЕ ОТВЕТИЛА. Молчать можно только на закрывающие реплики (хорошо, спасибо, ок). Ответь на её последнее сообщение по смыслу. Если решить можешь не ты, верни escalate=true и в reason одной фразой вопрос Владельцу. Верни строго один JSON.`; continue; }
+        out = { ...out, escalate: true, reason: 'Диана не знает, что ответить на сообщение блогера; нужен ответ Владельца' };
       }
       if ((!rejected && !voiceWhy) || pass === 1) break;
       if (!rejected) { feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН КОНТРОЛЁРОМ ГОЛОСА: ${voiceWhy} Перепиши тем же смыслом, но строго в голосе Дианы из VOICE.md: тепло, коротко, на «вы», без отказов, приказов и упрёков. Верни строго один JSON по формату, без пояснений.`; continue; }

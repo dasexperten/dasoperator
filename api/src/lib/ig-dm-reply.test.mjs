@@ -128,8 +128,9 @@ test('unknown live conversation and failed send remain pending',async()=>{
  const g=fixture();g.sendError=true;await igDmReply(g.env);assert.equal(incident(g).reason,'send_failed');assert.equal(handled(g),undefined);
 });
 test('provider outage remains pending',async()=>{const f=fixture();f.providerError=true;await igDmReply(f.env);assert.match(incident(f).reason,/^provider_error/);assert.equal(incident(f).status,'retry');assert.equal(handled(f),undefined);});
-test('safe no-answer and confirmed existing reply are handled',async()=>{
- const f=fixture();f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);assert.equal(handled(f),f.t);
+test('silence only after a closing reply; a real message is never closed unseen (Owner 2026-10-21)',async()=>{
+ const f=fixture();f.history=[{direction:'in',text:'Хорошо',created_at:f.t}];f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);assert.equal(handled(f),f.t);
+ const h=fixture();h.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(h.env);assert.notEqual(handled(h),h.t);assert.equal(h.systems.length,2);
  const g=fixture();g.live=false;await igDmReply(g.env);assert.equal(handled(g),g.t);assert.equal(g.sent.length,0);
 });
 test('runtime appends the current menu and sends exactly four cards',async()=>{

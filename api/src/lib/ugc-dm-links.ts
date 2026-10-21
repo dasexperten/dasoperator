@@ -28,7 +28,8 @@ export async function captureDmLinks(env: Env): Promise<{ added: number }> {
       await env.DB.prepare(
         `INSERT INTO ugc_content (id, creator_id, creator_platform_id, content_url, content_type, source_workbook, source_sheet, link_check_note, imported_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 'instagram_dm', ?6, ?7, ?8, ?8) ON CONFLICT(id) DO NOTHING`
-      ).bind(`ugcc_dm_${code}`, cid, pid, `https://www.instagram.com/${kind}/${code}/`, kind === 'p' ? 'post' : 'reel', r.conversation_id, `Прислано в Direct ${r.created_at.slice(0, 10)}`, now).run();
+      // Owner 2026-10-21: the date is when the blogger sent the reel, not when the ERP found it — an old reel must not look like today's contact.
+      ).bind(`ugcc_dm_${code}`, cid, pid, `https://www.instagram.com/${kind}/${code}/`, kind === 'p' ? 'post' : 'reel', r.conversation_id, `Прислано в Direct ${r.created_at.slice(0, 10)}`, Date.parse(r.created_at) || now).run();
       added++;
     }
   }

@@ -359,7 +359,10 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
     // A conversation that could not be read stays fresh and is read again next check.
     if (readOk) nextSeen[c.id] = c.updated_time;
   }
-  await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, nextSeen[c.id] ?? c.updated_time])), fresh.filter((c) => nextSeen[c.id] !== c.updated_time).map((c) => [c.id, seen[c.id] ?? '']));
+  // A conversation that was not fresh is already stored to its newest message: its bookmark moves to now's
+  // updated_time too, or the one-minute probe wakes the full read forever (Owner 2026-10-21: noza_finds, barter_kate).
+  const freshIds = new Set(fresh.map((c) => c.id));
+  await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, freshIds.has(c.id) ? (nextSeen[c.id] ?? c.updated_time) : c.updated_time])), fresh.filter((c) => nextSeen[c.id] !== c.updated_time).map((c) => [c.id, seen[c.id] ?? '']));
   stored += await recoverMissingIgImages(env).catch(() => 0);
   if (newest && Date.parse(newest) > Date.parse(last.value)) await saveMark(newest);
   // Unread fresh conversations left → activity, so the next run comes in 3 minutes.

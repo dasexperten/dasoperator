@@ -441,3 +441,17 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 /* Owner 2026-10-20: own RUB in Konsol on the paid line; red plate when the queue cannot be paid. */
 .ugc-paid-counter[data-short="yes"] { border-left-color: #b91c1c; }
 .ugc-paid-counter[data-short="yes"] .ugc-konsol-own { background: #fee2e2; color: #7f1d1d; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
+
+/* Owner 2026-10-21 (Diana Helios, approved mockup): on a computer the platform chips and the three tools
+   (Inactive, Профили, Очередь) are ONE row, never two. Chips shrink to 32px; tools match that height.
+   If the window is too narrow, the chips scroll sideways and the tools stay pinned on the right. */
+@media (min-width: 768px) {
+  .ugc-page .ugc-chips-row { flex-wrap: nowrap; gap: 12px; }
+  .ugc-page .ugc-chips-row > #ugc-platforms { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 0; scrollbar-width: thin; }
+  .ugc-page #ugc-platforms > button { min-height: 32px; padding: 0; }
+  .ugc-page #ugc-platforms > button > span { padding: 5px 12px; font-size: 13px; line-height: 20px; font-weight: 800; letter-spacing: 0; white-space: nowrap; }
+  .ugc-page .ugc-profile-tools { flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 6px; }
+  .ugc-page .ugc-profile-tools > *, .ugc-page .ugc-bq > button { width: auto; }
+  .ugc-page .ugc-profile-tools :is(.ugc-inactive-filter, .ugc-profile-refresh-btn, .ugc-bq-btn) { height: 32px; padding: 0 14px; font-size: 13px; letter-spacing: 0; white-space: nowrap; }
+  .ugc-page .ugc-profile-tools .ugc-inactive-filter input { width: 15px; height: 15px; }
+}

@@ -2,7 +2,7 @@
 // Every Instagram post or reel link in an incoming message becomes a ugc_content row;
 // refreshContentMetrics (same lane) then reads it first — alive or removed, views, likes, comments.
 import type { Env } from '../types';
-import { ensureCreator } from './ig-dm-reply';
+import { ensureCreator, nextStage } from './ig-dm-reply';
 
 const PER_RUN = 40;
 const LINK = /instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]{6,})/g;
@@ -20,8 +20,10 @@ export async function captureDmLinks(env: Env): Promise<{ added: number }> {
       const kind = m[1] === 'p' ? 'p' : 'reel';
       const code = m[2]!;
       const known = await env.DB.prepare(`SELECT 1 FROM ugc_content WHERE content_url LIKE ?1 LIMIT 1`).bind(`%/${code}%`).first();
-      if (known) continue;
       const { cid, pid } = await ensureCreator(env, r.h);
+      // Owner 2026-10-21 (mira_28_25): a reel in Direct means the blogger has posted — the stage follows the fact.
+      await advanceToPosted(env, cid);
+      if (known) continue;
       const now = Date.now();
       await env.DB.prepare(
         `INSERT INTO ugc_content (id, creator_id, creator_platform_id, content_url, content_type, source_workbook, source_sheet, link_check_note, imported_at, updated_at)
@@ -31,4 +33,10 @@ export async function captureDmLinks(env: Env): Promise<{ added: number }> {
     }
   }
   return { added };
+}
+
+async function advanceToPosted(env: Env, cid: string): Promise<void> {
+  const row = await env.DB.prepare(`SELECT lifecycle_stage s FROM ugc_creators WHERE id=?1`).bind(cid).first<{ s: string | null }>();
+  if (!row || !nextStage(row.s, 'posted')) return;
+  await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage='posted', updated_at=?2 WHERE id=?1`).bind(cid, Date.now()).run();
 }

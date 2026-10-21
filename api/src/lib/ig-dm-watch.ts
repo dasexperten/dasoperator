@@ -229,6 +229,8 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
 const RECENT_CONVERSATIONS = 300;
 const PROBE_CONVERSATIONS = 50;
 const SEEN_KEY = 'ig_dm_seen_conversations';
+const FRESH_PER_RUN = 20;
+const RUN_BUDGET_MS = 90_000;
 
 async function recentConversations(pageToken: string, n: number): Promise<Array<{ id: string; updated_time: string }> | null> {
   const out: Array<{ id: string; updated_time: string }> = [];
@@ -259,10 +261,15 @@ async function saveSeen(env: Env, map: Record<string, string>, keepOld: Array<[s
 }
 
 async function storedLatest(env: Env, ids: string[]): Promise<Record<string, string>> {
-  if (!ids.length) return {};
-  const rows = await env.DB.prepare(`SELECT conversation_id c, MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id IN (${ids.map((_, i) => `?${i + 1}`).join(',')}) GROUP BY conversation_id`)
-    .bind(...ids).all<{ c: string; t: string }>().catch(() => ({ results: [] as Array<{ c: string; t: string }> }));
-  return Object.fromEntries((rows.results ?? []).map((r) => [r.c, r.t]));
+  // D1 binds at most 100 values per query: 300 conversations are asked in parts (Owner 2026-10-21, the 300 read died on one query).
+  const out: Record<string, string> = {};
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const rows = await env.DB.prepare(`SELECT conversation_id c, MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id IN (${part.map((_, j) => `?${j + 1}`).join(',')}) GROUP BY conversation_id`)
+      .bind(...part).all<{ c: string; t: string }>();
+    for (const r of rows.results ?? []) out[r.c] = r.t;
+  }
+  return out;
 }
 
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };
@@ -317,10 +324,14 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
     const v = Math.max(seen[id] ? Date.parse(seen[id]) : 0, storedMax[id] ? Date.parse(storedMax[id]) : 0);
     return v || Date.now() - 7 * 86_400_000;
   };
-  const fresh = list.filter((c) => Date.parse(c.updated_time) > baseOf(c.id));
-  let stored = 0, incoming = 0;
+  // Newest first, a bounded share per run: a backlog is read over several runs instead of killing every run.
+  const fresh = list.filter((c) => Date.parse(c.updated_time) > baseOf(c.id)).sort((a, b) => b.updated_time.localeCompare(a.updated_time));
+  let stored = 0, incoming = 0, read = 0;
+  const startedAt = Date.now();
   const nextSeen: Record<string, string> = { ...seen };
   for (const c of fresh) {
+    if (read >= FRESH_PER_RUN || Date.now() - startedAt > RUN_BUDGET_MS) break;
+    read++;
     const since = baseOf(c.id);
     let messagePath = `/${c.id}?fields=messages.limit(100){id,created_time,from,message,shares{link},attachments{mime_type,file_url,image_data,video_data}}`;
     const cursors = new Set<string>();
@@ -351,5 +362,6 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, nextSeen[c.id] ?? c.updated_time])), fresh.filter((c) => nextSeen[c.id] !== c.updated_time).map((c) => [c.id, seen[c.id] ?? '']));
   stored += await recoverMissingIgImages(env).catch(() => 0);
   if (newest && Date.parse(newest) > Date.parse(last.value)) await saveMark(newest);
-  return { ok: true, activity: stored > 0, stored, incoming };
+  // Unread fresh conversations left → activity, so the next run comes in 3 minutes.
+  return { ok: true, activity: stored > 0 || read < fresh.length, stored, incoming };
 }

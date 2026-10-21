@@ -442,16 +442,19 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-paid-counter[data-short="yes"] { border-left-color: #b91c1c; }
 .ugc-paid-counter[data-short="yes"] .ugc-konsol-own { background: #fee2e2; color: #7f1d1d; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
 
-/* Owner 2026-10-21 (Diana Helios, approved mockup): on a computer the platform chips and the three tools
-   (Inactive, Профили, Очередь) are ONE row, never two. Chips shrink to 32px; tools match that height.
-   If the window is too narrow, the chips scroll sideways and the tools stay pinned on the right. */
+/* Owner 2026-10-21 (Marika, fix of Diana's one-row pass): chips and the three tools are ONE row on a computer.
+   The controls grid gets a shrinkable column, so a long row can never widen the page past the window.
+   Chips 32px, tools 32px and only as wide as their words; when space runs out the chips scroll, the tools stay. */
 @media (min-width: 768px) {
-  .ugc-page .ugc-chips-row { flex-wrap: nowrap; gap: 12px; }
-  .ugc-page .ugc-chips-row > #ugc-platforms { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 0; scrollbar-width: thin; }
-  .ugc-page #ugc-platforms > button { min-height: 32px; padding: 0; }
-  .ugc-page #ugc-platforms > button > span { padding: 5px 12px; font-size: 13px; line-height: 20px; font-weight: 800; letter-spacing: 0; white-space: nowrap; }
-  .ugc-page .ugc-profile-tools { flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 6px; }
-  .ugc-page .ugc-profile-tools > *, .ugc-page .ugc-bq > button { width: auto; }
-  .ugc-page .ugc-profile-tools :is(.ugc-inactive-filter, .ugc-profile-refresh-btn, .ugc-bq-btn) { height: 32px; padding: 0 14px; font-size: 13px; letter-spacing: 0; white-space: nowrap; }
-  .ugc-page .ugc-profile-tools .ugc-inactive-filter input { width: 15px; height: 15px; }
+  .ugc-page .ugc-controls { grid-template-columns: minmax(0, 1fr); }
+  .ugc-page .ugc-chips-row { flex-wrap: nowrap; gap: 10px; min-width: 0; max-width: 100%; }
+  .ugc-page .ugc-chips-row > #ugc-platforms { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; gap: 4px; overflow-x: auto; overflow-y: hidden; padding: 0; scrollbar-width: none; }
+  .ugc-page .ugc-chips-row > #ugc-platforms::-webkit-scrollbar { display: none; }
+  .ugc-page #ugc-platforms > button { min-height: 32px; padding: 0; flex: none; }
+  .ugc-page #ugc-platforms > button > span { padding: 5px 10px; font-size: 13px; line-height: 20px; font-weight: 800; letter-spacing: 0; white-space: nowrap; }
+  .ugc-page .ugc-profile-tools { flex: none; display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; position: relative; }
+  .ugc-page .ugc-profile-tools > *, .ugc-page .ugc-bq > button, .ugc-page .ugc-profile-refresh-btn { width: auto !important; flex: none; }
+  .ugc-page .ugc-profile-tools :is(.ugc-inactive-filter, .ugc-profile-refresh-btn, .ugc-bq-btn) { height: 32px; padding: 0 12px; gap: 6px; font-size: 13px; letter-spacing: 0; white-space: nowrap; }
+  .ugc-page .ugc-profile-tools .ugc-inactive-filter input { width: 15px; height: 15px; flex: none; }
+  .ugc-page .ugc-profile-tools .ugc-profile-refresh > [role="status"] { position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; padding: 4px 8px; background: var(--paper, #fff); border: 1px solid var(--fg-1); border-radius: 6px; white-space: nowrap; }
 }

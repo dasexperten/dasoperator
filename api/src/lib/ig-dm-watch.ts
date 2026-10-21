@@ -224,7 +224,10 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
 }
 
 
-const RECENT_CONVERSATIONS = 50;
+// Owner 2026-10-21: «взять сегмент не последние 100, а последние 300». The full read compares 300 conversations;
+// the one-minute probe looks at the top 50 (any new message lifts its conversation to the top).
+const RECENT_CONVERSATIONS = 300;
+const PROBE_CONVERSATIONS = 50;
 const SEEN_KEY = 'ig_dm_seen_conversations';
 
 async function recentConversations(pageToken: string, n: number): Promise<Array<{ id: string; updated_time: string }> | null> {
@@ -273,11 +276,11 @@ export async function igDmHasNew(env: Env): Promise<boolean> {
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
   if (!page.ok || !page.body?.access_token) return false;
   // Owner 2026-10-19: the same 50-conversation comparison as the full read, per conversation.
-  const list = await recentConversations(String(page.body.access_token), RECENT_CONVERSATIONS);
+  const list = await recentConversations(String(page.body.access_token), PROBE_CONVERSATIONS);
   if (!list?.length) return false;
   const seen = await loadSeen(env);
   if (!Object.keys(seen).length) return true;
-  return list.some((c) => !seen[c.id] || Date.parse(c.updated_time) > Date.parse(seen[c.id]!));
+  return list.some((c) => (seen[c.id] && Date.parse(c.updated_time) > Date.parse(seen[c.id]!)) || (!seen[c.id] && Date.now() - Date.parse(c.updated_time) < 86_400_000));
 }
 
 export async function igDmWatch(env: Env): Promise<IgWatchResult> {

@@ -31,9 +31,14 @@ export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = 
     out = { ok: false, activity: false, error: e instanceof Error ? e.message : String(e) };
   }
   const next = afterCheck(state, out.ok && out.activity, now);
+  // Owner 2026-10-21: a lane that failed is not idle — it is retried in 3 minutes, never parked at 30.
+  if (!out.ok) { next.next_at = now + 3 * 60_000; next.delay_min = 3; }
   await env.DB.prepare(
     `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).bind(key, JSON.stringify(next), now).run();
-  return `${lane}: ${JSON.stringify(out)} → next in ${next.delay_min} min`;
+  const line = `${lane}: ${JSON.stringify(out)} → next in ${next.delay_min} min`;
+  // Owner 2026-10-21: a failed lane is a failed run in the journal, so Mina hears of it (it used to be recorded as success).
+  if (!out.ok) throw new Error(line);
+  return line;
 }

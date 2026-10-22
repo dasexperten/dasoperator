@@ -56,11 +56,21 @@ export async function ensureCreator(env: Env, handle: string): Promise<{cid: str
 /** Owner 2026-10-21: a reply that closes the exchange and needs no answer. Anything else is a real message. */
 export function isClosingReply(text: string, hasMedia: boolean): boolean {
   if (hasMedia) return false;
-  const t = text.trim().toLowerCase().replace(/[!.,)(\s]+/g, ' ').trim();
+  // Owner 2026-10-22: «хорошо спасибо большое», «я поняла, нет спасибо ☺️», «спасибо 🥰 так приятно! буду и дальше стараться»
+  // are closings, not questions for the Owner. A short message made only of courtesy words closes the exchange.
+  const t = text.toLowerCase().replace(/ё/g, 'е').replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
   if (!t) return true;
-  if (/^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(text.trim())) return true;
-  return /^(да\s*)?(хорошо|ок|окей|ok|ладно|поняла|понял|понятно|всё поняла|все поняла|договорились|супер|отлично|класс|конечно|да конечно|спасибо( большое| вам| огромное)?|благодарю|это вам спасибо|и вам спасибо|взаимно|пришлю|жду|ждите|хорошо спасибо|спасибо хорошо|да|ага|угу)( [\p{Extended_Pictographic}\u200d\ufe0f]+)?$/u.test(t);
+  const words = t.split(/\s+/);
+  if (words.length > 9) return false;
+  // A bare «нет» may answer «дошло?» — that is a problem, not a closing.
+  if (words.every((w) => w === 'нет' || w === 'не')) return false;
+  return words.every((w) => CLOSING_WORDS.has(w));
 }
+const CLOSING_WORDS = new Set(('да нет ок окей ok ладно хорошо отлично супер класс круто огонь ура понятно ясно поняла понял ' +
+  'спасибо спс благодарю большое огромное вам вас и а тоже взаимно это вам я мне так очень приятно рада рад ' +
+  'буду будем дальше стараться постараюсь жду ждем ждите пришлю пришлем обязательно конечно договорились ' +
+  'ага угу хорошего дня вечера всего доброго вы лучшие средства деньги пришли пришло дошли дошло получила получил ' +
+  'ролик как будет готов готово сделаю сниму скоро').split(' '));
 
 /** One awaiting payout per blogger; an existing open row is reused. */
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {

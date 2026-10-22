@@ -76,7 +76,7 @@ jobs:
         working-directory: workers
         run: npm ci --no-audit --no-fund
 
-      - name: Test mail images guard (logo instead of empty picture)
+      - name: Test mail images guard (broken picture removed, never an empty frame)
         run: node --test api/src/lib/mail-images.test.mjs
 
       - name: Test cron-expect

@@ -240,12 +240,12 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       text: text || '(see html)',
     };
     // Owner 2026-10-22: no letter leaves with an empty picture. Every image is
-    // opened first; one that does not open is replaced by the brand logo. The
+    // opened first; one that does not open is removed with its cell. The
     // archived copy below keeps the same, corrected html.
     if (html) {
       const guarded = await guardMailImages(html);
       html = guarded.html;
-      if (guarded.replaced.length) console.warn('[mail-images] logo instead of', guarded.replaced.join(', '));
+      if (guarded.removed.length) console.warn('[mail-images] removed, did not open:', guarded.removed.join(', '));
       resendBody.html = html;
     }
     if (files.length) resendBody.attachments = files.map(({ filename, content }) => ({ filename, content }));

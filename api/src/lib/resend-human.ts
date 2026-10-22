@@ -10,6 +10,7 @@ import { archiveEmail, type RawAttachment } from './inbox-archive';
 import { outgoingAttachments } from './outgoing-attachments';
 import { MAILBOX_REGISTRY } from './mailbox-registry';
 import { heldRecipients, mailHoldRefusal } from './mail-holds';
+import { guardMailImages } from './mail-images.mjs';
 
 /** Apex addresses allowed for human/agent brand mail (Resend-verified). */
 export const HUMAN_SENDERS = new Set([
@@ -238,7 +239,15 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       subject: params.subject,
       text: text || '(see html)',
     };
-    if (html) resendBody.html = html;
+    // Owner 2026-10-22: no letter leaves with an empty picture. Every image is
+    // opened first; one that does not open is replaced by the brand logo. The
+    // archived copy below keeps the same, corrected html.
+    if (html) {
+      const guarded = await guardMailImages(html);
+      html = guarded.html;
+      if (guarded.replaced.length) console.warn('[mail-images] logo instead of', guarded.replaced.join(', '));
+      resendBody.html = html;
+    }
     if (files.length) resendBody.attachments = files.map(({ filename, content }) => ({ filename, content }));
     // Reply-To names the thread, not just the box. Sent before the letter
     // leaves, because there is no second chance to label it afterwards.

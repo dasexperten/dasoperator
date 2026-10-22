@@ -26,7 +26,9 @@ export interface MailboxDef {
   aliases?: string[];
 }
 
-const AVATAR_BASE = 'https://www.dasexperten.com/assets/agents';
+// Owner 2026-10-22: the live portrait store. www.dasexperten.com/assets/agents/
+// misses every seat added after July (Denis, Magnus, Lisa, Otto…) — never link there.
+const AVATAR_BASE = 'https://org.dasexperten.com/assets/agents';
 
 /** Public avatar URL for a rostered agent slug. */
 export function agentAvatarUrl(slug: string): string {

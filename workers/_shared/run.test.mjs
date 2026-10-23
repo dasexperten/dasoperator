@@ -141,7 +141,7 @@ test('health exposes unavailable journal instead of green', async t => {
   assert.equal(response.status, 503); const body = await response.json();
   assert.equal(body.ok, false); assert.equal(body.last_run_status, 'unavailable');
 });
-for (const [lastRun, status] of [[null, 'none'], [{ finished_at: null, ok: null }, 'running'], [{ finished_at: 'now', ok: 1 }, 'succeeded'], [{ finished_at: 'now', ok: 0 }, 'failed']]) {
+for (const [lastRun, status] of [[null, 'none'], [{ finished_at: null, ok: null }, 'running'], [{ finished_at: null, ok: 0, transport_error: 'timeout' }, 'completion_unconfirmed'], [{ finished_at: 'now', ok: 1 }, 'succeeded'], [{ finished_at: 'now', ok: 0 }, 'failed']]) {
   test('health distinguishes journal state ' + status, async t => {
     const f = fixture(t, { lastRun });
     const response = await erpWorker('erp-test', f.job).fetch(new Request('https://test/health'), f.env);

@@ -783,6 +783,7 @@ export async function pollStripeOrders(
     since = row ? Number(row.value) - OVERLAP_SECONDS : now() - 90 * 86400;
   }
 
+  let failures = 0;
   let scanned = 0;
   let created = 0;
   let updated = 0;
@@ -802,6 +803,7 @@ export async function pollStripeOrders(
         if (r.action === 'created') created++;
         else if (r.action === 'updated') updated++;
       } catch (e) {
+        failures++;
         console.error(`[crm-website] ingest failed for ${pi?.id}:`, e);
       }
     }
@@ -836,9 +838,13 @@ export async function pollStripeOrders(
       }
     }
   } catch (e) {
+    failures++;
     console.error('[crm-website] refund sweep failed:', e);
   }
 
+  // Already imported rows are idempotent. Preserve the cursor so a failed item
+  // remains in the next reconciliation window instead of silently aging out.
+  if (failures) throw new Error(`Stripe reconciliation incomplete: ${failures} failures; cursor preserved`);
   const cursor = now() - 60;
   await env.DB.prepare(
     `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?, ?, ?)

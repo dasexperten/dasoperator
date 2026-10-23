@@ -78,23 +78,44 @@ function fixture() {
   const f = { t,cid,states,sent,notices,systems,sqls,live:true,raw:good,failBatch:false,
     async generate(messages) { systems.push(messages[0].content); f.context=messages[1].content; if(f.providerError) throw Error('provider'); return {text:f.raws?.length?f.raws.shift():f.raw}; },
     async notify(){notices.push(true);return true;}, async ask(text,buttons){notices.push({text,buttons});return 77;},
-    async send(...args){sent.push(args);return {ok:!f.sendError};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
+    async send(...args){sent.push(args);if(args[3]?.imageUrl)(f.cardUrls??=[]).push(args[3].imageUrl);return f.sendResults?.length?f.sendResults.shift():f.sendError?{ok:false,delivery:'not_sent',error:'send rejected'}:{ok:true,messageId:'mid-'+sent.length};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
   f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;return st;},async all(){
-    if(sql.includes('WITH last')) return {results:[{cid,t,h:'tester'}]};
-    if(sql.includes('SELECT id, direction'))return {results:f.history??[{direction:'in',text:'Подскажите',created_at:t}]};
+    if(sql.includes("json_extract(value,'$.completion.creatorId')"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&JSON.parse(value).completion?.creatorId===p[0]&&JSON.parse(value).conversationId===p[1]).map(([,value])=>({value}))};
+    if(sql.includes("key LIKE 'ig_reply_delivery:%'"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&!JSON.parse(value).acknowledgedAt&&JSON.parse(value).status!=='superseded').map(([key,value])=>({key,value}))};
+    if(sql.includes('WITH last')) return {results:f.noWaiting?[]:[{cid,t:f.waitingAt??t,h:'tester'}]};
+    if(sql.includes('SELECT id, direction'))return {results:[...(f.history??[{direction:'in',text:'Подскажите',created_at:t}])].sort((a,b)=>b.created_at.localeCompare(a.created_at))};
     if(sql.includes('SELECT amount_minor'))return {results:f.payouts??[]};
+    if(sql.includes('SELECT id FROM ugc_payouts'))return {results:f.openPayouts??[]};
     if(sql.includes('FROM ozon_sku_map'))return {results:f.articles??[]};
     if(sql.includes('SELECT text FROM ugc_ig_messages'))return {results:[{text:f.lastText??'Подскажите'}]};
     throw Error('unexpected all '+sql);
   },async first(){
+    if(sql.includes('MAX(created_at)'))return {t:f.latestIncoming??f.t};
     if(sql.includes('SELECT value'))return states.has(p[0])?{value:states.get(p[0])}:null;
-    if(sql.includes('SELECT c.id'))return f.creator??null;
+    if(sql.includes('SELECT lifecycle_stage,updated_at'))return f.creator?{...f.creator}:null;
+    if(sql.includes('SELECT c.id'))return f.creator?{...f.creator}:null;
     if(sql.includes('SELECT creator_id'))return f.newCreator ? null : {creator_id:'creator',id:'profile'};
     if(sql.includes('COUNT(*) n'))return {n:0};
     if(sql.includes('SELECT p.amount_minor'))return f.paid??null;
     throw Error('unexpected first '+sql);
-  },async run(){if(sql.includes('INSERT INTO crm_sync_state')) states.set(p[0],p[1]);else if(sql.includes('DELETE FROM crm_sync_state'))states.delete(p[0]);else throw Error('unexpected run '+sql);return {success:true};}};return st;},async batch(){if(f.failBatch)throw Error('database');return [];}}};
+  },async run(){if(sql.includes('INSERT INTO crm_sync_state')) {
+    if(f.markError&&p[0]==='ig_reply:'+cid)throw Error('handled marker unavailable');
+    if(!sql.includes('DO NOTHING')||!states.has(p[0]))states.set(p[0],p[1]);
+  }else if(sql.includes('UPDATE crm_sync_state')){
+    if(states.get(p[0])!==p[3])return {success:true,meta:{changes:0}};
+    states.set(p[0],p[1]);
+  }else if(sql.includes('DELETE FROM crm_sync_state'))states.delete(p[0]);else if(sql.includes("lifecycle_stage='creation'")){
+    if(f.completionStageError)throw Error('completion stage unavailable');
+    if(f.manualAtCompletion){f.creator.lifecycle_stage=f.manualAtCompletion;f.creator.updated_at=Date.now()+1;}
+    if((f.creator.lifecycle_stage??null)!==p[2]||(f.creator.updated_at??null)!==p[3])return {success:true,meta:{changes:0}};
+    (f.stageWrites??=[]).push({stage:'creation',expected:p[2]});f.creator.lifecycle_stage='creation';f.creator.updated_at=p[1];
+  }else if(sql.includes('UPDATE ugc_creators')){
+    if(f.stageError)throw Error('stage database write');
+    if(f.concurrentStage){f.creator.lifecycle_stage=f.concurrentStage;f.creator.updated_at=Date.now();}
+    if((f.creator.lifecycle_stage??null)!==p[3]||(f.creator.updated_at??null)!==p[4])return {success:true,meta:{changes:0}};
+    (f.stageWrites??=[]).push({stage:p[1],expected:p[3]});f.creator.lifecycle_stage=p[1];f.creator.updated_at=p[2];
+  }else if(sql.includes('UPDATE ugc_payouts')){(f.heldPayouts??=[]).push(p[0]);}else throw Error('unexpected run '+sql);return {success:true,meta:{changes:1}};}};return st;},async batch(){if(f.failBatch)throw Error('database');return [];}}};
   globalThis.__ugcTest=f; return f;
 }
 function incident(f){return JSON.parse(f.states.get('ig_reply_escalated:'+f.cid));}
@@ -136,7 +157,7 @@ test('payout database failure sends no acknowledgement and is not handled',async
 });
 test('unknown live conversation and failed send remain pending',async()=>{
  const f=fixture();f.live=null;await igDmReply(f.env);assert.equal(incident(f).reason,'conversation_check_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);
- const g=fixture();g.sendError=true;await igDmReply(g.env);assert.equal(incident(g).reason,'send_failed');assert.equal(handled(g),undefined);
+ const g=fixture();g.sendError=true;await igDmReply(g.env);assert.match(incident(g).reason,/^send_failed:/);assert.equal(handled(g),undefined);
 });
 test('provider outage remains pending',async()=>{const f=fixture();f.providerError=true;await igDmReply(f.env);assert.match(incident(f).reason,/^provider_error/);assert.equal(incident(f).status,'retry');assert.equal(handled(f),undefined);});
 test('silence only after a closing reply; a real message is never closed unseen (Owner 2026-10-21)',async()=>{
@@ -186,6 +207,45 @@ test('agreement and good wishes close without a false Owner escalation', async()
   const f=fixture();f.history=[{direction:'in',text,created_at:f.t}];f.raw=JSON.stringify({reply:null,escalate:false});
   await igDmReply(f.env);assert.equal(handled(f),f.t);assert.equal(f.sent.length,0);assert.equal(f.systems.length,1);
  }
+});
+function orderFixture(stage='silent') {
+ const f=fixture();const paidAt=new Date(Date.parse(f.t)-180_000).toISOString();
+ f.creator={id:'creator',lifecycle_stage:stage,updated_at:Date.parse(f.t)-120_000};
+ f.payouts=[{status:'paid',konsol_payment_id:'payment',paid_at:paidAt,amount_minor:38100,payout_date:'2026-10-22'}];
+ f.history=[{id:'order-image',direction:'in',text:'',attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/order"}}]',created_at:f.t},{direction:'out',text:'Пришлите скрин заказа.',created_at:new Date(Date.parse(f.t)-60_000).toISOString()}];
+ f.screenshots=[{mediaType:'image/png',data:'fixture'}];
+ f.imageCheck={status:'unknown',reasons:['seller_unknown','amount_no'],checks:[{kind:'order',product:'yes',seller:'unknown',amount:'no',label:`Скриншот из входящего сообщения ${f.t}, вложение 1.`}]};
+ return f;
+}
+test('Asiya verified new order reactivates silent before sending and also with reply=null',async()=>{
+ const f=orderFixture();f.raw=JSON.stringify({reply:null,escalate:false});
+ await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,'ordered');assert.equal(f.sent.length,0);
+ const g=orderFixture();g.sendError=true;await igDmReply(g.env);assert.equal(g.creator.lifecycle_stage,'ordered');assert.match(incident(g).reason,/^send_failed:/);
+ const old=orderFixture();old.creator.updated_at=Date.parse(old.t)+1000;await igDmReply(old.env);assert.equal(old.creator.lifecycle_stage,'silent');
+ const unknown=orderFixture();unknown.imageCheck.checks[0].kind='basket';await igDmReply(unknown.env);assert.equal(unknown.creator.lifecycle_stage,'silent');
+});
+test('explicit refusal updates stage and holds payout even without a reply, preserving protected decisions',async()=>{
+ for(const stage of ['replied','silent','owner','rival','claim','unfit','fee','gold']){
+  const f=fixture();f.creator={id:'creator',lifecycle_stage:stage,updated_at:1};f.openPayouts=[{id:'pending'}];
+  f.history=[{direction:'in',text:'Нет, спасибо',created_at:f.t}];f.raw=JSON.stringify({reply:null,escalate:false,refused:true});
+  await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,['replied','silent'].includes(stage)?'refused':stage);assert.deepEqual(f.heldPayouts,['pending']);assert.equal(f.sent.length,0);
+ }
+});
+test('factual stages preserve protected statuses, forward progress and concurrent manual writes',async()=>{
+ for(const stage of ['owner','rival','refused','gold','posted','creation']){const f=orderFixture(stage);await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,stage);}
+ const race=orderFixture();race.concurrentStage='owner';await igDmReply(race.env);assert.equal(race.creator.lifecycle_stage,'owner');assert.equal(race.stageWrites,undefined);
+ const courtesy=orderFixture();courtesy.history[0].text='Хорошо';courtesy.history[0].attachments_json='[]';await igDmReply(courtesy.env);assert.equal(courtesy.creator.lifecycle_stage,'silent');assert.equal(courtesy.sent.length,0);
+ const oldLink=fixture();oldLink.creator={id:'creator',lifecycle_stage:'silent',updated_at:Date.parse(oldLink.t)-120_000};oldLink.history=[{direction:'in',text:'Подскажите',created_at:oldLink.t},{direction:'out',text:'Получили ссылку.',created_at:new Date(Date.parse(oldLink.t)-200_000).toISOString()},{direction:'in',text:'https://www.instagram.com/reel/OLDREEL123/',created_at:new Date(Date.parse(oldLink.t)-300_000).toISOString()}];await igDmReply(oldLink.env);assert.equal(oldLink.creator.lifecycle_stage,'silent');
+});
+test('stage write failure is technical and occurs before delivery; retry sends only once',async()=>{
+ const f=orderFixture();f.stageError=true;const failed=await igDmReply(f.env);
+ assert.equal(failed.errors,1);assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);assert.equal(incident(f).kind,'technical');assert.equal(incident(f).reason,'creator_stage_update_failed');
+ f.stageError=false;const s=incident(f);s.next_retry_at=0;f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify(s));
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);await igDmReply(f.env);assert.equal(f.sent.length,1);
+});
+test('creation requires an already delivered scenario or current own idea, never an unsent scenario draft',async()=>{
+ const draft=orderFixture('paid');draft.raw=JSON.stringify({reply:'Вот сценарии, выберите вариант.',escalate:false,send_cards:true});draft.sendError=true;await igDmReply(draft.env);assert.equal(draft.creator.lifecycle_stage,'ordered');
+ const idea=orderFixture();const orderAt=idea.t;idea.history.unshift({direction:'in',text:'Есть своя идея',created_at:new Date(Date.parse(orderAt)+60_000).toISOString()},{direction:'out',text:'Есть своя идея для ролика?',created_at:new Date(Date.parse(orderAt)+30_000).toISOString()});await igDmReply(idea.env);assert.equal(idea.creator.lifecycle_stage,'creation');
 });
 test('complete requisites survive a silent response and a following empty reaction', async()=>{
  const f=fixture();f.history=[{direction:'in',text:'Сумма 480 руб, +79001112233, Сбер, Анна',created_at:f.t},{id:'reaction',direction:'in',text:null,attachments_json:null,created_at:f.t}];f.freshAttachments='[]';
@@ -294,4 +354,124 @@ test('a full surname written in her own words is taken (sammaya_89191323 2026-10
 test.skip('the ladder: no scenario before the order screenshot (Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.raws=[JSON.stringify({reply:'Оформляйте заказ! А пока выберите сценарий — вот карточки.',escalate:false,send_cards:true}),JSON.stringify({reply:'Вот четыре сценария, выберите номер.',escalate:false,send_cards:true})];
  await igDmReply(f.env);assert.equal(f.cardUrls?.length??0,0);assert.equal(f.sent.length,0);assert.match(f.context,/СТУПЕНЬ/);
+});
+
+test('partial text failure is not handled; archived outgoing does not lose the unsent suffix',async()=>{
+ const f=fixture();f.raw=JSON.stringify({replies:['Первое сообщение','Второе сообщение','Третье сообщение'],escalate:false});
+ f.sendResults=[{ok:true,messageId:'first-receipt'},{ok:false,delivery:'not_sent',error:'rate limited'}];
+ const first=await igDmReply(f.env);assert.equal(first.replied,0);assert.equal(first.errors,1);assert.equal(handled(f),undefined);
+ assert.equal(f.sent.length,2);f.noWaiting=true;
+ const resumed=await igDmReply(f.env);assert.equal(resumed.replied,1);assert.equal(resumed.errors,0);assert.equal(handled(f),f.t);
+ assert.deepEqual(f.sent.map(args=>args[2]),['Первое сообщение','Второе сообщение','Второе сообщение','Третье сообщение']);
+ assert.equal(f.systems.length,1);
+});
+test('partial cards are not handled and resume only rejected and remaining cards',async()=>{
+ const f=scenarioFixture();
+ f.sendResults=[{ok:true,messageId:'text'},{ok:true,messageId:'card1'},{ok:false,delivery:'not_sent',error:'rate limited'}];
+ const first=await igDmReply(f.env);assert.equal(first.replied,0);assert.equal(first.errors,1);assert.equal(handled(f),undefined);
+ const sentCard1=f.sent[1][3].imageUrl;f.noWaiting=true;
+ const resumed=await igDmReply(f.env);assert.equal(resumed.replied,1);assert.equal(handled(f),f.t);
+ assert.equal(f.sent.filter(args=>args[3]?.imageUrl===sentCard1).length,1);assert.equal(f.sent.length,6);
+});
+test('successful delivery with failed handled marker retries only acknowledgement',async()=>{
+ const f=fixture();f.markError=true;
+ await assert.rejects(igDmReply(f.env),/handled marker/);assert.equal(f.sent.length,1);assert.equal(handled(f),undefined);
+ f.markError=false;f.noWaiting=true;
+ const resumed=await igDmReply(f.env);assert.equal(resumed.replied,1);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);
+});
+test('ambiguous send is visible and never regenerated or automatically repeated',async()=>{
+ const f=fixture();f.sendResults=[{ok:false,delivery:'unknown',error:'timeout'}];
+ const first=await igDmReply(f.env);assert.equal(first.errors,1);assert.equal(first.escalated,1);assert.equal(handled(f),undefined);
+ const again=await igDmReply(f.env);assert.equal(again.errors,1);assert.equal(f.sent.length,1);assert.equal(f.systems.length,1);
+});
+test('closed-window partial text queues only unsent suffix and does not claim a complete reply',async()=>{
+ const f=fixture();f.raw=JSON.stringify({replies:['Первое сообщение','Второе сообщение'],escalate:false});
+ f.sendResults=[{ok:true,messageId:'first'},{ok:false,delivery:'not_sent',error:'Outside allowed window'}];
+ const first=await igDmReply(f.env);assert.equal(first.replied,0);assert.equal(first.errors,0);assert.equal(handled(f),f.t);
+ const queued=JSON.parse(f.states.get('browser_queue:tester'));assert.equal(queued.items.length,1);assert.equal(queued.items[0].text,'Второе сообщение');
+ await igDmReply(f.env);assert.equal(f.sent.length,2);assert.equal(JSON.parse(f.states.get('browser_queue:tester')).items.length,1);
+});
+
+function scenarioFixture(){
+ const f=fixture();const paidAt=new Date(Date.parse(f.t)-3_600_000).toISOString();
+ f.creator={id:'creator',lifecycle_stage:'paid',updated_at:Date.parse(paidAt)};
+ f.payouts=[{amount_minor:62000,status:'paid',konsol_payment_id:'k',paid_at:paidAt,payout_date:'2026-10-23'}];
+ f.history=[{direction:'out',text:'Перевела 620 ₽ по СБП.',created_at:paidAt},{direction:'in',text:'Здравствуйте, заказала.',created_at:f.t}];
+ f.raw=JSON.stringify({reply:'Вот четыре сценария на выбор',send_cards:true,escalate:false});return f;
+}
+test('verified order advances to creation only after all four card receipts',async()=>{
+ const f=scenarioFixture();f.sendResults=[{ok:true,messageId:'text'},{ok:true,messageId:'card1'},{ok:false,delivery:'not_sent',error:'rate limited'}];
+ await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,'ordered');assert.equal(handled(f),undefined);
+ f.noWaiting=true;await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(handled(f),f.t);
+ assert.deepEqual(f.stageWrites.map(x=>x.stage),['ordered','creation']);
+});
+test('failed completion stage write retries status acknowledgement without any resend',async()=>{
+ const f=scenarioFixture();f.completionStageError=true;
+ await assert.rejects(igDmReply(f.env),/completion stage/);assert.equal(f.sent.length,5);assert.equal(f.creator.lifecycle_stage,'ordered');assert.equal(handled(f),undefined);
+ f.completionStageError=false;f.noWaiting=true;await igDmReply(f.env);
+ assert.equal(f.sent.length,5);assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(handled(f),f.t);
+});
+test('manual decision made after delivery plan wins over completion stage CAS',async()=>{
+ const f=scenarioFixture();f.manualAtCompletion='refused';
+ await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,'refused');assert.equal(handled(f),f.t);assert.equal(f.sent.length,5);
+});
+test('fifteen resumed delivery attempts consume the existing per-run attempt budget',async()=>{
+ const f=fixture();
+ for(let i=0;i<15;i++)f.states.set('ig_reply_delivery:old-'+i+':'+f.t,JSON.stringify({version:1,conversationId:'old-'+i,incomingAt:f.t,handle:'old-'+i,status:'pending',items:[{text:'remaining',status:'pending'}]}));
+ await igDmReply(f.env);assert.equal(f.sent.length,15);assert.equal(f.systems.length,0);
+});
+
+test('a partial scenario superseded by new incoming stays ordered and never repeats card one',async()=>{
+ const f=scenarioFixture();f.sendResults=[{ok:true,messageId:'text'},{ok:true,messageId:'card1'},{ok:false,delivery:'not_sent',error:'rate limited'}];
+ await igDmReply(f.env);const sentBefore=f.sent.length;
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'out',text:'Вот четыре сценария',created_at:new Date(Date.parse(f.t)+10_000).toISOString()},
+ {direction:'out',text:null,attachments_json:'[{"image_data":{"url":"card1"}}]',created_at:new Date(Date.parse(f.t)+11_000).toISOString()},
+ {direction:'in',text:'А какие варианты есть?',created_at:newAt});
+ const next=await igDmReply(f.env);
+ assert.equal(f.creator.lifecycle_stage,'ordered');assert.equal(f.sent.length,sentBefore);
+ assert.equal(next.errors,1);assert.equal(incident(f).status,'needs_review');assert.match(incident(f).reason,/scenario_delivery_incomplete/);
+ assert.match(f.context,/Часть карточек/);
+});
+test('asking whether a creator wants scenarios is not delivery or creation evidence',async()=>{
+ const f=scenarioFixture();const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'out',text:'Хотите сценарий?',created_at:new Date(Date.parse(f.t)+10_000).toISOString()},
+ {direction:'in',text:'Какие варианты есть?',created_at:newAt});
+ f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);
+ assert.equal(f.creator.lifecycle_stage,'ordered');assert.match(f.context,/сценария ещё нет/);assert.equal(f.sent.length,0);
+});
+test('current explicit own idea after a verified order advances to creation without card assumptions',async()=>{
+ const f=scenarioFixture();const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'in',text:'Есть своя идея ролика',created_at:newAt});
+ f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);
+ assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(f.sent.length,0);
+});
+test('completed four-card receipts remain valid evidence on a later incoming message',async()=>{
+ const f=scenarioFixture();await igDmReply(f.env);assert.equal(f.creator.lifecycle_stage,'creation');
+ f.creator.lifecycle_stage='ordered';f.creator.updated_at=Date.parse(f.t)+20_000;
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'out',text:'Сообщение',created_at:new Date(Date.parse(f.t)+30_000).toISOString()},
+ {direction:'in',text:'А что дальше?',created_at:newAt});
+ f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);
+ assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(f.sent.length,5);
+});
+
+test('legacy creation with archived cards continues normal video conversation without resend or new receipt claim',async()=>{
+ const f=scenarioFixture();f.creator.lifecycle_stage='creation';
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ for(let i=0;i<4;i++)f.history.push({direction:'out',text:null,attachments_json:JSON.stringify([{image_data:{url:'legacy-card-'+i}}]),created_at:new Date(Date.parse(f.t)+10_000+i*1000).toISOString()});
+ f.history.push({direction:'in',text:'Скоро отправлю ролик',created_at:newAt});
+ f.raw=JSON.stringify({reply:'Буду ждать ссылку на ролик)',send_cards:false,escalate:false});
+ const result=await igDmReply(f.env);
+ assert.equal(result.errors,0);assert.equal(result.replied,1);assert.equal(f.creator.lifecycle_stage,'creation');
+ assert.equal(f.sent.length,1);assert.equal(f.cardUrls?.length??0,0);assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
+ assert.match(f.context,/этап создания уже достигнут/);assert.doesNotMatch(f.context,/сценария ещё нет/);
+});
+test('unverified legacy card history may answer a question but cannot regenerate a full set',async()=>{
+ const f=scenarioFixture();f.creator.lifecycle_stage='ordered';
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'out',text:'Вот карточки',attachments_json:'[{"image_data":{"url":"legacy-card"}}]',created_at:new Date(Date.parse(f.t)+10_000).toISOString()},
+ {direction:'in',text:'Какой вариант выбрать?',created_at:newAt});
+ const result=await igDmReply(f.env);
+ assert.equal(result.errors,1);assert.equal(f.sent.length,0);assert.equal(f.creator.lifecycle_stage,'ordered');assert.match(incident(f).reason,/scenario_resend_unverified/);
 });

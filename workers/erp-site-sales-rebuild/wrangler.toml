@@ -16,5 +16,7 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "ERP"
 service = "dasoperator-api"
 
+# Wednesday is 4 in Cloudflare. The worker gates day<=7 explicitly because
+# restricting both cron day fields means OR, not first-Wednesday intersection.
 [triggers]
-crons = ["0 4 1-7 * 3"]
+crons = ["0 4 * * 4"]

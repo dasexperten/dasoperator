@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { handleScheduled } from '../scheduled';
 import { STEPS } from '../cron-steps';
+import { runApiStep } from '../../../workers/_shared/run-journal';
 
 const MOVED: Record<string, string> = {
   'erp-skladbot-sync': '30 */6 * * *',
@@ -110,33 +111,38 @@ route.post('/:worker', async (c) => {
     }
   }
   const step = STEPS[worker];
-  if (step) {
-    const runKey = c.req.header('X-Erp-Run-Key') ?? '';
-    const trace = (phase: string) => {
-      if (/^[a-f0-9-]{36}$/i.test(runKey)) console.log(JSON.stringify({
-        worker, run_key: runKey, phase, elapsed_ms: Date.now() - started,
-      }));
-    };
-    trace('erp_step_start');
-    try {
-      const note = await step(c.env);
-      trace('erp_step_succeeded');
-      return c.json({ ok: true, cron: 'step', note, ms: Date.now() - started });
-    } catch (e) {
-      trace('erp_step_failed');
-      return c.json({ ok: false, cron: 'step', error: e instanceof Error ? e.message : String(e) }, 500);
-    }
-  }
-  const cron = MOVED[worker];
+  const cron = step ? 'step' : MOVED[worker];
   if (!cron) return c.json({ ok: false, error: `no ERP job for ${worker}` }, 404);
-
-  const event = { cron, scheduledTime: started, type: 'scheduled', noRetry() {} } as unknown as ScheduledEvent;
+  const runKey = c.req.header('X-Erp-Run-Key') ?? '';
+  if (runKey && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(runKey)) {
+    return c.json({ ok: false, error: 'invalid ERP run key' }, 400);
+  }
+  const trace = (phase: string) => {
+    if (runKey) console.log(JSON.stringify({ worker, run_key: runKey, phase, elapsed_ms: Date.now() - started }));
+  };
+  const job = async (): Promise<string> => {
+    if (step) return step(c.env);
+    const event = { cron, scheduledTime: started, type: 'scheduled', noRetry() {} } as unknown as ScheduledEvent;
+    await handleScheduled(event, c.env, c.executionCtx as ExecutionContext, true);
+    return `ERP scheduled handler "${cron}" completed`;
+  };
   try {
-    await handleScheduled(event, c.env, c.executionCtx as ExecutionContext);
-    return c.json({ ok: true, cron, ms: Date.now() - started });
+    if (runKey) {
+      const pending = runApiStep(c.env.DB, worker, runKey, job, trace);
+      // Best effort for a disconnected caller: keep completion alive for the
+      // documented HTTP waitUntil grace. This is not a durable job queue.
+      c.executionCtx.waitUntil(pending.catch(() => undefined));
+      const result = await pending;
+      return c.json({ ...result, cron, ms: Date.now() - started }, result.pending ? 409 : result.ok ? 200 : 500);
+    }
+    // Existing direct callers without a journal header preserve their path.
+    const note = await job();
+    return c.json({ ok: true, cron, note, ms: Date.now() - started });
   } catch (e) {
+    trace('erp_step_or_journal_failed');
     return c.json({ ok: false, cron, error: e instanceof Error ? e.message : String(e) }, 500);
   }
+
 });
 
 export default route;

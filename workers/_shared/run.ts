@@ -1,3 +1,5 @@
+import { journalWrite, finishTimerRun } from './run-journal';
+
 // Every erp-* worker is one action on one timer. This wrapper gives each of them the
 // same run log (D1 erp_cron_runs), the same /health, and the same guarded manual /run.
 
@@ -28,33 +30,8 @@ interface RunReport extends RunOutcome {
   runKey?: string;
   jobOk?: boolean;
   journalError?: 'insert' | 'finish';
-}
-
-// These documented D1 errors are transient. A write can already have committed,
-// so every retried journal statement must be idempotent using the same run key.
-function transientD1(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    const message = current instanceof Error ? current.message : String(current);
-    if (/Network connection lost|storage caused object to be reset|reset because its code was updated/i.test(message)) return true;
-    current = current instanceof Error ? current.cause : undefined;
-  }
-  return false;
-}
-
-async function journalWrite(write: () => Promise<D1Result>, retry: (attempt: number) => void): Promise<D1Result> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const result = await write();
-      const status = result as { success: boolean; error?: string };
-      if (!status.success) throw new Error(status.error || 'D1 journal write unsuccessful');
-      return result;
-    } catch (error) {
-      if (attempt >= 3 || !transientD1(error)) throw error;
-      retry(attempt);
-      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** (attempt - 1) + Math.floor(Math.random() * 25)));
-    }
-  }
+  apiPending?: boolean;
+  apiOwned?: boolean;
 }
 
 export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>, scheduledTime?: number): Promise<RunReport> {
@@ -114,14 +91,15 @@ export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron:
       report = { ok: false, dry, runKey, error: error instanceof Error ? error.message : String(error) };
     }
     phase(report.ok ? 'job_succeeded' : 'job_failed');
-    const finishedAt = new Date().toISOString();
     phase('journal_finish_start');
     try {
-      const result = await journalWrite(() => env.DB.prepare(
-        'UPDATE erp_cron_runs SET finished_at = ?, ok = ?, rows = ?, note = ?, error = ? WHERE run_key = ?',
-      ).bind(finishedAt, report.ok ? 1 : 0, report.rows ?? null, report.note?.slice(0, 1000) ?? null,
-        report.error?.slice(0, 1000) ?? null, runKey).run(), attempt => phase(`journal_finish_retry_${attempt}`));
-      if (result.meta.changes !== 1) throw new Error('Run journal terminal update matched no unique row');
+      const final = await finishTimerRun(env.DB, runKey, report, phase);
+      if (final.state === 'api_pending') {
+        terminalJournalFailed = true;
+        phase('api_completion_pending');
+        return { ok: false, dry, runKey, apiPending: true, error: 'API accepted this run; completion not yet confirmed' };
+      }
+      report = { ...final.outcome, dry, runKey, ...(final.apiOwned ? { apiOwned: true } : {}) };
     } catch (error) {
       terminalJournalFailed = true;
       phase('journal_finish_failed');
@@ -165,12 +143,13 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
       ctx.waitUntil(
         runLogged(env, worker, event.cron, job, event.scheduledTime).then((r) => {
           if (!r.ok) {
-            if (r.journalError === 'finish') {
-              // The action already ran. A scheduled retry would repeat its effects.
+            if (r.journalError === 'finish' || r.apiPending || r.apiOwned) {
+              // An accepted API job may have completed some independent effects before
+              // failing. Its next natural cron owns recovery; do not replay the whole job.
               if (typeof event.noRetry === 'function') event.noRetry();
               else {
                 console.error(JSON.stringify({ worker, run_key: r.runKey, scheduledTime: event.scheduledTime,
-                  phase: 'journal_finish_failed_no_retry_unavailable', ok: false, jobOk: r.jobOk }));
+                  phase: r.apiPending ? 'api_pending_no_retry_unavailable' : 'journal_finish_failed_no_retry_unavailable', ok: false, jobOk: r.jobOk }));
                 return;
               }
             }
@@ -187,13 +166,13 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
         let last_run = null;
         try {
           last_run = await env.DB.prepare(
-            'SELECT run_key, cron, started_at, finished_at, ok, rows, error FROM erp_cron_runs WHERE worker = ? ORDER BY id DESC LIMIT 1',
-          ).bind(worker).first<{ finished_at: string | null; ok: number | null }>();
+            'SELECT run_key, cron, started_at, finished_at, api_started_at, transport_error, ok, rows, error FROM erp_cron_runs WHERE worker = ? ORDER BY id DESC LIMIT 1',
+          ).bind(worker).first<{ finished_at: string | null; ok: number | null; transport_error?: string | null }>();
         } catch {
           return Response.json({ ok: false, worker, dry_run: env.DRY_RUN === '1', last_run: null,
             last_run_status: 'unavailable', error: 'Run journal unavailable' }, { status: 503 });
         }
-        const last_run_status = !last_run ? 'none' : !last_run.finished_at ? 'running' : last_run.ok === 1 ? 'succeeded' : 'failed';
+        const last_run_status = !last_run ? 'none' : !last_run.finished_at ? (last_run.transport_error ? 'completion_unconfirmed' : 'running') : last_run.ok === 1 ? 'succeeded' : 'failed';
         return Response.json({ ok: true, worker, dry_run: env.DRY_RUN === '1', last_run, last_run_status });
       }
       if (url.pathname === '/run' && req.method === 'POST') {

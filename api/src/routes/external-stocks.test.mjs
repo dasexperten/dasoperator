@@ -37,3 +37,12 @@ test('warehouses without a manual override retain external stocks', async () => 
   assert.deepEqual(result.result.rows, snapshot);
   assert.deepEqual(result.result.internal_warehouse_ids, []);
 });
+
+test('failed upstream stock read is not a successful zero-row sync and preserves existing stock', async t => {
+  let writes=0;
+  t.mock.method(globalThis,'fetch',async()=>new Response('unavailable',{status:503}));
+  const e={F4_SKLADBOT_TOKEN:'fixture',DB:{prepare(sql){return {bind(){return this},async all(){return {results:sql.includes('FROM warehouses')?[{id:'lbr',external_provider:'f4_skladbot',external_customer_id:1}]:[{id:'de112'}]}},async run(){writes++;return {success:true}}}},async batch(){writes++}}};
+  const response=await app.request('/sync',{method:'POST',body:'{}',headers:{'content-type':'application/json'}},e);
+  assert.equal(response.status,502);const body=await response.json();assert.equal(body.success,false);
+  assert.deepEqual(body.result.synced,[]);assert.deepEqual(body.errors,[{warehouse_id:'lbr',status:503}]);assert.equal(writes,0);
+});

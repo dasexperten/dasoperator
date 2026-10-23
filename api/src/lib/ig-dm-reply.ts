@@ -17,7 +17,9 @@ import { askOwnerHardQuestion } from './ugc-hard-question';
 
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
-import { IG_UNSUPPORTED, lastWordIsBlogger, refreshIgAttachments, sendIgCards, sendIgDirect } from './ig-dm-watch';
+import { IG_UNSUPPORTED, lastWordIsBlogger, refreshIgAttachments, sendIgDirect } from './ig-dm-watch';
+
+import { deliverIgReply, resumeIgDeliveries, acknowledgeIgDelivery, queueIgDeliveryTexts, igDeliveryKey, type IgDeliveryResult } from './ig-dm-delivery';
 
 const MAX_PER_RUN = 15;
 // Let a burst of messages finish before answering.
@@ -184,15 +186,16 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
 }
 
 /** Owner 2026-10-18: «запасной вход записать в очередь и при первом подключении через браузер сразу запускать». */
-export async function queueForBrowser(env: Env, handle: string, reason: string, text: string): Promise<void> {
+export async function queueForBrowser(env: Env, handle: string, reason: string, text: string, deliveryKey?: string): Promise<void> {
   const h = handle.toLowerCase().replace(/^@/, '');
   const key = `browser_queue:${h}`;
   const prev = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(key).first<{ value: string }>();
-  let items: Array<{ reason: string; text: string; at: string }> = [];
+  let items: Array<{ reason: string; text: string; at: string; deliveryKey?: string }> = [];
   try { const v = JSON.parse(prev?.value ?? 'null'); items = Array.isArray(v?.items) ? v.items : v?.text ? [{ reason: v.reason, text: v.text, at: v.at }] : []; } catch { items = []; }
-  items.push({ reason, text, at: new Date().toISOString() });
+  if (deliveryKey && items.some(item => item.deliveryKey === deliveryKey)) return;
+  items.push({ reason, text, at: new Date().toISOString(), ...(deliveryKey ? { deliveryKey } : {}) });
   await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-    .bind(key, JSON.stringify({ handle: h, items: items.slice(-5) }), Date.now()).run();
+    .bind(key, JSON.stringify({ handle: h, items: deliveryKey ? items : items.slice(-5) }), Date.now()).run();
 }
 
 /** Owner 2026-10-18 (mashaa_ugc): a blogger who refused is never paid by the queue; the Owner sees why. */
@@ -223,6 +226,49 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       ORDER BY m.created_at ASC LIMIT 100`
   ).bind(new Date(now - 7 * 86_400_000).toISOString(), new Date(now - SETTLE_MS).toISOString(), now).all<{ cid: string; t: string; h: string }>()).results ?? [];
   let replied = 0, escalated = 0, errors = 0, attempted = 0;
+  const finishDelivery = async (delivery: IgDeliveryResult) => {
+    if (delivery.status === 'busy' || delivery.status === 'superseded') return;
+    let browser = delivery.status === 'browser';
+    if (delivery.status === 'pending' && /allowed window/i.test(delivery.error ?? '')) {
+      browser = await queueIgDeliveryTexts(env, delivery.key,
+        (handle, text, key) => queueForBrowser(env, handle, 'reply', text, key));
+    }
+    if (delivery.status === 'complete' || browser) {
+      if (!browser && delivery.completion) {
+        const expected = delivery.completion;
+        // Every planned card has a receipt. Preserve decisions made after the plan
+        // was recorded; a DB failure leaves this complete plan unacknowledged.
+        await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage='creation',updated_at=?2
+          WHERE id=?1 AND lifecycle_stage IS ?3 AND updated_at IS ?4 AND lifecycle_stage IN ('paid','ordered','creation')`)
+          .bind(expected.creatorId, Date.now(), expected.expectedStage, expected.expectedUpdatedAt).run();
+      }
+      // Completion may be retried after a DB outage; acknowledged parts are never sent again.
+      await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE crm_sync_state.value<=excluded.value`)
+        .bind(HANDLED_KEY(delivery.conversationId), delivery.incomingAt, Date.now()).run();
+      await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1 AND json_extract(value,'$.at')=?2`)
+        .bind(STATE_KEY(delivery.conversationId), delivery.incomingAt).run();
+      await acknowledgeIgDelivery(env, delivery.key);
+      if (!browser) replied++;
+      return;
+    }
+    // The outbox owns retrying the unsent suffix. Never regenerate the first text.
+    const ambiguous = delivery.status === 'ambiguous';
+    const state = { at: delivery.incomingAt, handle: delivery.handle, kind: 'technical',
+      status: ambiguous ? 'needs_review' : 'retry', reason: `send_failed: ${delivery.error ?? 'partial delivery'}`.slice(0, 200),
+      delivery_key: delivery.key, sent_parts: delivery.sent, total_parts: delivery.total, next_retry_at: Date.now() + 3 * 60_000 };
+    await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+      WHERE json_extract(crm_sync_state.value,'$.at')<=json_extract(excluded.value,'$.at')`)
+      .bind(STATE_KEY(delivery.conversationId), JSON.stringify(state), Date.now()).run();
+    errors++;
+    if (ambiguous) escalated++;
+  };
+  const resumed = await resumeIgDeliveries(env, sendIgDirect, MAX_PER_RUN);
+  attempted = resumed.filter(delivery => delivery.attempted).length;
+  const existingDeliveries = new Set(resumed.map(delivery => delivery.key));
+  for (const delivery of resumed) await finishDelivery(delivery);
+
   // Owner 2026-10-18: «очень много китайских поддельных карточек» — the seller is proven by the Ozon
   // article the blogger names, checked against our own Ozon catalogue (the SPP price is not proof).
   const ourArticles = new Map<string, string>();
@@ -242,6 +288,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
   for (const w of waiting) {
     if (attempted >= MAX_PER_RUN) break;
     const at = Date.parse(w.t);
+    if (existingDeliveries.has(igDeliveryKey(w.cid, w.t))) continue;
     if (!Number.isFinite(at) || now - at < SETTLE_MS || now - at > 7 * 86_400_000) continue;
     const done = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(HANDLED_KEY(w.cid)).first<{ value: string }>();
     if (done?.value === w.t) continue;
@@ -306,11 +353,11 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       continue;
     }
     const creator = await env.DB.prepare(
-      `SELECT c.id, c.display_name, c.city, c.lifecycle_stage FROM ugc_creators c WHERE c.id=?1`
-    ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null; lifecycle_stage: string | null }>();
+      `SELECT c.id, c.display_name, c.city, c.lifecycle_stage, c.updated_at FROM ugc_creators c WHERE c.id=?1`
+    ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null; lifecycle_stage: string | null; updated_at: number | null }>();
     const payouts = creator ? ((await env.DB.prepare(
-      `SELECT amount_minor, status, payout_date, konsol_payment_id, konsol_error, paid_at, sent_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
-    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; konsol_error?: string | null; paid_at?: string | null; sent_at?: string | null }>()).results ?? []) : [];
+      `SELECT amount_minor, status, payout_date, konsol_payment_id, konsol_error, paid_at, sent_at, created_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
+    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; konsol_error?: string | null; paid_at?: string | null; sent_at?: string | null; created_at?: number }>()).results ?? []) : [];
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
       ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? (failedSide(p.konsol_error) === 'bank' ? `failed (банк блогера отказал: ${String(p.konsol_error).slice(0, 120)})` : 'failed (не прошёл с нашей стороны; банк блогера ни при чём — не говори, что банк отклонил, не проси другой банк)') : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
@@ -356,8 +403,41 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m))));
     // Owner 2026-10-18 (anastasiiyaa___): after the order screenshot comes the scenario, only then the video.
     const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m)))?.created_at : undefined;
-    const scenarioSent = Boolean(orderAt && history.some((m) => m.direction === 'out' && m.created_at > orderAt && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|отличный выбор|своя идея|карточк|как лучше снять/i.test(m.text ?? ''))));
-    const ladder = orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
+    // Text about scenarios and individual attachments do not prove all four cards arrived.
+    type ScenarioPlan = { status?: string; incomingAt?: string; completedAt?: number;
+      completion?: { creatorId?: string }; items?: Array<{ imageUrl?: string; status?: string; messageId?: string }> };
+    let scenarioPlans: ScenarioPlan[] = [];
+    if (creator) {
+      try {
+        const rows = (await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%'
+          AND json_valid(value) AND json_extract(value,'$.completion.creatorId')=?1
+          AND json_extract(value,'$.conversationId')=?2`).bind(creator.id, w.cid).all<{ value: string }>()).results ?? [];
+        scenarioPlans = rows.map(row => JSON.parse(row.value) as ScenarioPlan);
+      } catch { await failStep('creator_stage_update_failed: scenario_delivery_evidence'); continue; }
+    }
+    const completeScenario = (plan: ScenarioPlan, after: number) => {
+      const items = plan.items ?? [], cards = items.filter(item => item.imageUrl);
+      return plan.status === 'complete' && plan.completion?.creatorId === creator?.id
+        && Number.isFinite(plan.completedAt) && Number(plan.completedAt) > after
+        && Date.parse(plan.incomingAt ?? '') >= after && cards.length === 4
+        && new Set(cards.map(card => card.imageUrl)).size === 4
+        && items.every(item => item.status === 'sent' && Boolean(item.messageId))
+        && new Set(items.map(item => item.messageId)).size === items.length;
+    };
+    const scenarioOrderAt = Date.parse(orderAt ?? '') || 0;
+    const scenarioSent = Boolean(scenarioOrderAt && scenarioPlans.some(plan => completeScenario(plan, scenarioOrderAt)));
+    const partialScenario = Boolean(scenarioOrderAt && scenarioPlans.some(plan => Date.parse(plan.incomingAt ?? '') >= scenarioOrderAt
+      && (plan.items ?? []).some(item => item.imageUrl && item.status === 'sent' && item.messageId)
+      && !completeScenario(plan, scenarioOrderAt)));
+    const currentOwnIdeaAt = Math.max(0, ...history.slice(lastOutIndex + 1).filter(m => m.direction === 'in'
+      && /(^|[^а-яё])(?:есть\s+(?:своя\s+)?идея|сниму\s+по\s+своему\s+сценарию)([^а-яё]|$)/i.test(m.text ?? '')
+      && !/(?:нет|не)\s+(?:своей\s+)?идеи/i.test(m.text ?? '')).map(m => Date.parse(m.created_at)));
+    const scenarioStageReached = ['creation', 'posted', 'gold'].includes(creator?.lifecycle_stage ?? '')
+      || Boolean(scenarioOrderAt && currentOwnIdeaAt > scenarioOrderAt);
+    // Pre-outbox history can stop an unsafe resend, but cannot establish new receipt evidence.
+    const legacyScenarioUncertain = !scenarioPlans.length && Boolean(orderAt && history.some(m => m.direction === 'out'
+      && m.created_at > orderAt && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|карточк/i.test(m.text ?? ''))));
+    const ladder = partialScenario ? 'СТУПЕНЬ: Часть карточек уже доставлена, полного набора нет. Не отправляй полный набор заново и не утверждай, что сценарий выбран; send_cards=false. Незавершённая доставка требует внутренней проверки.\n' : scenarioStageReached ? 'СТУПЕНЬ: этап создания уже достигнут по текущему статусу или собственной идее блогера. Продолжай разговор о ролике; не предлагай полный набор карточек заново, send_cards=false. Это не подтверждение новой доставки карточек.\n' : legacyScenarioUncertain ? 'СТУПЕНЬ: подтверждения полного сценария ещё нет. В старой переписке есть упоминание сценария или вложение, но полного набора квитанций нет. Ответь на текущий вопрос без повторной отправки полного набора, send_cards=false; не утверждай, что все карточки доставлены.\n' : orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
     const context = `${ownerDecision ? `РЕШЕНИЕ ВЛАДЕЛЬЦА по текущему сообщению блогера: ${ownerDecision}. Это решение окончательное: ответь блогеру строго по нему, своими словами и в своём тоне, не спорь с ним и не передавай вопрос Владельцу повторно.\n` : ''}${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\nERP, перевод: ${transferFact}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // Both sides are essential: «да» only makes sense with our preceding question.
@@ -399,7 +479,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // Owner 2026-10-18: a draft the checker rejects is rewritten at once, and Diana is told why.
     // Before, she got the same prompt again, wrote the same thing, and the conversation stopped.
     let raw = '';
-    let out!: ReturnType<typeof guardReply>;
+    let out!: ReturnType<typeof guardReply> & { agreed?: boolean; refused?: boolean };
     // Owner 2026-10-19: requisites → brown button in the same minute, whatever happens to Diana's words.
     let seenRequisites: CleanRequisites | null = null; const doubts: string[] = [];
     let feedback = '';
@@ -447,7 +527,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       if (scenarioEarly) out.sendCards = false;
       // Owner 2026-10-18 (05_seferova_05): the blogger sent it right — never tell her it «did not arrive».
       const confirmsUnseen = unseenPhoto && !photoSeen && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''));
-      const videoEarly = orderShown && !scenarioSent && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`);
+      const videoEarly = orderShown && !scenarioSent && !scenarioStageReached && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`);
       // Owner 2026-10-18 (novosibirsk_life_today: номер и банк без ФИО → «Реквизиты получили, проверяю!» и тишина):
       // «реквизиты получили» only when full requisites are registered now or a payout is already open.
       const falseReceipt = /реквизиты\s+получил/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved');
@@ -479,7 +559,64 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     }
     // Owner 2026-10-19: «в ту же минуту сразу ERP дать кнопку» — the payout row does not wait for Diana's reply
     // to pass; doubts go into the row for the Owner, who approves every payout by hand.
-    if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '' } as never); } catch { await failStep('payout_registration_failed'); continue; } }
+    if (out?.refused) {
+      seenRequisites = null;
+      out.requisites = null;
+      if (creator) {
+        try { await holdOpenPayouts(env, creator.id, 'Диана поняла отказ блогера'); }
+        catch { await failStep('payout_registration_failed: refusal_hold'); continue; }
+      }
+    }
+    if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '', created_at: Date.now() }); } catch { await failStep('payout_registration_failed'); continue; } }
+    let verifiedOrderForDelivery = false;
+    if (creator) {
+      // DH-LAW-261018-09/10: observed milestones do not depend on sending another message.
+      // Match a vision verdict to its actual incoming image; basket/unknown images are not orders.
+      const orderImageTimes = (imageCheck?.checks ?? []).flatMap((check) => {
+        if (check.kind !== 'order' || check.product !== 'yes') return [];
+        const stamp = String(check.label ?? '').match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/)?.[0];
+        const message = history.find((m) => m.direction === 'in' && m.created_at === stamp && m.attachments_json && m.attachments_json !== '[]');
+        const time = message ? Date.parse(message.created_at) : 0;
+        return moneyAt && time > moneyAt ? [time] : [];
+      });
+      const verifiedOrderAt = Math.max(0, ...orderImageTimes, ...history.filter((m) => m.direction === 'in' && moneyAt && Date.parse(m.created_at) > moneyAt && saidOrdered(m)).map((m) => Date.parse(m.created_at)));
+      verifiedOrderForDelivery = verifiedOrderAt > 0;
+      const currentIncoming = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
+      const postedAt = Math.max(0, ...currentIncoming.filter((m) => POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt)).map((m) => Date.parse(m.created_at)));
+      const ownIdeaAt = currentOwnIdeaAt;
+      const deliveredScenarioAt = Math.max(0, ...scenarioPlans.filter(plan => completeScenario(plan, verifiedOrderAt)
+        && Number(plan.completedAt) > Number(creator.updated_at ?? 0)).map(plan => Number(plan.completedAt)));
+      const paidAt = Math.max(0, ...payouts.filter((p) => p.status === 'paid' && p.konsol_payment_id && p.paid_at).map((p) => Date.parse(p.paid_at!)).filter(Number.isFinite));
+      const open = payouts.filter((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status));
+      const cartAt = Math.max(0, ...open.map((p) => Number(p.created_at ?? 0)).filter(Number.isFinite));
+      const creationAt = verifiedOrderAt ? Math.max(deliveredScenarioAt, ownIdeaAt > verifiedOrderAt ? ownIdeaAt : 0) : 0;
+      const target = out?.refused ? 'refused' : postedAt ? 'posted' : creationAt ? 'creation' : verifiedOrderAt ? 'ordered' : paidAt ? 'paid' : open.length ? 'cart' : out?.agreed ? 'agreed' : null;
+      const evidenceAt = target === 'posted' ? postedAt : target === 'creation' ? creationAt : target === 'ordered' ? verifiedOrderAt : target === 'paid' ? paidAt : target === 'cart' ? cartAt : 0;
+      const current = creator.lifecycle_stage ?? '';
+      const refusalAllowed = ['', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'silent'].includes(current);
+      const stage = target === 'refused' ? (refusalAllowed ? 'refused' : null)
+        : target && current === 'silent' ? (evidenceAt > Number(creator.updated_at ?? 0) ? target : null)
+        : target ? nextStage(creator.lifecycle_stage, target) : null;
+      if (stage) {
+        try {
+          // Preserve a concurrent manual decision. A failed write is surfaced before any send, so retry cannot resend it.
+          await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1 AND lifecycle_stage IS ?4 AND updated_at IS ?5`)
+            .bind(creator.id, stage, Date.now(), creator.lifecycle_stage ?? null, creator.updated_at ?? null).run();
+        } catch { await failStep('creator_stage_update_failed'); continue; }
+      }
+    }
+    if (!partialScenario && (scenarioStageReached || legacyScenarioUncertain) && out?.sendCards && !out.escalate) {
+      state = { ...nextReplyFailure(state, { handle: w.h, at: w.t, reason: 'send_failed: scenario_resend_unverified', now, draft: lastDraft }),
+        kind: 'technical', status: 'needs_review' };
+      await saveState(state); errors++; escalated++; continue;
+    }
+    if (partialScenario && !out?.escalate && !out?.refused && (currentOwnIdeaAt <= scenarioOrderAt || out?.sendCards)) {
+      // A new input superseded a partially delivered fixed plan. Re-generating a
+      // full card set would duplicate accepted images; keep this visible for review.
+      state = { ...nextReplyFailure(state, { handle: w.h, at: w.t, reason: 'send_failed: scenario_delivery_incomplete', now, draft: lastDraft }),
+        kind: 'technical', status: 'needs_review' };
+      await saveState(state); errors++; escalated++; continue;
+    }
     if (generationFailed) continue;
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }
@@ -497,40 +634,24 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (!latestIsBlogger) { await mark(); continue; }
     // Full requisites in the chat → a brown payout row at once (DH-LAW-261015-04 p.6, Owner 2026-10-16).
     if (out.requisites) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
-    // Several short messages in a row (Owner 2026-10-17); the first decides success.
+    // Several short messages in a row (Owner 2026-10-17); every part needs its own receipt.
     // Owner 2026-10-18: «реквизиты она отправила, не надо говорить: спасибо, реквизиты получили». The next step after
     // requisites is the transfer itself; acknowledgements of requisites are dropped, and with nothing left nothing is sent.
     const ackOnly = (p: string) => /реквизиты\s+получил|спасибо\s+за\s+реквизиты/i.test(p)
       || (Boolean(out.requisites) && /^\s*(получил[аи]?,?\s*)?проверя(ю|ем)[!.]?\s*$|скоро\s+напиш/i.test(p));
     const parts: string[] = (out.parts?.length ? out.parts : [out.reply]).filter((p) => p && !ackOnly(p));
     if (!parts.length) { await mark(); continue; }
-    const [first = parts[0]!] = parts;
-    const sent = await sendIgDirect(env, w.h, first, { humanAgent: now - at > 23.5 * 3_600_000 });
-    for (const part of sent.ok ? parts.slice(1) : []) {
-      await new Promise((r) => setTimeout(r, 1500));
-      const more = await sendIgDirect(env, w.h, part, { humanAgent: now - at > 23.5 * 3_600_000 });
-      if (!more.ok) break;
+    let completion: { creatorId: string; expectedStage: string | null; expectedUpdatedAt: number | null } | undefined;
+    if (creator && verifiedOrderForDelivery && out.sendCards) {
+      const afterStage = await env.DB.prepare('SELECT lifecycle_stage,updated_at FROM ugc_creators WHERE id=?1')
+        .bind(creator.id).first<{ lifecycle_stage: string | null; updated_at: number | null }>();
+      if (afterStage && ['paid','ordered','creation'].includes(afterStage.lifecycle_stage ?? '')) {
+        completion = { creatorId: creator.id, expectedStage: afterStage.lifecycle_stage, expectedUpdatedAt: afterStage.updated_at };
+      }
     }
-    if (creator && (out as { refused?: boolean }).refused) await holdOpenPayouts(env, creator.id, 'Диана поняла отказ блогера').catch(() => 0);
-    if (sent.ok && out.sendCards) await sendIgCards(env, w.h, SCENARIO_CARDS, { humanAgent: now - at > 23.5 * 3_600_000 });
-    if (sent.ok && creator) {
-      const said = `${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`;
-      const posted = history.some((m) => m.direction === 'in' && POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt));
-      // Owner 2026-10-18 (zeinab.4517 stayed «replied» with requisites in): the status follows the facts.
-      const hasPaid = payouts.some((p) => p.status === 'paid' || p.status === 'sent');
-      const hasOpen = payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved') || Boolean(out.requisites);
-      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : hasPaid ? 'paid' : hasOpen ? 'cart' : (out as { agreed?: boolean }).agreed ? 'agreed' : null;
-      const stage = target ? nextStage(creator.lifecycle_stage, target) : null;
-      if (stage) await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1`).bind(creator.id, stage, Date.now()).run().catch(() => undefined);
-    }
-    if (sent.ok) { replied++; await mark(); }
-    else if (/allowed window/i.test(String((sent as { error?: string }).error ?? ''))) {
-      // Owner 2026-10-18: a closed Instagram window queues Diana's words for the browser; the next browser
-      // connection sends them. The conversation is closed here so the lane does not retry forever.
-      await queueForBrowser(env, w.h, 'reply', parts.join('\n'));
-      await mark();
-    }
-    else await failStep('send_failed');
+    const delivery = await deliverIgReply(env, { conversationId: w.cid, incomingAt: w.t, handle: w.h,
+      parts, cards: out.sendCards ? SCENARIO_CARDS : [], ...(completion ? { completion } : {}), humanAgent: now - at > 23.5 * 3_600_000 }, sendIgDirect);
+    await finishDelivery(delivery);
   }
   return { replied, escalated, errors };
 }

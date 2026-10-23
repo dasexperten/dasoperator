@@ -193,17 +193,19 @@ export async function sendIgCards(env: Env, handle: string, urls: string[], opts
   return sent;
 }
 
-export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string } = {}): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string } = {}): Promise<{ ok: boolean; error?: string; messageId?: string; delivery?: 'not_sent' | 'unknown' }> {
   const h = handle.trim().replace(/^@/, '').toLowerCase();
-  if (!h) return { ok: false, error: 'no handle' };
+  if (!h) return { ok: false, error: 'no handle', delivery: 'not_sent' };
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
-  if (!token) return { ok: false, error: 'META_IG_MESSAGING_TOKEN not set on the Worker' };
-  const who = await env.DB.prepare(
+  if (!token) return { ok: false, error: 'META_IG_MESSAGING_TOKEN not set on the Worker', delivery: 'not_sent' };
+  let who: { from_id: string } | null;
+  try { who = await env.DB.prepare(
     `SELECT from_id FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1 AND from_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`
-  ).bind(h).first<{ from_id: string }>();
-  if (!who?.from_id) return { ok: false, error: `no Instagram id for ${h}` };
+  ).bind(h).first<{ from_id: string }>(); }
+  catch { return { ok: false, error: 'Instagram recipient lookup failed', delivery: 'not_sent' }; }
+  if (!who?.from_id) return { ok: false, error: `no Instagram id for ${h}`, delivery: 'not_sent' };
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
-  if (!page.ok || !page.body?.access_token) return { ok: false, error: `page token: ${page.error}` };
+  if (!page.ok || !page.body?.access_token) return { ok: false, error: `page token: ${page.error}`, delivery: 'not_sent' };
   try {
     const res = await fetch(`${G}/${PAGE_ID}/messages?access_token=${encodeURIComponent(String(page.body.access_token))}`, {
       method: 'POST',
@@ -213,13 +215,21 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
       signal: AbortSignal.timeout(20_000),
     });
     const body = await res.json().catch(() => null) as any;
-    if (!res.ok || body?.error) return { ok: false, error: String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
+    if (!res.ok || body?.error) {
+      const error = String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 200);
+      // HTTP status alone is not delivery proof. Only an explicit Meta rejection
+      // before acceptance is retryable; generic errors, 5xx and conflicting receipts are unknown.
+      const rejected = res.status >= 400 && res.status < 500 && !body?.message_id
+        && Number.isFinite(body?.error?.code) && typeof body?.error?.message === 'string'
+        && /allowed window|invalid (?:parameter|oauth|access token)|(?:access token).*(?:expired|invalid)|(?:permission|not authorized)|not receiving messages|isn't available|no matching user|rate limit|too many requests/i.test(error);
+      return { ok: false, error, delivery: rejected ? 'not_sent' : 'unknown' };
+    }
     // Owner 2026-10-19: Instagram's receipt is the proof of delivery — no receipt, no «delivered».
     const messageId = body?.message_id ? String(body.message_id) : '';
-    if (!messageId) return { ok: false, error: 'Instagram не вернул номер сообщения' };
+    if (!messageId) return { ok: false, error: 'Instagram не вернул номер сообщения', delivery: 'unknown' };
     return { ok: true, messageId };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: e instanceof Error ? e.message : String(e), delivery: 'unknown' };
   }
 }
 

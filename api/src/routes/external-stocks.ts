@@ -143,6 +143,7 @@ externalStocks.post('/sync', async (c) => {
 
   const now = Math.floor(Date.now() / 1000);
   const synced: Array<{ warehouse_id: string; rows: number; provider: string }> = [];
+  const errors: Array<{ warehouse_id: string; status: number }> = [];
 
   // 2. Build SKU map (vendor_code uppercase -> product_id lowercase) — only need our products
   const ourProducts = await c.env.DB.prepare(
@@ -165,7 +166,7 @@ externalStocks.post('/sync', async (c) => {
     });
 
     if (!resp.ok) {
-      synced.push({ warehouse_id: wh.id, rows: 0, provider: wh.external_provider });
+      errors.push({ warehouse_id: wh.id, status: resp.status });
       continue;
     }
 
@@ -228,6 +229,7 @@ externalStocks.post('/sync', async (c) => {
     synced.push({ warehouse_id: wh.id, rows: inserts.length, provider: wh.external_provider });
   }
 
+  if (errors.length) return c.json({ success: false, result: { synced }, errors }, 502);
   return ok(c, { synced });
 });
 

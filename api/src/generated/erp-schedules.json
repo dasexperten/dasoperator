@@ -102,7 +102,7 @@
     "7 * * * *"
   ],
   "erp-site-sales-rebuild": [
-    "0 4 1-7 * 3"
+    "0 4 * * 4"
   ],
   "erp-site-stock": [
     "10 */3 * * *"
@@ -143,7 +143,7 @@
   "erp-wb-turnover": [],
   "erp-wb-week": [],
   "erp-wb-weekly-report": [
-    "0 4 * * 4"
+    "0 4 * * 5"
   ],
   "erp-web-analytics": [
     "30 2 * * *"

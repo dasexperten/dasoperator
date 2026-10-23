@@ -80,13 +80,16 @@ jobs:
         run: node --test api/src/lib/mail-images.test.mjs
 
       - name: Test cron-expect
-        run: node --test api/src/lib/cron-expect.test.mjs
+        run: node --test api/src/lib/cron-expect.test.mjs workers/erp-site-sales-rebuild/src/index.test.mjs
 
       - name: Test adaptive background job leases
         run: node --test api/src/lib/adaptive-cadence.test.mjs api/src/lib/adaptive-runner.test.mjs
 
+      - name: Install API dependencies for internal route integration tests
+        run: npm ci --workspace api --ignore-scripts --no-audit --no-fund
+
       - name: Test durable cron journal and truthful recovery
-        run: node --test workers/_shared/run.test.mjs api/src/lib/erp-cron-failures.test.mjs
+        run: node --test workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs
 
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs
@@ -100,7 +103,7 @@ jobs:
         run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs web/lib/ugc-payout-cell.test.mjs
 
       - name: Test UGC Direct retries and four-scenario delivery
-        run: node --test api/src/lib/ig-dm-reply.test.mjs api/src/lib/ig-dm-reply-guard.test.mjs api/src/lib/ig-dm-attachments.test.mjs api/src/lib/ig-dm-refresh.test.mjs api/src/lib/llm-vision.test.mjs
+        run: node --test api/src/lib/ig-dm-reply.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/ig-dm-reply-guard.test.mjs api/src/lib/ig-dm-attachments.test.mjs api/src/lib/ig-dm-refresh.test.mjs api/src/lib/llm-vision.test.mjs
 
       - name: Test blogger profiles and Direct links
         run: node --test api/src/lib/ugc-blogger-profile-parse.test.mjs api/src/lib/ugc-diagnose.test.mjs web/lib/ugc-instagram-chat.test.mjs

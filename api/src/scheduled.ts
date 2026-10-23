@@ -20,7 +20,7 @@ import { recordErpRecovery } from './lib/persistent-erp-alert';
 // =============================================================================
 // CRON: Create Performance API report (every 6 hours)
 // =============================================================================
-async function cronCreatePerfReport(env: Env) {
+async function cronCreatePerfReport(env: Env, strict = false) {
   try {
     if (!env.OZON_PERF_CLIENT_ID || !env.OZON_PERF_CLIENT_SECRET) {
       console.log('[cron:perf-create] credentials not configured, skip');
@@ -49,6 +49,7 @@ async function cronCreatePerfReport(env: Env) {
     console.log(`[cron:perf-create] created report ${uuid}, campaigns=${campaigns.length}`);
   } catch (e) {
     console.error('[cron:perf-create] failed:', e);
+    if (strict) throw e;
   }
 }
 
@@ -340,8 +341,14 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
 export async function handleScheduled(
   event: ScheduledEvent,
   env: Env,
-  _ctx: ExecutionContext
+  _ctx: ExecutionContext,
+  strict = false
 ): Promise<void> {
+  const failures: string[] = [];
+  const recordFailure = (error: unknown) => {
+    if (strict) failures.push((error instanceof Error ? error.message : String(error)).slice(0, 200));
+  };
+  try {
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
@@ -357,7 +364,7 @@ export async function handleScheduled(
       const { pollStripeOrders } = await import('./lib/crm-website');
       const r = await pollStripeOrders(env);
       console.log('[cron:crm-website-stripe] ' + JSON.stringify(r));
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:crm-website-stripe] failed:', e);
     }
     // Sweep abandoned carts: 'initiated' rows with no conversion after 6h.
@@ -365,7 +372,7 @@ export async function handleScheduled(
       const { sweepAbandoned } = await import('./lib/crm-carts');
       const swept = await sweepAbandoned(env, 6 * 3600);
       if (swept) console.log(`[cron:crm-carts-sweep] abandoned=${swept}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:crm-carts-sweep] failed:', e);
     }
     return;
@@ -411,7 +418,8 @@ export async function handleScheduled(
     try {
       const r = await runEmailRetention(env);
       console.log('[cron:email-retention] ' + JSON.stringify(r));
-    } catch (e) {
+      for (const error of r.errors) recordFailure(error);
+    } catch (e) { recordFailure(e);
       console.error('[cron:email-retention] failed:', e);
     }
     return;
@@ -434,7 +442,7 @@ export async function handleScheduled(
         const step = STEPS[w];
         if (!fresh && step) console.log(`[cron:${w}:fallback] ${await step(env)}`);
       }
-    } catch (e) { console.error('[cron:ugc-fallback] failed:', e); }
+    } catch (e) { recordFailure(e); console.error('[cron:ugc-fallback] failed:', e); }
     // Evening UGC payout summary to the Owner (Owner 2026-10-15): a message, never a
     // payment. The erp-ugc-payout-summary timer has no run key yet, so the ERP starts
     // it itself at 21:05–21:55 Yerevan; one message a day (day mark in crm_sync_state).
@@ -443,7 +451,7 @@ export async function handleScheduled(
       try {
         const { ugcPayoutEvening } = await import('./lib/ugc-payout-store');
         console.log(`[cron:ugc-payout-evening] ${await ugcPayoutEvening(env)}`);
-      } catch (e) {
+      } catch (e) { recordFailure(e);
         console.error('[cron:ugc-payout-evening] failed:', e);
       }
     }
@@ -460,7 +468,7 @@ export async function handleScheduled(
         const cp = await runCopyTick(env);
         console.log('[cron:email-copy] ' + JSON.stringify(cp));
       }
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:email-harvest] failed:', e);
     }
     return;
@@ -485,7 +493,7 @@ export async function handleScheduled(
     try {
       const r = await scheduleWbWeekly(env);
       console.log(`[cron:mp-pull-schedule:wb] result: ${JSON.stringify(r)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:mp-pull-schedule:wb] failed:', e);
     }
     // After WB sale ops are created, attach parked bank_tx via FIFO
@@ -493,7 +501,7 @@ export async function handleScheduled(
       const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
       const fifoResult = await runMarketplaceFifoForPartner(env, 'wb');
       console.log(`[cron:mp-fifo:wb] result: ${JSON.stringify(fifoResult)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:mp-fifo:wb] failed:', e);
     }
     return;
@@ -506,7 +514,7 @@ export async function handleScheduled(
     try {
       const r = await scheduleOzonMonthly(env);
       console.log(`[cron:mp-pull-schedule:ozon] result: ${JSON.stringify(r)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:mp-pull-schedule:ozon] failed:', e);
     }
     // After Ozon monthly sale op is created, attach parked bank_tx via FIFO
@@ -514,7 +522,7 @@ export async function handleScheduled(
       const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
       const fifoResult = await runMarketplaceFifoForPartner(env, 'ozon');
       console.log(`[cron:mp-fifo:ozon] result: ${JSON.stringify(fifoResult)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:mp-fifo:ozon] failed:', e);
     }
     return;
@@ -537,7 +545,7 @@ export async function handleScheduled(
       console.log(`[cron:dascom-rebuild] complete: ${JSON.stringify(r)}`);
       const { refreshStripeMonthDates } = await import('./lib/stripe-month-date');
       await refreshStripeMonthDates(env);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:dascom-rebuild] failed:', e);
     }
     // [DISABLED 2026-05-29] Yandex FIFO re-attach removed with the monthly aggregator.
@@ -550,7 +558,7 @@ export async function handleScheduled(
     try {
       const stats = await runInboxIngestion(env);
       console.log(`[cron:inbox] complete: ${JSON.stringify(stats)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:inbox] failed:', e);
     }
 
@@ -559,7 +567,7 @@ export async function handleScheduled(
     try {
       const bankStats = await runBankStatementIngestion(env);
       console.log(`[cron:bank-statements] complete: ${JSON.stringify(bankStats)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:bank-statements] failed:', e);
     }
 
@@ -571,7 +579,7 @@ export async function handleScheduled(
   // Create Performance API report every 6 hours at :05
   if (cron === '5 */6 * * *') {
     console.log('[cron:perf-create] starting');
-    await cronCreatePerfReport(env);
+    await cronCreatePerfReport(env, strict);
     console.log('[cron:perf-create] done');
     return;
   }
@@ -591,7 +599,8 @@ export async function handleScheduled(
       const { runAutoDeliverySweep } = await import('./auto-delivery');
       const r = await runAutoDeliverySweep(env);
       console.log(`[cron:auto-delivery] scanned=${r.scanned} delivered=${r.delivered.length} skipped=${r.skipped.length}`);
-    } catch (e) {
+      for (const skipped of r.skipped) if (/^(patch_failed_|network_error:)/.test(skipped.reason)) recordFailure(skipped.reason);
+    } catch (e) { recordFailure(e);
       console.error('[cron:auto-delivery] failed:', e);
     }
     return;
@@ -613,6 +622,7 @@ export async function handleScheduled(
           body: JSON.stringify({}),
         }
       ));
+      if (strict && !r.ok) throw new Error(`Skladbot HTTP ${r.status}`);
       const out = await r.json() as { success: boolean; result?: { synced?: Array<{ warehouse_id: string; rows: number; provider: string }> }; errors?: unknown[] };
       if (out.success && out.result?.synced) {
         for (const s of out.result.synced) {
@@ -620,8 +630,9 @@ export async function handleScheduled(
         }
       } else {
         console.error('[cron:f4-sync] sync returned errors:', JSON.stringify(out.errors));
+        recordFailure('Skladbot stock sync returned errors');
       }
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:f4-sync] stock sync failed:', e);
     }
 
@@ -635,13 +646,16 @@ export async function handleScheduled(
           body: JSON.stringify({}),
         }
       ));
+      if (strict && !r.ok) throw new Error(`Skladbot HTTP ${r.status}`);
       const out = await r.json() as { success: boolean; result?: { synced: number; total: number; errors: string[] }; errors?: unknown[] };
       if (out.success && out.result) {
         console.log(`[cron:f4-sync] requests: ${out.result.synced}/${out.result.total} synced, ${out.result.errors.length} errors`);
+        if (out.result.errors.length) recordFailure(`Skladbot requests: ${out.result.errors.length} errors`);
       } else {
         console.error('[cron:f4-sync] requests sync returned errors:', JSON.stringify(out.errors));
+        recordFailure('Skladbot requests sync returned errors');
       }
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:f4-sync] requests sync failed:', e);
     }
 
@@ -659,9 +673,12 @@ export async function handleScheduled(
           `https://internal${step.path}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
         ));
-        const out = await r.json() as { imported?: number; units?: number; results?: unknown[] };
+        if (strict && !r.ok) throw new Error(`Skladbot HTTP ${r.status}`);
+        const body = await r.json() as { success?: boolean; ok?: boolean; result?: { imported?: number; units?: number; results?: Array<{ reason?: string }>; errors?: unknown[] }; imported?: number; units?: number; results?: Array<{ reason?: string }>; errors?: unknown[] };
+        const out = body.result ?? body;
+        if (body.success === false || body.ok === false || out.errors?.length || out.results?.some(item => /^insert_failed_/.test(item.reason ?? ''))) recordFailure(`Skladbot ${step.name}: partial import failed`);
         console.log(`[cron:f4-sync] ${step.name}: imported ${out.imported ?? 0}, units ${out.units ?? 0}`);
-      } catch (e) {
+      } catch (e) { recordFailure(e);
         console.error(`[cron:f4-sync] ${step.name} import failed:`, e);
       }
     }
@@ -677,7 +694,7 @@ export async function handleScheduled(
       const { runInboxIngestionTelegram } = await import('./lib/inbox-ingestion-telegram');
       const stats = await runInboxIngestionTelegram(env);
       console.log(`[cron:tg-inbox] complete: ${JSON.stringify(stats)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:tg-inbox] failed:', e);
     }
 
@@ -698,8 +715,10 @@ export async function handleScheduled(
       const { runWebAnalyticsNightly } = await import('./lib/web-analytics-sync');
       const r = await runWebAnalyticsNightly(env);
       console.log(`[cron:web-analytics] ${r.date}: ${r.legs.join(' | ')}`);
-      await recordErpRecovery(env, 'web_analytics_nightly');
-    } catch (e) {
+      const failedLegs = r.legs.filter(leg => /: FAILED \(/.test(leg));
+      if (failedLegs.length) { for (const leg of failedLegs) recordFailure(leg); }
+      else await recordErpRecovery(env, 'web_analytics_nightly');
+    } catch (e) { recordFailure(e);
       console.error('[cron:web-analytics] failed:', e);
       await reportCronFailure(env, 'web_analytics_nightly', e, { cron: '30 2 * * *' });
     }
@@ -745,7 +764,7 @@ export async function handleScheduled(
         today: result.countToday,
         throttled: (result as any).throttled ?? false,
       })}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:wb-auto-reply:tamara-lane] failed:', e);
     }
     return;
@@ -756,14 +775,14 @@ export async function handleScheduled(
       const { runWatchdog } = await import('./lib/watchdog');
       const r = await runWatchdog(env);
       console.log(`[cron:watchdog] ${JSON.stringify(r)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:watchdog] failed:', e);
     }
     try {
       const { notifyErpCronFailures } = await import('./lib/erp-cron-failures');
       const n = await notifyErpCronFailures(env);
       if (n) console.log(`[cron:erp-cron-failures] reported ${n}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:erp-cron-failures] failed:', e);
     }
     return;
@@ -777,9 +796,10 @@ export async function handleScheduled(
         'https://internal/api/daily-digest',
         { method: 'POST', headers: { 'Content-Type': 'application/json' } }
       ));
+      if (strict && !r.ok) throw new Error(`Daily digest HTTP ${r.status}`);
       const text = await r.text();
       console.log(`[cron:daily-digest] HTTP ${r.status} body=${text.slice(0, 300)}`);
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:daily-digest] failed:', e);
     }
     return;
@@ -795,7 +815,7 @@ export async function handleScheduled(
       const итог = await runOrdersDropWatchdog(env);
       console.log(`[cron:orders-drop] ${JSON.stringify(итог)}`);
       await recordErpRecovery(env, 'orders_drop_watchdog');
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:orders-drop] упал:', e);
       await reportCronFailure(env, 'orders_drop_watchdog', e, { cron: '0 4 * * *' });
     }
@@ -809,7 +829,10 @@ export async function handleScheduled(
     try {
       const selfFetch = async (path: string) => {
         const r = await env.SELF.fetch(new Request(`https://internal${path}`));
-        return r.ok ? await r.json<{ success: boolean; result: any }>() : null;
+        if (strict && !r.ok) throw new Error(`Pulse HTTP ${r.status}`);
+        const body = r.ok ? await r.json<{ success: boolean; result: any }>() : null;
+        if (strict && (!body?.success || body.result == null)) throw new Error('Pulse response incomplete');
+        return body;
       };
 
       const [sales, spotlight, trend] = await Promise.all([
@@ -824,14 +847,20 @@ export async function handleScheduled(
         if (trend?.result) await env.CACHE.put('pulse:daily-trend', JSON.stringify(trend.result), { expirationTtl: 7200 });
         console.log('[cron:pulse-cache] cached 3 pulse endpoints');
       }
-    } catch (e) {
+    } catch (e) { recordFailure(e);
       console.error('[cron:pulse-cache] failed:', e);
     }
     return;
   }
 
     console.warn(`[cron] no handler for cron expression: ${cron}`);
+    recordFailure(`No scheduled handler for ${cron}`);
 
+  } finally {
+    // Internal ERP dispatch must not turn a caught/partial failure into ok=true.
+    // Finish the remaining independent legs before reporting the combined result.
+    if (failures.length) throw new Error(`Scheduled work incomplete: ${failures.join('; ').slice(0, 900)}`);
+  }
 }
 
 // =============================================================================

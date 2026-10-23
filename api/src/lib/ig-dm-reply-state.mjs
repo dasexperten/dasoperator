@@ -3,7 +3,7 @@ const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims
   // Rewrites the model can fix on the next attempt (guard rules of 2026-10-17); a paid request stays with a person.
   'offers a brush, paste only', 'claim about children', 'adult wording', 'warm address too early, keep it neutral', 'informal ты, always вы', 'ask for the order screenshot too', 'one person, one program; ask what she means', 'do not repeat phone and recipient to the blogger', 'command tone, ask with «пожалуйста»', 'paid notice as a question, use «Перевели N ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.»',
   'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'image_verdict_requires_clarification',
-  'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable']);
+  'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable', 'creator_stage_update_failed']);
 export const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;
@@ -29,7 +29,7 @@ export function nextReplyFailure(previous, { at, handle, reason, now = Date.now(
   // the silent retries — the conversation goes onto /ugc with the last draft for the Owner.
   const same = previous?.at === at && previous?.reason === String(reason) ? Number(previous.same ?? 1) + 1 : 1;
   // Only a refusal by the reply check counts; infrastructure failures keep their hourly retries.
-  const infra = new Set(['unparsable', 'provider_error', 'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable', 'voice_check_unavailable', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed']);
+  const infra = new Set(['unparsable', 'provider_error', 'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable', 'voice_check_unavailable', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'creator_stage_update_failed', 'conversation_check_failed', 'send_failed']);
   const stuck = kind === 'technical' && same >= 3 && !infra.has(String(reason ?? '').split(':')[0].trim());
   const mask = (t) => String(t ?? '').replace(/(?:\+?7|8)[\s\d()\-]{9,18}/g, '[телефон]');
   return { handle, at, reason: mask(reason || 'Требуется ручная проверка').slice(0, 200), kind: stuck ? 'stuck' : kind, attempts, same,

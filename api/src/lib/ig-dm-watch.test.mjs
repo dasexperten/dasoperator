@@ -18,7 +18,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-watch.ts', import.met
       export const resumeRecoveredIgImage=async()=>{}, cacheIncomingImages=async()=>{};
     ` }));
   } }] });
-const { igDmWatch } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
+const { igDmWatch, sendIgDirect } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
 
 async function run(t, { failMessage = false, failListPage = false } = {}) {
   const old = '2026-10-23T10:00:00Z', good = '2026-10-23T10:01:00Z', bad = '2026-10-23T10:02:00Z';
@@ -57,4 +57,44 @@ test('a partially failed conversation list reports failure without losing succes
 });
 test('fully successful conversation reads remain successful', async t => {
   const f = await run(t); assert.equal(f.result.ok, true); assert.equal(f.result.stored, 2); assert.equal(f.result.error, undefined);
+});
+
+async function sendFixture(t, response) {
+  let sends=0;
+  t.mock.method(globalThis,'fetch',async input=>{
+    const url=new URL(input);
+    if(url.searchParams.get('fields')==='access_token')return Response.json({access_token:'fixture-only'});
+    sends++;
+    if(response instanceof Error)throw response;
+    return response;
+  });
+  const env={META_IG_MESSAGING_TOKEN:'fixture-only',DB:{prepare(){return {bind(){return this;},async first(){return {from_id:'recipient'};}};}}};
+  return {result:await sendIgDirect(env,'creator','test'),sends};
+}
+test('send classifies explicit allowed-window rejection as known unsent',async t=>{
+  const f=await sendFixture(t,Response.json({error:{code:10,message:'Message cannot be sent outside the allowed window'}},{status:400}));
+  assert.equal(f.result.delivery,'not_sent');assert.equal(f.result.ok,false);assert.equal(f.sends,1);
+});
+for(const [name,response]of [
+  ['generic 4xx',()=>Response.json({error:{code:2,message:'An unknown error occurred'}},{status:400})],
+  ['unstructured 4xx',()=>new Response('gateway error',{status:408})],
+  ['server failure',()=>Response.json({error:{code:10,message:'Permission unavailable'}},{status:503})],
+  ['missing receipt',()=>Response.json({recipient_id:'recipient'})],
+  ['conflicting receipt and error',()=>Response.json({message_id:'maybe-sent',error:{code:10,message:'Permission denied'}},{status:400})],
+  ['transport timeout',()=>new Error('timeout')]
+])test('send keeps '+name+' ambiguous without retrying',async t=>{
+  const f=await sendFixture(t,response());assert.equal(f.result.delivery,'unknown');assert.equal(f.result.ok,false);assert.equal(f.sends,1);
+});
+test('successful send returns the actual Meta receipt',async t=>{
+  const f=await sendFixture(t,Response.json({message_id:'meta-receipt'}));assert.equal(f.result.ok,true);assert.equal(f.result.messageId,'meta-receipt');assert.equal(f.sends,1);
+});
+test('send preflight failure is known unsent and makes no POST',async t=>{
+  t.mock.method(globalThis,'fetch',()=>{throw Error('unexpected network');});
+  const r=await sendIgDirect({},'creator','text');assert.equal(r.delivery,'not_sent');assert.equal(r.ok,false);
+});
+
+test('recipient lookup failure is known unsent, not an ambiguous POST',async t=>{
+  t.mock.method(globalThis,'fetch',()=>{throw Error('unexpected network');});
+  const env={META_IG_MESSAGING_TOKEN:'fixture-only',DB:{prepare(){return {bind(){return this;},async first(){throw Error('database unavailable');}};}}};
+  const r=await sendIgDirect(env,'creator','text');assert.equal(r.delivery,'not_sent');assert.equal(r.ok,false);
 });

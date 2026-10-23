@@ -4,14 +4,15 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { wbRead, wbEgress } from '../../../workers/_marketplace/wb-egress.mjs';
 const require = createRequire(import.meta.url);
-const { transformSync } = require(require.resolve('esbuild', { paths: [process.cwd(), join(process.cwd(), 'workers')] }));
+const { transformSync, buildSync } = require(require.resolve('esbuild', { paths: [process.cwd(), join(process.cwd(), 'workers')] }));
 const dir = mkdtempSync(join(tmpdir(), 'wb-test-'));
 async function compile(path, name) {
-  writeFileSync(join(dir, name+'.mjs'), transformSync(readFileSync(path, 'utf8'), { loader:'ts', format:'esm' }).code);
+  if (name === 'runs') buildSync({ entryPoints:[fileURLToPath(path)], bundle:true, platform:'node', format:'esm', outfile:join(dir,name+'.mjs') });
+  else writeFileSync(join(dir, name+'.mjs'), transformSync(readFileSync(path, 'utf8'), { loader:'ts', format:'esm' }).code);
   return import(pathToFileURL(join(dir, name+'.mjs')));
 }
 const { wbRequest, wbPolicy, retryMilliseconds } = await compile(new URL('./wb-gateway.ts', import.meta.url), 'gateway');
@@ -32,7 +33,7 @@ c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':cha
     return JSON.parse(p.stdout);
   }
   sql(readFileSync(new URL('../../../db/migrations/20260919_wb_gateway.sql',import.meta.url),'utf8')+`
-    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8'),[],true);
+    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0138_erp_cron_api_owner.sql', import.meta.url), 'utf8'),[],true);
   return { prepare(query) { let args=[]; return { bind(...a){args=a;return this;}, async first(){return sql(query,args).results[0]??null;}, async run(){return sql(query,args);} }; } };
 }
 const url = 'https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-09-01';

@@ -16,5 +16,6 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "ERP"
 service = "dasoperator-api"
 
+# Cloudflare uses 1=Sunday: Thursday is 5. The ERP dispatch key remains historical.
 [triggers]
-crons = ["0 4 * * 4"]
+crons = ["0 4 * * 5"]

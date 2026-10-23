@@ -232,12 +232,12 @@ const SEEN_KEY = 'ig_dm_seen_conversations';
 const FRESH_PER_RUN = 20;
 const RUN_BUDGET_MS = 90_000;
 
-async function recentConversations(pageToken: string, n: number): Promise<Array<{ id: string; updated_time: string }> | null> {
+async function recentConversations(pageToken: string, n: number, onFailure?: () => void): Promise<Array<{ id: string; updated_time: string }> | null> {
   const out: Array<{ id: string; updated_time: string }> = [];
   let path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`;
   while (out.length < n) {
     const convs = await graph(path, pageToken);
-    if (!convs.ok) return out.length ? out : null;
+    if (!convs.ok) { onFailure?.(); return out.length ? out : null; }
     const data: Array<{ id: string; updated_time: string }> = convs.body?.data ?? [];
     out.push(...data);
     const after = convs.body?.paging?.cursors?.after;
@@ -303,7 +303,8 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   // Owner 2026-10-19: «ERP не должен основываться на том, что сообщение прочитано… открывать последние 50».
   // Every check looks at the 50 most recent conversations and compares each with what we last saw in THAT
   // conversation — not one global mark, never the read status (the Owner may read a message first).
-  const list = await recentConversations(pageToken, RECENT_CONVERSATIONS);
+  let listIncomplete = false;
+  const list = await recentConversations(pageToken, RECENT_CONVERSATIONS, () => { listIncomplete = true; });
   if (!list) return { ok: false, activity: false, stored: 0, incoming: 0, error: 'conversations: unreadable' };
   const now = new Date().toISOString();
   const last = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
@@ -316,7 +317,9 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   if (!last?.value) {
     if (newest) await saveMark(newest);
     await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, c.updated_time])));
-    return { ok: true, activity: false, stored: 0, incoming: 0 };
+    return listIncomplete
+      ? { ok: false, activity: true, stored: 0, incoming: 0, error: 'conversations: list incomplete' }
+      : { ok: true, activity: false, stored: 0, incoming: 0 };
   }
   const seen = await loadSeen(env);
   const storedMax = await storedLatest(env, list.map((c) => c.id));
@@ -326,7 +329,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   };
   // Newest first, a bounded share per run: a backlog is read over several runs instead of killing every run.
   const fresh = list.filter((c) => Date.parse(c.updated_time) > baseOf(c.id)).sort((a, b) => b.updated_time.localeCompare(a.updated_time));
-  let stored = 0, incoming = 0, read = 0;
+  let stored = 0, incoming = 0, read = 0, failedConversations = 0;
   const startedAt = Date.now();
   const nextSeen: Record<string, string> = { ...seen };
   for (const c of fresh) {
@@ -338,7 +341,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
     let readOk = true;
     while (messagePath) {
       const msgs = await graph(messagePath, pageToken);
-      if (!msgs.ok) { readOk = false; break; }
+      if (!msgs.ok) { readOk = false; failedConversations++; break; }
       const page = msgs.body?.messages ?? msgs.body;
       const messages = page?.data ?? [];
       for (const m of messages) {
@@ -366,5 +369,10 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   stored += await recoverMissingIgImages(env).catch(() => 0);
   if (newest && Date.parse(newest) > Date.parse(last.value)) await saveMark(newest);
   // Unread fresh conversations left → activity, so the next run comes in 3 minutes.
-  return { ok: true, activity: stored > 0 || read < fresh.length, stored, incoming };
+  const failures = [
+    ...(failedConversations ? [`${failedConversations} conversations unreadable`] : []),
+    ...(listIncomplete ? ['conversation list incomplete'] : []),
+  ];
+  return { ok: failures.length === 0, activity: stored > 0 || read < fresh.length || failures.length > 0, stored, incoming,
+    ...(failures.length ? { error: failures.join('; ') } : {}) };
 }

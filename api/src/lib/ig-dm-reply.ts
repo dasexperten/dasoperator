@@ -250,7 +250,12 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const failStep = async (reason: string) => {
       state = nextReplyFailure(state, { handle: w.h, at: w.t, reason, now, draft: lastDraft });
       await saveState(state);
-      if (state.status === 'needs_review') { escalated++; await notify(); } else errors++;
+      if (state.status === 'needs_review') {
+        escalated++;
+        // Handing a technical failure to a person does not make this run healthy.
+        if (state.kind === 'technical' || state.kind === 'stuck') errors++;
+        await notify();
+      } else errors++;
     };
     const mark = async () => {
       await env.DB.prepare(

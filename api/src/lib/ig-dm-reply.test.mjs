@@ -113,6 +113,17 @@ test('business review remains open without sending or retrying',async()=>{
  const f=fixture();f.raw=JSON.stringify({reply:null,escalate:true,reason:'спор о старой оплате'});await igDmReply(f.env);await igDmReply(f.env);
  assert.equal(incident(f).kind,'business');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.notices.length,0);
 });
+test('a third technical failure remains an error when escalated; business review is not an error',async()=>{
+ const f=fixture();f.raw=JSON.stringify({reply:null,escalate:true,reason:'image_verdict_requires_clarification'});
+ let result;
+ for(let n=0;n<3;n++){
+  if(n){const s=incident(f);s.next_retry_at=0;f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify(s));}
+  result=await igDmReply(f.env);
+ }
+ assert.equal(incident(f).kind,'stuck');assert.equal(result.escalated,1);assert.equal(result.errors,1);
+ const g=fixture();g.raw=JSON.stringify({reply:null,escalate:true,reason:'спор о старой оплате'});
+ const business=await igDmReply(g.env);assert.equal(business.escalated,1);assert.equal(business.errors,0);
+});
 test('only a return or money-back question goes to Telegram, with answer buttons (Owner 2026-10-17)',async()=>{
  const f=fixture();f.lastText='Если так то я возврат сделаю и отправлю обратно деньги';f.paid={amount_minor:76400,payout_date:'2026-10-17',first_name:'Соня'};
  f.history=[{direction:'in',text:f.lastText,created_at:f.t}];await igDmReply(f.env);await igDmReply(f.env);

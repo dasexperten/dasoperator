@@ -62,14 +62,13 @@ test('an active explicit lease blocks a due cadence and cannot be bypassed by a 
 test('an older completion cannot overwrite a successor lease', async t => {
   const f = fixture(t);
   const successor = { next_at: 2_000_000, running_since: 1_500_000, lease_until: 2_000_000, lease_token: 'successor' };
-  const result = await runAdaptiveLane(f.env, 'ugc_payouts', async () => {
+  await assert.rejects(runAdaptiveLane(f.env, 'ugc_payouts', async () => {
     f.value = JSON.stringify(successor);
     if (f.timer) await f.timer(); // An already scheduled heartbeat is stale too.
     assert.deepEqual(JSON.parse(f.value), successor);
     return { ok: true, activity: true };
-  }, f.now);
+  }, f.now), /lease no longer owned/);
   assert.deepEqual(JSON.parse(f.value), successor);
-  assert.match(result, /lease no longer owned/);
 });
 
 test('an expired lease can be reclaimed, preserving the idle cadence', async t => {

@@ -10,6 +10,11 @@ import { cronPollPerfReports } from './scheduled';
 
 type Step = (env: Env) => Promise<string>;
 
+function ugcStepError(step: string, error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return `${step}: ${reason.replace(/\s+/g, ' ').trim().slice(0, 160) || 'failed'}`;
+}
+
 async function ruTrack(env: Env): Promise<string> {
   if (!env.RU_ADMIN_TOKEN) return 'skipped: RU_ADMIN_TOKEN not set';
   // Our own .ru storefront talks to Ozon and sends the one "Д" letter (lock on its side).
@@ -51,15 +56,23 @@ export const STEPS: Record<string, Step> = {
     const { igDmWatch, igDmHasNew } = await import('./lib/ig-dm-watch');
     const { igDmReply } = await import('./lib/ig-dm-reply');
     return runAdaptiveLane(env, 'ig_dm', async (e) => {
-      const read = await igDmWatch(e);
-      const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: String(err) }));
+      const read = await igDmWatch(e).catch((err) => { throw new Error(ugcStepError('read', err)); });
+      const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: ugcStepError('reply', err) }));
+      const failures: string[] = [];
+      if (!read.ok) failures.push(ugcStepError('read', read.error ?? 'incomplete'));
+      // Escalations are business review, not execution failures. A partial
+      // reply pass with errors is still failed even if other replies succeeded.
+      if (answered.errors > 0) failures.push('error' in answered ? answered.error : ugcStepError('reply', `${answered.errors} processing failures`));
       // Owner 2026-10-19: «если активность на чате была, каждые 3 минуты». A blogger waiting for us
       // (an answer to retry, requisites with no payout yet) is activity, not silence.
       const waiting = await e.DB.prepare(
         `SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'ig_reply_escalated:%' AND json_extract(value,'$.status')='retry' AND updated_at > ?1`
-      ).bind(Date.now() - 2 * 3_600_000).first<{ n: number }>().catch(() => null);
+      ).bind(Date.now() - 2 * 3_600_000).first<{ n: number }>().catch((err) => { throw new Error(ugcStepError('waiting replies', err)); });
       const waitingOnUs = Number(waiting?.n ?? 0);
-      return { ...read, ...answered, waitingOnUs, activity: read.activity || answered.replied > 0 || waitingOnUs > 0 };
+      // Put the diagnostic first: the run journal keeps only the first 1000 characters.
+      return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
+        activity: read.activity || answered.replied > 0 || waitingOnUs > 0,
+        stored: read.stored, incoming: read.incoming, replied: answered.replied, escalated: answered.escalated, errors: answered.errors, waitingOnUs };
     }, Date.now(), igDmHasNew);
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
@@ -72,12 +85,17 @@ export const STEPS: Record<string, Step> = {
       // Owner 2026-10-19: the incident control runs inside this tick, gated to once an hour; its work is not lane activity.
       await import('./lib/ugc-incident-control').then((m) => m.incidentControl(e)).catch(() => undefined);
       const { captureDmLinks } = await import('./lib/ugc-dm-links');
-      const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: String(err) }));
-      const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: String(err) }));
+      const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: ugcStepError('links', err) }));
+      const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: err instanceof Error ? (err.message || err.name) : (String(err) || 'failed') }));
+      const failures: string[] = [];
+      if ('error' in links) failures.push(links.error);
+      // The metrics reader may return some successful rows plus an error.
+      if (content.error) failures.push(ugcStepError('content', content.error));
       // Owner 2026-10-19: a payout waiting to go out keeps the payouts lane on 3 minutes too.
-      const open = await e.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE status IN ('awaiting_approval','approved','sent')`).first<{ n: number }>().catch(() => null);
+      const open = await e.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE status IN ('awaiting_approval','approved','sent')`).first<{ n: number }>().catch((err) => { throw new Error(ugcStepError('open payouts', err)); });
       const openPayouts = Number(open?.n ?? 0);
-      return { ok: true, activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0 || openPayouts > 0, refreshed, openPayouts, links, content };
+      return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
+        activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0 || openPayouts > 0, refreshed, openPayouts, links, content };
     });
   },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.

@@ -75,7 +75,7 @@ export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = 
     const line = `${lane}: ${JSON.stringify(out)} → next in ${next.delay_min} min`;
     // Owner 2026-10-21: a failed lane is a failed run in the journal, so Mina hears of it (it used to be recorded as success).
     if (!out.ok) throw new Error(line);
-    if ((saved.meta?.changes ?? 0) !== 1) return `${lane}: lease no longer owned; result not scheduled`;
+    if ((saved.meta?.changes ?? 0) !== 1) throw new Error(`${lane}: lease no longer owned; result not scheduled`);
     return line;
   } finally { clearInterval(heartbeat); }
 }

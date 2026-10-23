@@ -12,6 +12,7 @@ on:
       - 'workers/**'
       - 'api/src/**'
       - 'scripts/check-erp-workers.mjs'
+      - 'scripts/erp-clock/schedules.json'
       - '.github/workflows/deploy-erp-workers.yml'
   workflow_dispatch:
     inputs:
@@ -49,7 +50,7 @@ jobs:
           if [ -n "$INPUT" ]; then
             if [ "$INPUT" = "all" ]; then list="$all"; else list="[\"$INPUT\"]"; fi
           elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
-               || git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE '^(workers/_shared/|workers/package|\.github/workflows/deploy-erp-workers\.yml|scripts/check-erp-workers\.mjs)'; then
+               || git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE '^(workers/_shared/|workers/package|\.github/workflows/deploy-erp-workers\.yml|scripts/check-erp-workers\.mjs|scripts/erp-clock/schedules\.json)'; then
             list="$all"
           else
             list=$(node scripts/check-erp-workers.mjs --affected $(git diff --name-only "$BEFORE" "$GITHUB_SHA"))

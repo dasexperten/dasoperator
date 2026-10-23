@@ -34,7 +34,7 @@ changes=c.execute('SELECT changes()').fetchone()[0]
 c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':changes}}))`,path],{input:JSON.stringify([query,args,script]),encoding:'utf8'});
   if(p.status)throw Error(p.stderr);return JSON.parse(p.stdout);
  }
- for(const file of ['0091_erp_cron_runs.sql','0137_erp_cron_run_key.sql','0138_erp_cron_api_owner.sql','0139_erp_cron_schedule_source.sql'])sql(readFileSync(new URL('../../db/migrations/'+file,import.meta.url),'utf8'),[],true);
+ for(const file of ['0091_erp_cron_runs.sql','0137_erp_cron_run_key.sql','0138_erp_cron_api_owner.sql','0139_erp_cron_schedule_source.sql','0140_erp_cron_local_owner.sql'])sql(readFileSync(new URL('../../db/migrations/'+file,import.meta.url),'utf8'),[],true);
  const db={sql,prepare(query){let args=[];return {bind(...a){args=a;return this},async first(){return sql(query,args).results[0]??null},async run(){
   const match=failure.match?.test(query)&&failures<(failure.times??1);
   if(match&&failure.before){failures++;throw Error('Network connection lost')}

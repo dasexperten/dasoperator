@@ -11,8 +11,7 @@ export interface TriggerEnv extends BaseEnv {
 export function erpTriggerWorker(worker: string): ExportedHandler<TriggerEnv> {
   return erpWorker<TriggerEnv>(worker, async (env, dry, _cron, context) => {
     if (dry) return { note: env.DRY_NOTE ?? 'dry · ERP job not started' };
-    // A fresh deploy runs before its key is set: record the skip instead of alerting.
-    if (!env.ERP_RUN_SECRET) return { note: 'SKIPPED — no ERP_RUN_SECRET on this worker yet' };
+    if (!env.ERP_RUN_SECRET) throw new Error('ERP_RUN_SECRET missing; ERP job was not started');
     context.phase('erp_fetch_start');
     const res = await env.ERP.fetch(`https://internal/internal/cron/${worker}`, {
       method: 'POST',

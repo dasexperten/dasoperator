@@ -16,6 +16,8 @@ on:
     branches: [main]
     paths:
       - 'api/**'
+      # The API imports durable execution ownership from this shared source.
+      - 'workers/_shared/run-journal.ts'
       - '.github/workflows/deploy-worker.yml'
       - 'scripts/deploy-worker-diagnostics*'
   workflow_dispatch:

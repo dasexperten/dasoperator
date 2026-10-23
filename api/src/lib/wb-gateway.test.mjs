@@ -33,7 +33,7 @@ c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':cha
     return JSON.parse(p.stdout);
   }
   sql(readFileSync(new URL('../../../db/migrations/20260919_wb_gateway.sql',import.meta.url),'utf8')+`
-    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0138_erp_cron_api_owner.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0139_erp_cron_schedule_source.sql', import.meta.url), 'utf8'),[],true);
+    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0138_erp_cron_api_owner.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0139_erp_cron_schedule_source.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0140_erp_cron_local_owner.sql', import.meta.url), 'utf8'),[],true);
   return { prepare(query) { let args=[]; return { bind(...a){args=a;return this;}, async first(){return sql(query,args).results[0]??null;}, async run(){return sql(query,args);} }; } };
 }
 const url = 'https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-09-01';
@@ -69,15 +69,17 @@ test('client has no direct fallback and retries are bounded',async()=>{
  calls=0;env.WB_GATEWAY.fetch=async()=>{calls++;return new Response('',{status:429,headers:{'Retry-After':'719'}});};
  await wbRead(env,url);assert.equal(calls,1);
 });
-test('scheduled duplicate and overlapping manual run do not execute a second job',async()=>{
+test('scheduled duplicate and overlapping manual run do not execute a second job',async(t)=>{
  const env={DB:database()};let calls=0;let release;
+ const scheduledTime=Date.parse('2026-10-23T01:00:00Z');t.mock.method(Date,'now',()=>scheduledTime+1234);
  const waiting=new Promise(r=>release=r);
- const first=runLogged(env,'erp-wb-sales','15 22 * * *',async()=>{calls++;await waiting;return {rows:31};},1234);
- await new Promise(r=>setTimeout(r,10));
+ let entered;const started=new Promise(r=>entered=r);
+ const first=runLogged(env,'erp-wb-sales','0 1 * * *',async()=>{calls++;entered();await waiting;return {rows:31};},scheduledTime+1234);
+ await started;
  const concurrent=await runLogged(env,'erp-wb-sales','manual',async()=>{calls++;return {};});
  assert.match(concurrent.note,/already running/);release();await first;
- const duplicate=await runLogged(env,'erp-wb-sales','15 22 * * *',async()=>{calls++;return {};},1234);
- assert.match(duplicate.note,/already handled/);assert.equal(calls,1);
+ const duplicate=await runLogged(env,'erp-wb-sales','0 1 * * *',async()=>{calls++;return {};},scheduledTime);
+ assert.equal(duplicate.rows,31);assert.equal(duplicate.localOwned,true);assert.equal(calls,1);
 });
 test('WB FBO requests cannot touch a database or network',async(t)=>{
  t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected network');});

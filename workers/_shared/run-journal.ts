@@ -4,6 +4,8 @@ export interface JournalRow {
   worker: string;
   api_owner: string | null;
   api_started_at: string | null;
+  local_owner: string | null;
+  local_started_at: string | null;
   finished_at: string | null;
   ok: number | null;
   rows: number | null;
@@ -43,7 +45,7 @@ export async function journalWrite(write: () => Promise<D1Result>, retry: (attem
 }
 
 export async function readRun(db: D1Database, runKey: string): Promise<JournalRow | null> {
-  return db.prepare('SELECT run_key, worker, api_owner, api_started_at, finished_at, ok, rows, note, error FROM erp_cron_runs WHERE run_key = ?')
+  return db.prepare('SELECT run_key, worker, api_owner, api_started_at, local_owner, local_started_at, finished_at, ok, rows, note, error FROM erp_cron_runs WHERE run_key = ?')
     .bind(runKey).first<JournalRow>();
 }
 
@@ -53,25 +55,30 @@ export function terminalOutcome(row: JournalRow): JournalOutcome {
     ...(row.note === null ? {} : { note: row.note }), ...(row.error === null ? {} : { error: row.error }) };
 }
 
-export async function finishTimerRun(db: D1Database, runKey: string, outcome: JournalOutcome, phase: Phase)
-  : Promise<{ state: 'finished'; outcome: JournalOutcome; apiOwned?: boolean } | { state: 'api_pending' }> {
+export async function finishTimerRun(db: D1Database, runKey: string, outcome: JournalOutcome, phase: Phase, localOwner?: string)
+  : Promise<{ state: 'finished'; outcome: JournalOutcome; apiOwned?: boolean; localOwned?: boolean } | { state: 'api_pending' } | { state: 'local_pending' }> {
   const finishedAt = new Date().toISOString();
   let result: D1Result;
   try { result = await journalWrite(() => db.prepare(`UPDATE erp_cron_runs
     SET finished_at = ?, ok = ?, rows = ?, note = ?, error = ?
-    WHERE run_key = ? AND api_owner IS NULL AND finished_at IS NULL`)
+    WHERE run_key = ? AND api_owner IS NULL AND finished_at IS NULL
+      AND ${localOwner ? 'local_owner = ?' : 'local_owner IS NULL'}`)
     .bind(finishedAt, outcome.ok ? 1 : 0, outcome.rows ?? null, outcome.note?.slice(0, 1000) ?? null,
-      outcome.error?.slice(0, 1000) ?? null, runKey).run(), attempt => phase(`journal_finish_retry_${attempt}`));
+      outcome.error?.slice(0, 1000) ?? null, runKey, ...(localOwner ? [localOwner] : [])).run(), attempt => phase(`journal_finish_retry_${attempt}`));
   } catch (error) {
     const row = await readRun(db, runKey).catch(() => null);
-    if (row?.finished_at) return { state: 'finished', outcome: terminalOutcome(row), ...(row.api_owner ? { apiOwned: true } : {}) };
+    if (row?.finished_at) return { state: 'finished', outcome: terminalOutcome(row), ...(row.api_owner ? { apiOwned: true } : {}), ...(row.local_owner ? { localOwned: true } : {}) };
     throw error;
   }
-  if (result.meta.changes === 1) return { state: 'finished', outcome };
+  if (result.meta.changes === 1) return { state: 'finished', outcome, ...(localOwner ? { localOwned: true } : {}) };
   // Includes a lost acknowledgement of our own previous terminal write.
   const row = await readRun(db, runKey);
   if (!row) throw new Error('Run journal terminal update matched no unique row');
-  if (row.finished_at) return { state: 'finished', outcome: terminalOutcome(row), ...(row.api_owner ? { apiOwned: true } : {}) };
+  if (row.finished_at) return { state: 'finished', outcome: terminalOutcome(row), ...(row.api_owner ? { apiOwned: true } : {}), ...(row.local_owner ? { localOwned: true } : {}) };
+  if (row.local_owner) {
+    if (row.local_owner === localOwner) throw new Error('Local run completion was not confirmed');
+    return { state: 'local_pending' };
+  }
   if (!row.api_owner) throw new Error('Run journal terminal update did not finish an unclaimed row');
   await journalWrite(() => db.prepare(`UPDATE erp_cron_runs SET transport_error = ?
     WHERE run_key = ? AND api_owner IS NOT NULL`)
@@ -80,6 +87,31 @@ export async function finishTimerRun(db: D1Database, runKey: string, outcome: Jo
   const latest = await readRun(db, runKey);
   if (latest?.finished_at) return { state: 'finished', outcome: terminalOutcome(latest), ...(latest.api_owner ? { apiOwned: true } : {}) };
   return { state: 'api_pending' };
+}
+
+/** Durable local ownership has no TTL: a disconnected caller never authorizes replay. */
+export async function claimLocalRun(db: D1Database, worker: string, runKey: string, triggerSource: string, phase: Phase)
+  : Promise<{ state: 'claimed'; owner: string } | { state: 'pending' } | { state: 'finished'; outcome: JournalOutcome }> {
+  const owner = crypto.randomUUID(), startedAt = new Date().toISOString();
+  phase('local_claim_start');
+  let claimed: D1Result;
+  try {
+    claimed = await journalWrite(() => db.prepare(`UPDATE erp_cron_runs
+      SET local_owner = ?, local_started_at = ?, local_trigger_source = ?
+      WHERE run_key = ? AND worker = ? AND finished_at IS NULL AND api_owner IS NULL
+        AND (local_owner IS NULL OR local_owner = ?)`)
+      .bind(owner, startedAt, triggerSource, runKey, worker, owner).run(), attempt => phase(`local_claim_retry_${attempt}`));
+  } catch (error) {
+    const row = await readRun(db, runKey).catch(() => null);
+    if (row?.worker !== worker || row.local_owner !== owner || row.finished_at) throw error;
+    claimed = { success: true, meta: { changes: 1 } } as D1Result;
+  }
+  if (claimed.meta.changes === 1) return { state: 'claimed', owner };
+  const row = await readRun(db, runKey);
+  if (!row || row.worker !== worker) throw new Error('Local run journal row missing or worker mismatch');
+  if (row.finished_at) return { state: 'finished', outcome: terminalOutcome(row) };
+  if (row.local_owner || row.api_owner) return { state: 'pending' };
+  throw new Error('Local run claim was not confirmed');
 }
 
 export async function runApiStep(db: D1Database, worker: string, runKey: string,
@@ -91,7 +123,7 @@ export async function runApiStep(db: D1Database, worker: string, runKey: string,
   // invocation's owner token. Other callers never reclaim an in-flight step.
   let claimed: D1Result;
   try { claimed = await journalWrite(() => db.prepare(`UPDATE erp_cron_runs SET api_owner = ?, api_started_at = ?, api_trigger_source = ?
-    WHERE run_key = ? AND worker = ? AND finished_at IS NULL AND (api_owner IS NULL OR api_owner = ?)`)
+    WHERE run_key = ? AND worker = ? AND finished_at IS NULL AND local_owner IS NULL AND (api_owner IS NULL OR api_owner = ?)`)
     .bind(owner, startedAt, triggerSource, runKey, worker, owner).run(), attempt => phase(`erp_claim_retry_${attempt}`));
   } catch (error) {
     const row = await readRun(db, runKey).catch(() => null);
@@ -103,7 +135,7 @@ export async function runApiStep(db: D1Database, worker: string, runKey: string,
     const row = await readRun(db, runKey);
     if (!row || row.worker !== worker) throw new Error('ERP run journal row missing or worker mismatch');
     if (row.finished_at) return terminalOutcome(row);
-    if (row.api_owner) return { ok: false, pending: true, error: 'ERP step already accepted; completion unconfirmed' };
+    if (row.api_owner || row.local_owner) return { ok: false, pending: true, error: 'ERP step already accepted; completion unconfirmed' };
     throw new Error('ERP run claim was not confirmed');
   }
   phase('erp_step_start');

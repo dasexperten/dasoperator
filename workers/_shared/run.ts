@@ -12,12 +12,49 @@ export interface BaseEnv {
   ERP_RUN_SECRET?: string;
 }
 
-type Job<E> = (env: E, dry: boolean, cron: string) => Promise<RunOutcome>;
+export interface JobContext {
+  runKey: string;
+  scheduledTime?: number;
+  // Only fixed phase names; do not pass business payloads or upstream errors.
+  phase: (name: string) => void;
+}
+
+type Job<E> = (env: E, dry: boolean, cron: string, context: JobContext) => Promise<RunOutcome>;
 
 interface RunReport extends RunOutcome {
   ok: boolean;
   dry: boolean;
   error?: string;
+  runKey?: string;
+  jobOk?: boolean;
+  journalError?: 'insert' | 'finish';
+}
+
+// These documented D1 errors are transient. A write can already have committed,
+// so every retried journal statement must be idempotent using the same run key.
+function transientD1(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const message = current instanceof Error ? current.message : String(current);
+    if (/Network connection lost|storage caused object to be reset|reset because its code was updated/i.test(message)) return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
+}
+
+async function journalWrite(write: () => Promise<D1Result>, retry: (attempt: number) => void): Promise<D1Result> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const result = await write();
+      const status = result as { success: boolean; error?: string };
+      if (!status.success) throw new Error(status.error || 'D1 journal write unsuccessful');
+      return result;
+    } catch (error) {
+      if (attempt >= 3 || !transientD1(error)) throw error;
+      retry(attempt);
+      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** (attempt - 1) + Math.floor(Math.random() * 25)));
+    }
+  }
 }
 
 export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>, scheduledTime?: number): Promise<RunReport> {
@@ -25,58 +62,94 @@ export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron:
   const guarded = worker.startsWith('erp-wb-') && !dry;
   const lock = `lock:${worker}`;
   const now = Date.now();
+  const runKey = crypto.randomUUID();
   const lease = crypto.randomUUID();
-  if (guarded) {
-    const got = await env.DB.prepare(`INSERT INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?)
-      ON CONFLICT(worker) DO UPDATE SET slot=excluded.slot, lease_until=excluded.lease_until WHERE erp_job_claims.lease_until<=?
-      RETURNING worker`).bind(lock, lease, now + 15 * 60_000, now).first();
-    if (!got) return { ok: true, dry, note: 'SKIPPED — WB sync already running' };
-    if (scheduledTime !== undefined) {
-      const slot = await env.DB.prepare(`INSERT OR IGNORE INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?) RETURNING worker`)
-        .bind(`slot:${worker}:${scheduledTime}`, String(scheduledTime), now).first();
-      if (!slot) {
-        await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock, lease).run();
-        return { ok: true, dry, note: 'SKIPPED — scheduled WB slot already handled' };
+  let previousPhaseAt = now;
+  const phase = (name: string) => {
+    const at = Date.now();
+    console.log(JSON.stringify({ worker, run_key: runKey, scheduledTime: scheduledTime ?? null, phase: name,
+      elapsed_ms: at - now, phase_ms: at - previousPhaseAt }));
+    previousPhaseAt = at;
+  };
+  const context: JobContext = { runKey, scheduledTime, phase };
+  let lockHeld = false;
+  let slotClaimed = false;
+  let jobStarted = false;
+  let terminalJournalFailed = false;
+  const slotKey = `slot:${worker}:${scheduledTime}`;
+  phase('start');
+  try {
+    if (guarded) {
+      const got = await env.DB.prepare(`INSERT INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?)
+        ON CONFLICT(worker) DO UPDATE SET slot=excluded.slot, lease_until=excluded.lease_until WHERE erp_job_claims.lease_until<=?
+        RETURNING worker`).bind(lock, lease, now + 15 * 60_000, now).first();
+      if (!got) { phase('lock_busy'); return { ok: true, dry, runKey, note: 'SKIPPED — WB sync already running' }; }
+      lockHeld = true;
+      if (scheduledTime !== undefined) {
+        const slot = await env.DB.prepare(`INSERT OR IGNORE INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?) RETURNING worker`)
+          .bind(slotKey, String(scheduledTime), now).first();
+        if (!slot) { phase('slot_consumed'); return { ok: true, dry, runKey, note: 'SKIPPED — scheduled WB slot already handled' }; }
+        slotClaimed = true;
       }
     }
-  }
-  let id: number | null = null;
-  try {
-    const row = await env.DB.prepare(
-      'INSERT INTO erp_cron_runs (worker, cron, started_at, dry_run) VALUES (?, ?, ?, ?) RETURNING id',
-    ).bind(worker, cron, new Date().toISOString(), dry ? 1 : 0).first<{ id: number }>();
-    id = row?.id ?? null;
-  } catch (e) {
-    console.error(`[${worker}] run log insert failed`, e);
-  }
-
-  let report: RunReport;
-  try {
-    const out = await job(env, dry, cron);
-    report = { ok: true, dry, ...out };
-  } catch (e) {
-    report = { ok: false, dry, error: e instanceof Error ? e.message : String(e) };
-  }
-
-  if (id !== null) {
+    const startedAt = new Date().toISOString();
+    phase('journal_insert_start');
     try {
-      await env.DB.prepare(
-        'UPDATE erp_cron_runs SET finished_at = ?, ok = ?, rows = ?, note = ?, error = ? WHERE id = ?',
-      ).bind(
-        new Date().toISOString(),
-        report.ok ? 1 : 0,
-        report.rows ?? null,
-        report.note?.slice(0, 1000) ?? null,
-        report.error?.slice(0, 1000) ?? null,
-        id,
-      ).run();
-    } catch (e) {
-      console.error(`[${worker}] run log update failed`, e);
+      await journalWrite(() => env.DB.prepare(
+        'INSERT INTO erp_cron_runs (run_key, worker, cron, started_at, dry_run) VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_key) DO NOTHING',
+      ).bind(runKey, worker, cron, startedAt, dry ? 1 : 0).run(), attempt => phase(`journal_insert_retry_${attempt}`));
+    } catch (error) {
+      phase('journal_insert_failed');
+      return { ok: false, dry, runKey, journalError: 'insert', error: `Run journal insert failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    phase('journal_insert_finished');
+
+    let report: RunReport;
+    jobStarted = true;
+    phase('job_start');
+    try {
+      const out = await job(env, dry, cron, context);
+      report = { ...out, ok: true, dry, runKey };
+    } catch (error) {
+      report = { ok: false, dry, runKey, error: error instanceof Error ? error.message : String(error) };
+    }
+    phase(report.ok ? 'job_succeeded' : 'job_failed');
+    const finishedAt = new Date().toISOString();
+    phase('journal_finish_start');
+    try {
+      const result = await journalWrite(() => env.DB.prepare(
+        'UPDATE erp_cron_runs SET finished_at = ?, ok = ?, rows = ?, note = ?, error = ? WHERE run_key = ?',
+      ).bind(finishedAt, report.ok ? 1 : 0, report.rows ?? null, report.note?.slice(0, 1000) ?? null,
+        report.error?.slice(0, 1000) ?? null, runKey).run(), attempt => phase(`journal_finish_retry_${attempt}`));
+      if (result.meta.changes !== 1) throw new Error('Run journal terminal update matched no unique row');
+    } catch (error) {
+      terminalJournalFailed = true;
+      phase('journal_finish_failed');
+      return { ...report, ok: false, jobOk: report.ok, journalError: 'finish',
+        error: `Run journal finish failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    phase('journal_finish_finished');
+    return report;
+  } finally {
+    // A slot is consumed only after the action starts. Preserve consumed slots even
+    // when final logging fails, and always attempt to release this invocation's lock.
+    try {
+      if (slotClaimed && !jobStarted) await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?')
+        .bind(slotKey, String(scheduledTime)).run();
+    } finally {
+      if (lockHeld) {
+        try {
+          await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock, lease).run();
+        } catch (error) {
+          phase('lock_release_failed');
+          // Preserve the terminal-journal report so scheduled noRetry still runs.
+          // The existing lock lease expires; do not turn this into action replay.
+          if (!terminalJournalFailed) throw error;
+        }
+      }
+      phase('end');
     }
   }
-  if (guarded) await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock, lease).run();
-  console.log(`[${worker}] ${JSON.stringify(report)}`);
-  return report;
 }
 
 function sameSecret(a: string, b: string): boolean {
@@ -91,7 +164,18 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
     async scheduled(event, env, ctx) {
       ctx.waitUntil(
         runLogged(env, worker, event.cron, job, event.scheduledTime).then((r) => {
-          if (!r.ok) throw new Error(r.error);
+          if (!r.ok) {
+            if (r.journalError === 'finish') {
+              // The action already ran. A scheduled retry would repeat its effects.
+              if (typeof event.noRetry === 'function') event.noRetry();
+              else {
+                console.error(JSON.stringify({ worker, run_key: r.runKey, scheduledTime: event.scheduledTime,
+                  phase: 'journal_finish_failed_no_retry_unavailable', ok: false, jobOk: r.jobOk }));
+                return;
+              }
+            }
+            throw new Error(r.error);
+          }
         }),
       );
     },
@@ -99,17 +183,18 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
     async fetch(req, env) {
       const url = new URL(req.url);
       if (url.pathname === '/health') {
-        // Freshness without a token: an audit reads the last logged run here.
-        // If D1 is slow or down, health stays green and last_run reads null.
+        // Report journal availability separately from the latest action's state.
         let last_run = null;
         try {
           last_run = await env.DB.prepare(
-            'SELECT cron, started_at, finished_at, ok, rows, error FROM erp_cron_runs WHERE worker = ? ORDER BY id DESC LIMIT 1',
-          ).bind(worker).first();
+            'SELECT run_key, cron, started_at, finished_at, ok, rows, error FROM erp_cron_runs WHERE worker = ? ORDER BY id DESC LIMIT 1',
+          ).bind(worker).first<{ finished_at: string | null; ok: number | null }>();
         } catch {
-          // health must never fail because of the freshness probe
+          return Response.json({ ok: false, worker, dry_run: env.DRY_RUN === '1', last_run: null,
+            last_run_status: 'unavailable', error: 'Run journal unavailable' }, { status: 503 });
         }
-        return Response.json({ ok: true, worker, dry_run: env.DRY_RUN === '1', last_run });
+        const last_run_status = !last_run ? 'none' : !last_run.finished_at ? 'running' : last_run.ok === 1 ? 'succeeded' : 'failed';
+        return Response.json({ ok: true, worker, dry_run: env.DRY_RUN === '1', last_run, last_run_status });
       }
       if (url.pathname === '/run' && req.method === 'POST') {
         const secret = env.ERP_RUN_SECRET ?? '';

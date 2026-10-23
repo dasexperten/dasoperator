@@ -15,9 +15,10 @@ export async function notifyErpCronFailures(env: Env): Promise<number> {
   // Owner 2026-10-03: all recovered failures stay quiet, not just cut-offs.
   await env.DB.prepare(
     `UPDATE erp_cron_runs SET notified = 1, note = COALESCE(note, '') || ' recovered: a later run succeeded; not reported'
-      WHERE ok = 0 AND notified = 0
+      WHERE ok = 0 AND notified = 0 AND finished_at IS NOT NULL
         AND EXISTS (SELECT 1 FROM erp_cron_runs later
                      WHERE later.worker = erp_cron_runs.worker AND later.id > erp_cron_runs.id AND later.ok = 1
+                       AND later.finished_at IS NOT NULL
                        -- Owner 2026-10-21: a tick that only said not due or taken did no work and proves nothing.
                        AND COALESCE(later.note, '') NOT LIKE '%: not due%' AND COALESCE(later.note, '') NOT LIKE '%: taken by another run%')`,
   ).run();

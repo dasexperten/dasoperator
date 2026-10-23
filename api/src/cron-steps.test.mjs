@@ -16,6 +16,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta
     b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `
       const call = name => globalThis.__ugcCron.call(name);
       export const cronPollPerfReports=()=>call('unused');
+      export const runPromoRefillSweep=()=>call('refill');
       export const igDmWatch=()=>call('read'), igDmHasNew=()=>call('probe'), igDmReply=()=>call('reply');
       export const ugcPayoutSweep=()=>call('payout'), ugcPayoutEvening=()=>call('unused');
       export const incidentControl=()=>call('incidents'), captureDmLinks=()=>call('links'), refreshContentMetrics=()=>call('content');
@@ -73,4 +74,11 @@ test('payout idle is success; sweep exception is failure', async t => {
 test('required waiting and payout count reads cannot report unknown as zero and succeed', async t => {
   await failsInThreeMinutes(t, 'erp-ugc-direct', { countFailure: new Error('D1 read unavailable') }, /waiting replies.*D1 read unavailable/);
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { countFailure: new Error('D1 read unavailable') }, /open payouts.*D1 read unavailable/);
+});
+
+test('promo refill errors are failures even when other rules succeeded', async t => {
+  const f = fixture(t, { refill: { rules_checked: 36, refills_triggered: 1, errors: ['legacy control disabled'] } });
+  await assert.rejects(STEPS['erp-promo-refill'](f.env), /promo refill: 1 errors; legacy control disabled/);
+  const g = fixture(t, { refill: { rules_checked: 36, refills_triggered: 0, errors: [] } });
+  assert.equal(JSON.parse(await STEPS['erp-promo-refill'](g.env)).rules_checked, 36);
 });

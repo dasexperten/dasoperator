@@ -85,6 +85,9 @@ jobs:
       - name: Test adaptive background job leases
         run: node --test api/src/lib/adaptive-cadence.test.mjs api/src/lib/adaptive-runner.test.mjs
 
+      - name: Test durable cron journal and truthful recovery
+        run: node --test workers/_shared/run.test.mjs api/src/lib/erp-cron-failures.test.mjs
+
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs
 

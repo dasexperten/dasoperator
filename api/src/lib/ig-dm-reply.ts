@@ -55,7 +55,7 @@ export async function ensureCreator(env: Env, handle: string): Promise<{cid: str
 
 /** Owner 2026-10-21: a reply that closes the exchange and needs no answer. Anything else is a real message. */
 export function isClosingReply(text: string, hasMedia: boolean): boolean {
-  if (hasMedia) return false;
+  if (hasMedia || /[?？]/u.test(text)) return false;
   // Owner 2026-10-22: «хорошо спасибо большое», «я поняла, нет спасибо ☺️», «спасибо 🥰 так приятно! буду и дальше стараться»
   // are closings, not questions for the Owner. A short message made only of courtesy words closes the exchange.
   const t = text.toLowerCase().replace(/ё/g, 'е').replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
@@ -71,6 +71,19 @@ const CLOSING_WORDS = new Set(('да нет ок окей ok ладно хоро
   'буду будем дальше стараться постараюсь жду ждем ждите пришлю пришлем обязательно конечно договорились ' +
   'ага угу тогда удачи хорошего дня вечера всего доброго вы лучшие средства деньги пришли пришло дошли дошло получила получил ' +
   'ролик как будет готов готово сделаю сниму скоро').split(' '));
+
+// Narrower than isClosingReply: payment/order/video facts and refusals must still reach Diana.
+// DH-LAW-261021-01: a pure courtesy after our reply does not need another generated reply.
+const ACKNOWLEDGEMENT_WORDS = new Set(('ок окей ok ладно хорошо отлично супер класс круто понятно ясно поняла понял ' +
+  'спасибо спс благодарю большое огромное вам вас и тоже взаимно это я мне так очень приятно рада рад ' +
+  'тогда договорились удачи хорошего дня вечера всего доброго вы лучшие').split(' '));
+function isSimpleAcknowledgement(message: Msg): boolean {
+  const text = message.text ?? '';
+  const hasMedia = Boolean(message.unsupported || (message.attachments_json && message.attachments_json !== '[]'));
+  if (!text.trim() || /[?？]/u.test(text) || !isClosingReply(text, hasMedia)) return false;
+  const words = text.toLowerCase().replace(/ё/g, 'е').match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.length ? words.every((word) => ACKNOWLEDGEMENT_WORDS.has(word)) : /\p{Extended_Pictographic}/u.test(text);
+}
 
 /** One awaiting payout per blogger; an existing open row is reused. */
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
@@ -280,6 +293,18 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       else attachmentMetadataMissing=true;
     }
     if(attachmentMetadataMissing){await failStep('current_attachment_metadata_unavailable');continue;}
+    const pendingAcknowledgements = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
+    let previousQuestion = false;
+    for (let i = lastOutIndex; i >= 0 && history[i]!.direction === 'out'; i--) {
+      previousQuestion ||= /[?？]/u.test(history[i]!.text ?? '');
+    }
+    // rama.zonshop: «Хорошо» after our request for a link triggered the same request again.
+    // Finish pure acknowledgements before context/model work; a question or any meaningful item in the burst stays open.
+    if (lastOutIndex >= 0 && !previousQuestion
+      && pendingAcknowledgements.length > 0 && pendingAcknowledgements.every(isSimpleAcknowledgement)) {
+      await mark();
+      continue;
+    }
     const creator = await env.DB.prepare(
       `SELECT c.id, c.display_name, c.city, c.lifecycle_stage FROM ugc_creators c WHERE c.id=?1`
     ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null; lifecycle_stage: string | null }>();

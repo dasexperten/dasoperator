@@ -128,7 +128,9 @@ export const STEPS: Record<string, Step> = {
   },
   'erp-promo-refill': async (env) => {
     const { runPromoRefillSweep } = await import('./routes/marketplaces-promos');
-    return JSON.stringify(await runPromoRefillSweep(env));
+    const result = await runPromoRefillSweep(env);
+    if (result.errors.length) throw new Error(`promo refill: ${result.errors.length} errors; ${result.errors[0]}`);
+    return JSON.stringify(result);
   },
   'erp-marketplace-pull': async (env) => {
     const { tickMarketplacePull } = await import('./lib/marketplace-pull');

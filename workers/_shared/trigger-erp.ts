@@ -8,15 +8,18 @@ export interface TriggerEnv extends BaseEnv {
 }
 
 export function erpTriggerWorker(worker: string): ExportedHandler<TriggerEnv> {
-  return erpWorker<TriggerEnv>(worker, async (env, dry) => {
+  return erpWorker<TriggerEnv>(worker, async (env, dry, _cron, context) => {
     if (dry) return { note: env.DRY_NOTE ?? 'dry · ERP job not started' };
     // A fresh deploy runs before its key is set: record the skip instead of alerting.
     if (!env.ERP_RUN_SECRET) return { note: 'SKIPPED — no ERP_RUN_SECRET on this worker yet' };
+    context.phase('erp_fetch_start');
     const res = await env.ERP.fetch(`https://internal/internal/cron/${worker}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${env.ERP_RUN_SECRET ?? ''}` },
+      headers: { Authorization: `Bearer ${env.ERP_RUN_SECRET ?? ''}`, 'X-Erp-Run-Key': context.runKey },
     });
+    context.phase('erp_headers_received');
     const body = (await res.json().catch(() => null)) as { ok?: boolean; cron?: string; ms?: number; note?: string; error?: string } | null;
+    context.phase('erp_body_received');
     if (!res.ok || !body?.ok) throw new Error(`ERP job ${worker}: HTTP ${res.status} ${body?.error ?? ''}`.trim());
     return { note: body.note ? `${body.note} · ${body.ms} ms` : `ERP job "${body.cron}" done in ${body.ms} ms` };
   });

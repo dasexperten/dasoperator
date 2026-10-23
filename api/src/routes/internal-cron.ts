@@ -111,10 +111,19 @@ route.post('/:worker', async (c) => {
   }
   const step = STEPS[worker];
   if (step) {
+    const runKey = c.req.header('X-Erp-Run-Key') ?? '';
+    const trace = (phase: string) => {
+      if (/^[a-f0-9-]{36}$/i.test(runKey)) console.log(JSON.stringify({
+        worker, run_key: runKey, phase, elapsed_ms: Date.now() - started,
+      }));
+    };
+    trace('erp_step_start');
     try {
       const note = await step(c.env);
+      trace('erp_step_succeeded');
       return c.json({ ok: true, cron: 'step', note, ms: Date.now() - started });
     } catch (e) {
+      trace('erp_step_failed');
       return c.json({ ok: false, cron: 'step', error: e instanceof Error ? e.message : String(e) }, 500);
     }
   }

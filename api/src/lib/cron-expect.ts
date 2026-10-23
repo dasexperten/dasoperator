@@ -27,7 +27,7 @@ function parseField(src: string, min: number, max: number): Field {
       hi = stepRaw ? max : lo;
     }
     if (![lo, hi, step].every(Number.isFinite) || step < 1) throw new Error(`bad cron field "${src}"`);
-    for (let v = lo; v <= hi; v += step) set.add(v === 7 && max === 7 ? 0 : v);
+    for (let v = lo; v <= hi; v += step) set.add(v);
   }
   return { any: false, set };
 }

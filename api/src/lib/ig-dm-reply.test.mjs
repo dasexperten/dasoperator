@@ -144,6 +144,43 @@ test('silence only after a closing reply; a real message is never closed unseen 
  const h=fixture();h.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(h.env);assert.notEqual(handled(h),h.t);assert.equal(h.systems.length,2);
  const g=fixture();g.live=false;await igDmReply(g.env);assert.equal(handled(g),g.t);assert.equal(g.sent.length,0);
 });
+test('rama closing acknowledgement is handled before generation even when the writer would reply', async()=>{
+ for (const text of ['Хорошо', 'Хорошо, спасибо большое ❤️', 'И вам удачи! Спасибо!']) {
+  const f=fixture();
+  f.history=[{direction:'in',text,attachments_json:'[]',created_at:f.t},{direction:'out',text:'Как будет готов, пришлите ссылку.',created_at:new Date(Date.parse(f.t)-60_000).toISOString()}];
+  f.raw=JSON.stringify({reply:'Ждём ролик!',escalate:false});
+  const result=await igDmReply(f.env);
+  assert.equal(handled(f),f.t);assert.equal(f.systems.length,0);assert.equal(f.contextReady,undefined);
+  assert.equal(f.sent.length,0);assert.deepEqual(result,{replied:0,escalated:0,errors:0});
+  await igDmReply(f.env);assert.equal(f.sent.length,0);
+ }
+});
+test('closing skip preserves questions, requests, media, progress and answers to our question', async()=>{
+ const cases=[
+  {text:'Хорошо?'},
+  {text:'Хорошо, а когда перевод?'},
+  {text:'Спасибо, пришлите артикул'},
+  {text:'Хорошо, завтра выложу ❤️'},
+  {text:'Ролик готов'},
+  {text:'Спасибо, деньги пришли'},
+  {text:'Нет, спасибо'},
+  {text:'Хорошо',attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/photo"}}]'},
+  {text:'Хорошо',previous:'Вы согласны на этот вариант?'},
+  {text:'Хорошо',noPrevious:true},
+ ];
+ for(const c of cases){
+  const f=fixture();f.history=[{direction:'in',text:c.text,attachments_json:c.attachments_json??'[]',created_at:f.t}];
+  if(!c.noPrevious)f.history.push({direction:'out',text:c.previous??'Пришлите ссылку, когда выложите.',created_at:new Date(Date.parse(f.t)-60_000).toISOString()});
+  await igDmReply(f.env);assert.equal(f.systems.length,1,JSON.stringify(c));assert.equal(f.sent.length,1,JSON.stringify(c));
+ }
+ // A trailing courtesy must not hide a real request in the same incoming burst.
+ const f=fixture();f.history=[{direction:'in',text:'Спасибо',created_at:f.t},{direction:'in',text:'Пришлите артикул',created_at:new Date(Date.parse(f.t)-1000).toISOString()},{direction:'out',text:'Посмотрите товар в поиске.',created_at:new Date(Date.parse(f.t)-60_000).toISOString()}];
+ await igDmReply(f.env);assert.equal(f.systems.length,1);assert.equal(f.sent.length,1);
+ const q=fixture();q.history=[{direction:'in',text:'Хорошо',created_at:q.t},{direction:'out',text:'Ждём вашего ответа.',created_at:new Date(Date.parse(q.t)-60_000).toISOString()},{direction:'out',text:'Вам подходит этот вариант?',created_at:new Date(Date.parse(q.t)-62_000).toISOString()}];
+ await igDmReply(q.env);assert.equal(q.systems.length,1);assert.equal(q.sent.length,1);
+ const silent=fixture();silent.history=[{direction:'in',text:'Хорошо?',created_at:silent.t}];silent.raw=JSON.stringify({reply:null,escalate:false});
+ await igDmReply(silent.env);assert.equal(handled(silent),undefined);assert.equal(silent.systems.length,2);assert.equal(incident(silent).status,'needs_review');
+});
 test('agreement and good wishes close without a false Owner escalation', async()=>{
  for (const text of ['Отлично , тогда договорились 🤝', 'И вам удачи ! Спасибо!']) {
   const f=fixture();f.history=[{direction:'in',text,created_at:f.t}];f.raw=JSON.stringify({reply:null,escalate:false});

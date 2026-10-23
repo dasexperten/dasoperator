@@ -41,6 +41,10 @@ test('day of week and month', () => {
   assert.equal(n('0 4 * * 4', '2026-09-17T00:00:00Z'), 0);
   assert.equal(n('6 20 * * 1', '2026-09-13T00:00:00Z'), 1);
   assert.equal(n('6 20 * * 1', '2026-09-14T00:00:00Z'), 0);
+  assert.equal(n('0 4 * * 7', '2026-10-24T00:00:00Z'), 1, 'Cloudflare 7 is Saturday');
+  assert.equal(n('0 4 * * 7', '2026-10-25T00:00:00Z'), 0, '7 is not Sunday');
+  assert.equal(n('5 1-10 * * 2-6', '2026-10-23T00:00:00Z'), 10, 'Friday working hours');
+  assert.equal(n('5 1-10 * * 2-6', '2026-10-25T00:00:00Z'), 0, 'Sunday is outside Mon-Fri');
   assert.equal(n('0 3 5 * *', '2026-09-05T00:00:00Z'), 1);
   assert.equal(n('0 3 5 * *', '2026-09-06T00:00:00Z'), 0);
   // both day fields restricted → either matches: day 1-7 OR Tuesday (3 in Cloudflare numbering)

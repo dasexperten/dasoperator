@@ -241,21 +241,29 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
   const agg = new Map<string, number>();
   const dates = new Map<string, { first: string; last: string }>();
   const unknown = new Set<string>();
-  let offset = 0;
+  const filter = { since: `${isoDaysAgo(DAYS)}T00:00:00Z`, to: `${isoDaysAgo(0)}T23:59:59Z` };
+  let cursor = '', complete = false;
+  const cursors = new Set<string>(['']);
   for (let page = 0; page < 40; page++) {
-    const r = await fetchRetry('https://api-seller.ozon.ru/v2/posting/fbo/list', {
+    // Ozon retired v2 on 2026-08-31. v3 returns root postings and a cursor,
+    // so even a short page may have another page after it.
+    const r = await fetchRetry('https://api-seller.ozon.ru/v3/posting/fbo/list', {
       method: 'POST',
       headers: ozonHeaders(env),
       body: JSON.stringify({
         dir: 'ASC',
-        filter: { since: `${isoDaysAgo(DAYS)}T00:00:00Z`, to: `${isoDaysAgo(0)}T23:59:59Z` },
+        filter,
         limit: 1000,
-        offset,
+        cursor,
         with: { analytics_data: true, financial_data: false },
       }),
     });
     if (!r.ok) throw new Error(`ozon posting/fbo/list HTTP ${r.status}`);
-    const postings = ((await r.json()) as any)?.result || [];
+    const data = await r.json() as any;
+    if (!Array.isArray(data?.postings) || typeof data.has_next !== 'boolean') {
+      throw new Error('ozon posting/fbo/list invalid v3 response shape');
+    }
+    const postings = data.postings;
     for (const p of postings) {
       if (p.status === 'cancelled') continue;
       const wh = p?.analytics_data?.warehouse_name || '';
@@ -269,9 +277,15 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
         bumpDate(dates, sku, cluster, day);
       }
     }
-    if (postings.length < 1000) break;
-    offset += 1000;
+    if (!data.has_next) { complete = true; break; }
+    if (typeof data.cursor !== 'string' || !data.cursor.trim() || cursors.has(data.cursor)) {
+      throw new Error('ozon posting/fbo/list missing or repeated pagination cursor');
+    }
+    cursor = data.cursor;
+    cursors.add(cursor);
   }
+  // Never replace the previous complete snapshot with only the first pages.
+  if (!complete) throw new Error('ozon posting/fbo/list incomplete after 40 pages');
   const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg, dates);
   return { rows, unknown };
 }

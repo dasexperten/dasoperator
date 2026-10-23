@@ -31,6 +31,12 @@ Payout sweep extension: explicit registry-read, payment-status refresh, paid/fai
 
 Scope limits: the hourly auxiliary incident-control call is unchanged. This audit does not certify every ERP job. The latest Ozon sales job returned HTTP 400, and the latest GEO snapshot reported a D1 connection loss. The old Modulbank API job is retired, not a current scheduled failure.
 
+## Broader background checks
+
+The Ozon sales failure has a confirmed cause: live read-only `/v2/posting/fbo/list` returned HTTP 400, code 9, `obsolete method cannot be used`. The same authenticated read via v3 returned HTTP 200 with root `postings`, `has_next`, and `cursor`. Ozon's [official retirement notice](https://t.me/s/OzonSellerAPI/660) names 31 August 2026 and the v3 replacement. The importer now follows cursor pagination, preserving the existing date window, cancellation handling, product/warehouse totals and source dates. It replaces the sales snapshot only after an explicit terminal page; an interrupted, malformed or incomplete pagination leaves the previous snapshot intact. Five regressions failed before the fix; twelve focused tests pass including existing WB isolation checks. Live import verification is pending.
+
+The GEO job's existing idempotent snapshot refresh was retried once after inspecting its source and the D1 connection-loss error. No GEO code, schedule or credentials were changed. Result pending; a successful retry will establish current recovery, not prove that network failures cannot recur.
+
 Notice-evidence repair: two 22 October paid notices lacked their message IDs. Meta Graph GET verified both exact messages, timestamps and amounts against the ERP archive. Their existing payout rows now carry those verified IDs; guarded writes and readback each matched one row. No message was resent and no payment was started. Evidence keys: `mina_erp:261023:notice_evidence:<payout-id>`. Of 122 paid rows labelled delivered, 41 now have IDs and 81 older rows remain without this evidence; their delivery is not inferred.
 
 Official runtime reference: [Cloudflare scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/). Both awaiting the handler promise and scheduled `waitUntil` are supported; the existing wrapper's use of `waitUntil` alone was not treated as a defect.

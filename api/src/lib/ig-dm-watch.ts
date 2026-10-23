@@ -4,6 +4,7 @@
 // Sends only one thing: Diana's «перевела» when a payout turns green (sendIgDirect).
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
+import { actionableIgReplyRetries } from './ig-dm-reply-eligibility';
 import { cacheIncomingImages } from './ig-dm-image-cache';
 import { archiveIgMessage, resumeRecoveredIgImage } from './ig-dm-archive';
 import { bloggerName, cityOf } from './ugc-person-name.mjs';
@@ -284,10 +285,11 @@ async function storedLatest(env: Env, ids: string[]): Promise<Record<string, str
 
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };
 
-/** Owner 2026-10-18 («добавить лёгкую проверку раз в минуту»): one light look — has any Direct
- * conversation changed since the last read? Two Graph calls, no model. Any error → false (the
- * 3/15/30 rule still runs the full lane on time). */
+/** Lightweight probe: current actionable unsent work, then changed Direct conversations.
+ * Read-only D1 evidence and Graph calls, no model. The adaptive runner protects active
+ * leases and retains normal 3/15/30 cadence if the probe fails. */
 export async function igDmHasNew(env: Env): Promise<boolean> {
+  if ((await actionableIgReplyRetries(env)).length > 0) return true;
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
   if (!token) return false;
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);

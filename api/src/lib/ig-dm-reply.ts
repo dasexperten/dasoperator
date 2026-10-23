@@ -14,6 +14,7 @@ import { checkDianaImages } from './diana-image-check.mjs';
 import { checkDianaVoice } from './diana-voice-check';
 import { canAttemptReply, isTechnical, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
 import { askOwnerHardQuestion } from './ugc-hard-question';
+import { scenarioEvidence, completeScenario, orderEvidence, saidOrdered, type ScenarioPlan } from './ig-dm-reply-eligibility';
 
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
@@ -157,6 +158,11 @@ export function nextStage(current: string | null, target: string): string | null
   return to > from ? target : null;
 }
 const POST_LINK = /(instagram\.com\/(reel|reels|p|tv)\/|tiktok\.com\/|vk\.com\/(clip|video)|youtube\.com\/shorts\/|youtu\.be\/)/i;
+
+// In a text-only response, do not announce absent cards or ask for their number.
+function scenarioCardClaim(text: string): boolean {
+  return /карточк|(?:четыре|4)\s+(?:вариант|сценари|на\s+выбор)|номер[^.!?\n]{0,30}(?:от\s*1|1\s*(?:до|[-–—])\s*4)|прикреп[^.!?\n]{0,35}(?:сценари|вариант)/i.test(text);
+}
 
 /** What the checker disliked, in words Diana can act on (Owner 2026-10-18). */
 function rewriteHint(reason: string, imageCheck: unknown): string {
@@ -306,8 +312,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const asked = await askOwnerHardQuestion(env, w, state.reason).catch(() => 'failed' as const);
       if (asked !== 'failed') { state = { ...state, notified_at: new Date().toISOString() }; await saveState(state); }
     };
-    // Reconsider only this guard's unsent review; receipt evidence below must
-    // prove a text-only offer before generation or delivery can resume.
+    // Reconsider only this guard's unsent review. The shared receipt/stage
+    // contract below must prove a safe next step before generation resumes.
     const scenarioReview = state?.at === w.t && state.kind === 'technical' && state.status === 'needs_review'
       && state.reason === 'send_failed: scenario_resend_unverified';
     if (!canAttemptReply(state, w.t, now) && !scenarioReview) { await notify(); continue; }
@@ -405,15 +411,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       && m.created_at < PASTE_ONLY_SINCE && Date.parse(m.created_at) > now - 10 * 86_400_000);
     // Owner 2026-10-18: «просишь заказ и сразу отправляешь инструкцию» — the ladder is payment → order
     // screenshot → scenario. A screenshot after the money went out counts as the order screenshot.
-    const moneyAt = payouts.filter((p) => p.status === 'paid' || p.status === 'sent').map((p) => Date.parse(String(p.paid_at || p.sent_at || ''))).filter((t) => Number.isFinite(t)).sort((a, b) => b - a)[0];
-    // Owner 2026-10-18: «если пишут что заказала, можно поверить» — her word counts like the screenshot.
-    const saidOrdered = (m: Msg) => /(^|[^а-яё])(заказала|заказал|оформила|оформил|заказ оформлен|оформлено)([^а-яё]|$)/i.test(m.text ?? '') && !/(^|[^а-яё])(не|ещё не|еще не)\s+(заказала|заказал|оформила|оформил)/i.test(m.text ?? '');
-    const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m))));
-    // Owner 2026-10-18 (anastasiiyaa___): after the order screenshot comes the scenario, only then the video.
-    const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m)))?.created_at : undefined;
+    const { moneyAt, orderShown, orderAt } = orderEvidence(history, payouts);
     // Text about scenarios and individual attachments do not prove all four cards arrived.
-    type ScenarioPlan = { status?: string; incomingAt?: string; completedAt?: number;
-      completion?: { creatorId?: string }; items?: Array<{ text?: string; imageUrl?: string; status?: string; messageId?: string }> };
     let deliveryPlans: ScenarioPlan[] = [];
     if (creator) {
       try {
@@ -422,50 +421,18 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         deliveryPlans = rows.map(row => JSON.parse(row.value) as ScenarioPlan);
       } catch { await failStep('creator_stage_update_failed: scenario_delivery_evidence'); continue; }
     }
-    const scenarioPlans = deliveryPlans.filter(plan => plan.completion?.creatorId === creator?.id && Boolean(creator));
-    // A question about scenarios is known to be text-only when its exact Meta
-    // receipt belongs to a completed plan with no cards (asliada1310, 2026-10-23).
-    const knownTextReceipts = new Map<string, string>();
-    for (const plan of deliveryPlans) {
-      const items = plan.items ?? [];
-      if (plan.status === 'complete' && items.length && items.every(item => !item.imageUrl
-        && typeof item.text === 'string' && item.status === 'sent' && Boolean(item.messageId))) {
-        for (const item of items) knownTextReceipts.set(item.messageId!, item.text!);
-      }
+    const { scenarioPlans, scenarioSent, partialScenario, scenarioStageReached, legacyScenarioUncertain,
+      unknownDelivery, textOnlyScenario, canResumeReview, currentOwnIdeaAt, scenarioOrderAt } = scenarioEvidence({
+      history, deliveryPlans, creatorId: creator?.id, stage: creator?.lifecycle_stage, orderAt, lastOutIndex, incomingAt: w.t });
+    // An existing plan remains the only authority for that incoming message.
+    if (textOnlyScenario && deliveryPlans.some(plan => plan.incomingAt === w.t)) continue;
+    if (unknownDelivery) {
+      if (!scenarioReview) await failStep('send_failed: scenario_delivery_unconfirmed');
+      continue;
     }
-    const knownTextOnly = (message: Msg) => Boolean(message.id && knownTextReceipts.has(message.id)
-      && knownTextReceipts.get(message.id) === message.text && (!message.attachments_json || message.attachments_json === '[]'));
-    const completeScenario = (plan: ScenarioPlan, after: number) => {
-      const items = plan.items ?? [], cards = items.filter(item => item.imageUrl);
-      return plan.status === 'complete' && plan.completion?.creatorId === creator?.id
-        && Number.isFinite(plan.completedAt) && Number(plan.completedAt) > after
-        && Date.parse(plan.incomingAt ?? '') >= after && cards.length === 4
-        && new Set(cards.map(card => card.imageUrl)).size === 4
-        && items.every(item => item.status === 'sent' && Boolean(item.messageId))
-        && new Set(items.map(item => item.messageId)).size === items.length;
-    };
-    const scenarioOrderAt = Date.parse(orderAt ?? '') || 0;
-    const scenarioSent = Boolean(scenarioOrderAt && scenarioPlans.some(plan => completeScenario(plan, scenarioOrderAt)));
-    const partialScenario = Boolean(scenarioOrderAt && scenarioPlans.some(plan => Date.parse(plan.incomingAt ?? '') >= scenarioOrderAt
-      && (plan.items ?? []).some(item => item.imageUrl && item.status === 'sent' && item.messageId)
-      && !completeScenario(plan, scenarioOrderAt)));
-    const currentOwnIdeaAt = Math.max(0, ...history.slice(lastOutIndex + 1).filter(m => m.direction === 'in'
-      && /(^|[^а-яё])(?:есть\s+(?:своя\s+)?идея|сниму\s+по\s+своему\s+сценарию)([^а-яё]|$)/i.test(m.text ?? '')
-      && !/(?:нет|не)\s+(?:своей\s+)?идеи/i.test(m.text ?? '')).map(m => Date.parse(m.created_at)));
-    const scenarioStageReached = ['creation', 'posted', 'gold'].includes(creator?.lifecycle_stage ?? '')
-      || Boolean(scenarioOrderAt && currentOwnIdeaAt > scenarioOrderAt);
-    // Pre-outbox history can stop an unsafe resend, but cannot establish new receipt evidence.
-    const legacyScenarioMessages = orderAt ? history.filter(m => m.direction === 'out' && m.created_at > orderAt
-      && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|карточк/i.test(m.text ?? ''))) : [];
-    const legacyScenarioUncertain = !scenarioPlans.length && legacyScenarioMessages.some(message => !knownTextOnly(message));
     if (scenarioReview) {
-      // No current delivery plan, no card attempt anywhere in these plans, and
-      // every suspicious history item is the exact receipted text-only offer.
-      // Keep unknown/partial deliveries and manual stage decisions untouched.
-      const safeToResume = ['paid', 'ordered'].includes(creator?.lifecycle_stage ?? '')
-        && legacyScenarioMessages.length > 0 && legacyScenarioMessages.every(knownTextOnly)
-        && !deliveryPlans.some(plan => (plan.items ?? []).some(item => item.imageUrl));
-      if (!safeToResume) continue;
+      // The model-free wake probe uses this same receipt and stage contract.
+      if (!canResumeReview) continue;
       attempted++;
     }
     const ladder = partialScenario ? 'СТУПЕНЬ: Часть карточек уже доставлена, полного набора нет. Не отправляй полный набор заново и не утверждай, что сценарий выбран; send_cards=false. Незавершённая доставка требует внутренней проверки.\n' : scenarioStageReached ? 'СТУПЕНЬ: этап создания уже достигнут по текущему статусу или собственной идее блогера. Продолжай разговор о ролике; не предлагай полный набор карточек заново, send_cards=false. Это не подтверждение новой доставки карточек.\n' : legacyScenarioUncertain ? 'СТУПЕНЬ: подтверждения полного сценария ещё нет. В старой переписке есть упоминание сценария или вложение, но полного набора квитанций нет. Ответь на текущий вопрос без повторной отправки полного набора, send_cards=false; не утверждай, что все карточки доставлены.\n' : orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
@@ -478,7 +445,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         githubToken: (env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '',
         jevKey: env.OPENROUTER_ERP ?? '' });
     } catch { await failStep('diana_context_unavailable'); continue; }
-    const system = `${prepared.system}\n\n${SCENARIO_RULES}\n\n${JSON_SPEC}\nРегистрируй реквизиты только для текущей неоплаченной корзины. Уже исполненную выплату повторно не создавай. Верни законченный JSON, reason до 80 знаков. ${state?.at === w.t ? `Предыдущий ответ отклонён: ${state.reason}. Исправь формулировку; не обещай оплату.` : ''}`;
+    const scenarioTextPolicy = textOnlyScenario ? '\nДОСТАВКА В ЭТОМ ОТВЕТЕ: только текст, изображения отправлены не будут; send_cards=false. Это ограничение текущей доставки уточняет общее правило send_cards=true выше. Ответь на последнее сообщение по существу. Если блогер просит идею, объясни один подходящий утверждённый сценарий обычными словами прямо в тексте. Не объявляй и не обещай карточки или четыре варианта, не проси их номер и не утверждай, что они уже доставлены. Не рассказывай блогеру о внутренних проверках или техническом ограничении.' : '';
+    const system = `${prepared.system}\n\n${SCENARIO_RULES}\n\n${JSON_SPEC}\nРегистрируй реквизиты только для текущей неоплаченной корзины. Уже исполненную выплату повторно не создавай. Верни законченный JSON, reason до 80 знаков. ${state?.at === w.t ? `Предыдущий ответ отклонён: ${state.reason}. Исправь формулировку; не обещай оплату.` : ''}${scenarioTextPolicy}`;
     let screenshots;
     try { screenshots=await incomingScreenshots(env,history,w.t); } catch { screenshots={images:[],unreadable:1,currentUnavailable:true,omitted:0}; }
     // A broken transport is our incident, never a request to resend the same file.
@@ -537,6 +505,14 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // and must never stop the conversation (the surname check blocked her for 15 minutes).
       if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) out.requisites = null;
       if (out.requisites && !seenRequisites) seenRequisites = { ...out.requisites };
+      if (textOnlyScenario) {
+        out.sendCards = false;
+        if (out.reply && scenarioCardClaim((out.parts ?? [out.reply]).join(' ')) && pass === 0) {
+          // One rewrite by Diana within the existing two-pass generation policy.
+          feedback = `${scenarioTextPolicy}\nВ предыдущем варианте осталась фраза о недоставляемых карточках. Переформулируй ответ целиком по смыслу текущего вопроса, только текстом. Верни один JSON.`;
+          continue;
+        }
+      }
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
       // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
       // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.
@@ -615,7 +591,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const currentIncoming = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
       const postedAt = Math.max(0, ...currentIncoming.filter((m) => POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt)).map((m) => Date.parse(m.created_at)));
       const ownIdeaAt = currentOwnIdeaAt;
-      const deliveredScenarioAt = Math.max(0, ...scenarioPlans.filter(plan => completeScenario(plan, verifiedOrderAt)
+      const deliveredScenarioAt = Math.max(0, ...scenarioPlans.filter(plan => completeScenario(plan, creator.id, verifiedOrderAt)
         && Number(plan.completedAt) > Number(creator.updated_at ?? 0)).map(plan => Number(plan.completedAt)));
       const paidAt = Math.max(0, ...payouts.filter((p) => p.status === 'paid' && p.konsol_payment_id && p.paid_at).map((p) => Date.parse(p.paid_at!)).filter(Number.isFinite));
       const open = payouts.filter((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status));
@@ -636,10 +612,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         } catch { await failStep('creator_stage_update_failed'); continue; }
       }
     }
-    if (!partialScenario && (scenarioStageReached || legacyScenarioUncertain) && out?.sendCards && !out.escalate) {
-      state = { ...nextReplyFailure(state, { handle: w.h, at: w.t, reason: 'send_failed: scenario_resend_unverified', now, draft: lastDraft }),
-        kind: 'technical', status: 'needs_review' };
-      await saveState(state); errors++; escalated++; continue;
+    if (textOnlyScenario && out?.reply && scenarioCardClaim((out.parts ?? [out.reply]).join(' '))) {
+      // An unsafe rewrite is still unsent work and uses the normal retry policy.
+      await failStep('send_failed: scenario_text_rewrite_required');
+      continue;
     }
     if (partialScenario && !out?.escalate && !out?.refused && (currentOwnIdeaAt <= scenarioOrderAt || out?.sendCards)) {
       // A new input superseded a partially delivered fixed plan. Re-generating a

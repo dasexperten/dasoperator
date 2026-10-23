@@ -456,6 +456,23 @@ test('completed four-card receipts remain valid evidence on a later incoming mes
  assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(f.sent.length,5);
 });
 
+test('completed scenario receipts prohibit a second image set even if stage was reset to ordered',async()=>{
+ const f=scenarioFixture();await igDmReply(f.env);
+ assert.equal(f.cardUrls.length,4);
+ f.creator.lifecycle_stage='ordered';f.creator.updated_at=Date.parse(f.t)+20_000;
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({direction:'out',text:'Выбирайте подходящую идею.',created_at:new Date(Date.parse(f.t)+30_000).toISOString()},
+  {direction:'in',text:'Расскажите вашу идею подробнее',created_at:newAt});
+ f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify({handle:'tester',at:newAt,kind:'technical',status:'needs_review',reason:'send_failed: scenario_resend_unverified',attempts:1,same:1}));
+ f.raw=JSON.stringify({reply:'Снимите первую чистку и расскажите о своих ощущениях.',send_cards:true,escalate:false});
+ const result=await igDmReply(f.env);
+ assert.equal(result.replied,1);assert.equal(result.errors,0);assert.equal(f.cardUrls.length,4);
+ assert.equal(f.sent.length,6);assert.equal(handled(f),newAt);assert.equal(f.creator.lifecycle_stage,'creation');
+ const current=JSON.parse(f.states.get('ig_reply_delivery:'+f.cid+':'+newAt));
+ assert.equal(current.items.filter(item=>item.imageUrl).length,0);
+ assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
+});
+
 test('legacy creation with archived cards continues normal video conversation without resend or new receipt claim',async()=>{
  const f=scenarioFixture();f.creator.lifecycle_stage='creation';
  const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
@@ -473,7 +490,7 @@ test('unverified legacy card history may answer a question but cannot regenerate
  f.history.push({direction:'out',text:'Вот карточки',attachments_json:'[{"image_data":{"url":"legacy-card"}}]',created_at:new Date(Date.parse(f.t)+10_000).toISOString()},
  {direction:'in',text:'Какой вариант выбрать?',created_at:newAt});
  const result=await igDmReply(f.env);
- assert.equal(result.errors,1);assert.equal(f.sent.length,0);assert.equal(f.creator.lifecycle_stage,'ordered');assert.match(incident(f).reason,/scenario_resend_unverified/);
+ assert.equal(result.errors,1);assert.equal(f.sent.length,0);assert.equal(f.creator.lifecycle_stage,'ordered');assert.match(incident(f).reason,/scenario_text_rewrite_required/);assert.equal(incident(f).status,'retry');
 });
 
 async function receiptedScenarioOffer(review=false){
@@ -505,15 +522,67 @@ test('asliada: the natural lane resumes the exact unsent review after proving th
  assert.equal(handled(f),f.waitingAt);assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
 });
 
-test('scenario review recovery preserves unknown legacy attachments and mismatched receipts',async()=>{
+test('scenario review recovery allows only text with unknown legacy attachments or mismatched receipts',async()=>{
  for(const changed of ['receipt','attachment']){
-  const f=await receiptedScenarioOffer(true);const before=f.states.get('ig_reply_escalated:'+f.cid);
+  const f=await receiptedScenarioOffer(true);
   if(changed==='receipt')f.history.find(m=>m.text?.includes('из наших сценариев')).id='unverified-other-message';
   else f.history.splice(-1,0,{id:'legacy-card',direction:'out',text:null,attachments_json:'[{"image_data":{"url":"legacy-card"}}]',created_at:new Date(Date.parse(f.t)+20_000).toISOString()});
+  f.raws=[f.raw,JSON.stringify({reply:'Можно снять первую чистку у окна и рассказать, что почувствовали.',send_cards:false,escalate:false})];
   const result=await igDmReply(f.env);
-  assert.equal(result.replied,0);assert.equal(f.sent.length,2);assert.equal(f.cardUrls?.length??0,0);
-  assert.equal(f.states.get('ig_reply_escalated:'+f.cid),before);assert.equal(f.systems.length,1);
+  assert.equal(result.replied,1);assert.equal(f.sent.length,3);assert.equal(f.cardUrls?.length??0,0);
+  assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);assert.equal(f.creator.lifecycle_stage,'ordered');
  }
+});
+
+function asiyashkaScenarioReview(){
+ const f=scenarioFixture();f.creator.lifecycle_stage='posted';
+ const at=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=at;f.latestIncoming=at;
+ f.history.push({id:'own-idea-question',direction:'out',text:'Вы говорили, что есть своя идея для ролика. Расскажите?',created_at:new Date(Date.parse(f.t)+10_000).toISOString()},
+  {id:'post-date',direction:'in',text:'Как приедет я тогда придумаю сразу же и потом выложу 26.10',created_at:new Date(Date.parse(at)-5000).toISOString()},
+  {id:'idea-request',direction:'in',text:'Ну и можно посмотреть вашу идею на всякий случи',created_at:at});
+ f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify({handle:'tester',at,kind:'technical',status:'needs_review',reason:'send_failed: scenario_resend_unverified',attempts:1,same:1,notified_at:new Date().toISOString()}));
+ f.raw=JSON.stringify({replies:['Отлично, ждём 26-го!','Вот четыре варианта на выбор, пришлите номер от 1 до 4.'],send_cards:true,escalate:false});
+ return f;
+}
+
+test('asiyashka: posted creator asking for an idea receives text, no images or false attachment claim',async()=>{
+ const f=asiyashkaScenarioReview();
+ const answer='26 октября подойдёт) Можно снять первую чистку у окна: сказать «Название обещает тепло, проверяю», а после показать тубу и рассказать, что почувствовали.';
+ f.raws=[f.raw,JSON.stringify({reply:answer,send_cards:false,escalate:false})];
+ const result=await igDmReply(f.env);
+ assert.equal(result.replied,1);assert.equal(result.errors,0);assert.equal(f.sent.length,1);assert.equal(f.sent[0][2],answer);
+ assert.equal(f.cardUrls?.length??0,0);assert.equal(f.creator.lifecycle_stage,'posted');assert.equal(f.systems.length,2);
+ assert.equal(handled(f),f.waitingAt);assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
+ assert.ok(f.systems[0].lastIndexOf('ДОСТАВКА В ЭТОМ ОТВЕТЕ')>f.systems[0].indexOf('Если блогер просит сценарии'));
+ await igDmReply(f.env);assert.equal(f.sent.length,1);
+});
+
+test('text-only capability suppresses a mistaken image flag without blocking a safe answer or downgrading stage',async()=>{
+ for(const stage of ['creation','posted','gold']){
+  const f=asiyashkaScenarioReview();f.creator.lifecycle_stage=stage;
+  f.raw=JSON.stringify({reply:'Договорились, ждём ваш ролик 26 октября)',send_cards:true,escalate:false});
+  const result=await igDmReply(f.env);
+  assert.equal(result.replied,1);assert.equal(f.cardUrls?.length??0,0);assert.equal(f.creator.lifecycle_stage,stage);assert.equal(f.systems.length,1);
+ }
+ const details=asiyashkaScenarioReview();details.raw=JSON.stringify({reply:'Пришлите номер телефона и банк.',send_cards:false,escalate:false});
+ await igDmReply(details.env);assert.equal(details.sent.length,1);assert.equal(details.systems.length,1);
+});
+
+test('an unsupported card promise without the image flag is rewritten, and repeated unsafe text remains unsent on normal retry',async()=>{
+ const f=asiyashkaScenarioReview();
+ f.raws=[JSON.stringify({reply:'Карточки прикреплены, выбирайте!',send_cards:false,escalate:false}),JSON.stringify({reply:'Можно снять первую чистку и рассказать о своих ощущениях.',send_cards:false,escalate:false})];
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.doesNotMatch(f.sent[0][2],/карточк/i);assert.equal(f.cardUrls?.length??0,0);
+ const repeated=asiyashkaScenarioReview();const result=await igDmReply(repeated.env);
+ assert.equal(result.errors,1);assert.equal(repeated.sent.length,0);assert.equal(repeated.systems.length,2);
+ assert.equal(incident(repeated).status,'retry');assert.match(incident(repeated).reason,/scenario_text_rewrite_required/);
+ assert.equal([...repeated.states.keys()].some(key=>key.startsWith('ig_reply_delivery:')),false);
+});
+
+test('text-only recovery never bypasses an ambiguous earlier card intent',async()=>{
+ const f=asiyashkaScenarioReview();const key='ig_reply_delivery:'+f.cid+':'+f.t;
+ const intent=JSON.stringify({version:1,conversationId:f.cid,incomingAt:f.t,handle:'tester',status:'ambiguous',items:[{imageUrl:'unknown-card',status:'sending'}],completion:{creatorId:'creator'}});
+ f.states.set(key,intent);f.raw=JSON.stringify({reply:'Можно снять первую чистку.',send_cards:false,escalate:false});
+ await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);assert.equal(f.states.get(key),intent);assert.equal(f.creator.lifecycle_stage,'posted');
 });
 
 test('scenario review recovery does not reopen a manual decision or an ambiguous current delivery',async()=>{

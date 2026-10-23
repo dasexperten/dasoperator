@@ -45,7 +45,7 @@ test('v3 follows has_next/cursor even for short pages and preserves totals, canc
   assert.deepEqual(await syncOzonFboSalesOnly(f.env), { sales: 2, unknown_warehouses: 1 });
   assert.equal(f.calls.length, 2);
   for (const c of f.calls) {
-    assert.ok(c.url.endsWith('/v3/posting/fbo/list')); assert.equal(c.body.offset, undefined); assert.equal(c.body.limit, 1000);
+    assert.ok(c.url.endsWith('/v3/posting/fbo/list')); assert.equal(c.body.offset, undefined); assert.equal(c.body.limit, 100);
     assert.deepEqual(c.body.filter, { since: '2026-09-23T00:00:00Z', to: '2026-10-23T23:59:59Z' });
     assert.deepEqual(c.body.with, { analytics_data: true, financial_data: false });
   }
@@ -65,9 +65,9 @@ test('missing, repeated and cyclic cursors fail before replacing the snapshot', 
     await assert.rejects(syncOzonFboSalesOnly(f.env), /cursor/); assert.equal(f.snapshots().length, 0);
   }
 });
-test('forty pages with more data remaining fail explicitly instead of publishing partial totals', async t => {
+test('the existing 40000-posting ceiling fails explicitly if pagination is incomplete', async t => {
   const f = fixture(t, n => ({ postings: [posting('DE101', 1, '2026-10-01')], has_next: true, cursor: 'page-' + n }));
-  await assert.rejects(syncOzonFboSalesOnly(f.env), /40 pages/); assert.equal(f.calls.length, 40); assert.equal(f.snapshots().length, 0);
+  await assert.rejects(syncOzonFboSalesOnly(f.env), /400 pages/); assert.equal(f.calls.length, 400); assert.equal(f.snapshots().length, 0);
 });
 test('malformed response cannot erase existing sales; an explicit empty terminal page can', async t => {
   for (const invalid of [{ result: [] }, { postings: [], has_next: 'false' }, { has_next: false }]) {

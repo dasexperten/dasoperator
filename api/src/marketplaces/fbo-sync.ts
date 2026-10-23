@@ -8,6 +8,8 @@ export interface FboEnv {
 }
 
 const DAYS = 30;
+const OZON_FBO_PAGE_SIZE = 100; // v3 rejects values above 100.
+const OZON_FBO_MAX_PAGES = 400; // Preserve v2's existing 40,000-posting ceiling.
 
 // ---------------------------------------------------------------- helpers
 
@@ -244,7 +246,7 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
   const filter = { since: `${isoDaysAgo(DAYS)}T00:00:00Z`, to: `${isoDaysAgo(0)}T23:59:59Z` };
   let cursor = '', complete = false;
   const cursors = new Set<string>(['']);
-  for (let page = 0; page < 40; page++) {
+  for (let page = 0; page < OZON_FBO_MAX_PAGES; page++) {
     // Ozon retired v2 on 2026-08-31. v3 returns root postings and a cursor,
     // so even a short page may have another page after it.
     const r = await fetchRetry('https://api-seller.ozon.ru/v3/posting/fbo/list', {
@@ -253,7 +255,7 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
       body: JSON.stringify({
         dir: 'ASC',
         filter,
-        limit: 1000,
+        limit: OZON_FBO_PAGE_SIZE,
         cursor,
         with: { analytics_data: true, financial_data: false },
       }),
@@ -285,7 +287,7 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
     cursors.add(cursor);
   }
   // Never replace the previous complete snapshot with only the first pages.
-  if (!complete) throw new Error('ozon posting/fbo/list incomplete after 40 pages');
+  if (!complete) throw new Error(`ozon posting/fbo/list incomplete after ${OZON_FBO_MAX_PAGES} pages`);
   const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg, dates);
   return { rows, unknown };
 }

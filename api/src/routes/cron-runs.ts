@@ -9,6 +9,7 @@ import type { Env } from '../types';
 import { expectedFires } from '../lib/cron-expect';
 import SCHEDULES from '../generated/erp-schedules.json';
 import BORN from '../generated/erp-born.json';
+import BUSINESS_SCHEDULES from '../../../scripts/erp-clock/schedules.json';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -38,6 +39,13 @@ route.get('/', async (c) => {
 // against runs logged. A worker born inside the window (api/src/generated/erp-born.json) is
 // judged from its birth. A run that skipped for a missing key is not a success.
 type Verdict = 'green' | 'yellow' | 'red' | 'quiet';
+// Match the notifier's not-due/held-lease exclusions; this route additionally
+// distinguishes unfinished receipts and generic running/skipped transport ticks.
+const idleReceipt = (note: string | null) => /:\s*(?:not due|taken by another run|running)\b/i.test(note ?? '');
+const skippedReceipt = (note: string | null) => /^SKIPPED\b/i.test(note ?? '');
+const businessGate = (worker: string) => (BUSINESS_SCHEDULES as Record<string, { gate?: string }>)[worker]?.gate;
+const businessDue = (worker: string, time: Date) => businessGate(worker) !== 'first_wednesday'
+  || (time.getUTCDay() === 3 && time.getUTCDate() <= 7);
 
 route.get('/guard', async (c) => {
   const hours = Math.min(Math.max(Number(c.req.query('hours') ?? 24), 1), 168);
@@ -54,20 +62,27 @@ route.get('/guard', async (c) => {
   const lastOk = new Map<string, string>();
   for (const r of results) {
     seen.add(r.worker);
-    if (r.ok && !r.dry_run && !String(r.note ?? '').startsWith('SKIPPED')) lastOk.set(r.worker, r.started_at);
+    if (r.ok && r.finished_at && !r.dry_run && !skippedReceipt(r.note) && !idleReceipt(r.note)) lastOk.set(r.worker, r.started_at);
   }
 
   const workers = Object.entries(SCHEDULES as Record<string, string[]>).map(([worker, crons]) => {
     const birth = born[worker] ? Date.parse(born[worker]!) : from.getTime();
     const start = new Date(Math.max(from.getTime(), birth));
-    const expected = crons.reduce((n, cr) => n + expectedFires(cr, start, to).length, 0);
+    const slots = crons.flatMap((cr) => expectedFires(cr, start, to));
+    const transport_expected = slots.length;
+    const expected = slots.filter((time) => businessDue(worker, time)).length;
     const rows = results.filter((r) => r.worker === worker && r.cron !== 'manual' && r.started_at >= start.toISOString() && r.started_at < to.toISOString());
     const ran = rows.length;
-    const skipped = rows.filter((r) => r.ok && String(r.note ?? '').startsWith('SKIPPED')).length;
-    const ok = rows.filter((r) => r.ok && !r.dry_run).length - skipped;
+    const successful = rows.filter((r) => r.ok && r.finished_at && !r.dry_run);
+    const journal_ok = successful.length;
+    const skipped = successful.filter((r) => skippedReceipt(r.note)).length;
+    const idle = successful.filter((r) => !skippedReceipt(r.note) && idleReceipt(r.note)).length;
+    const ok = journal_ok - skipped; // Includes healthy adaptive idle transport.
+    const work_ok = ok - idle; // Only real completed work can establish recovery.
     const dry = rows.filter((r) => r.dry_run).length;
     const failed = rows.filter((r) => !r.ok && r.finished_at).length;
-    const missed = Math.max(0, expected - ran);
+    const transport_missed = Math.max(0, transport_expected - ran);
+    const missed = Math.max(0, expected - (businessGate(worker) ? work_ok + failed + dry : ran));
     const lastError = [...rows].reverse().find((r) => !r.ok && r.finished_at)?.error ?? null;
     const lastFail = [...rows].reverse().find((r) => !r.ok && r.finished_at)?.started_at ?? '';
     // A failure followed by a later good run (a manual one counts) is a recovery, not an open fault.
@@ -75,12 +90,12 @@ route.get('/guard', async (c) => {
     let verdict: Verdict = 'green';
     if (!seen.has(worker)) verdict = expected > 0 ? 'red' : 'quiet';
     else if (recovered && missed <= Math.max(1, Math.floor(expected * 0.05))) verdict = 'yellow';
-    else if (failed > 0 || (expected > 0 && ok === 0 && dry === 0)) verdict = 'red';
+    else if (failed > 0 || (expected > 0 && (businessGate(worker) ? work_ok : ok) === 0 && dry === 0)) verdict = 'red';
     else if (skipped > 0 && ok === 0) verdict = 'red';
     else if (missed > Math.max(1, Math.floor(expected * 0.05))) verdict = 'red';
     else if (dry > 0 || missed > 0 || skipped > 0) verdict = 'yellow';
     else if (expected === 0) verdict = 'quiet';
-    return { worker, crons, expected, ran, ok, failed, dry, skipped, missed, recovered, last_ok: lastOk.get(worker) ?? null, last_error: lastError, verdict };
+    return { worker, crons, expected, transport_expected, ran, ok, journal_ok, work_ok, idle, failed, dry, skipped, missed, transport_missed, recovered, last_ok: lastOk.get(worker) ?? null, last_error: lastError, verdict };
   });
   const count = (v: Verdict) => workers.filter((w) => w.verdict === v).length;
   return c.json({

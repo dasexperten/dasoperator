@@ -133,6 +133,19 @@ test('silence only after a closing reply; a real message is never closed unseen 
  const h=fixture();h.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(h.env);assert.notEqual(handled(h),h.t);assert.equal(h.systems.length,2);
  const g=fixture();g.live=false;await igDmReply(g.env);assert.equal(handled(g),g.t);assert.equal(g.sent.length,0);
 });
+test('agreement and good wishes close without a false Owner escalation', async()=>{
+ for (const text of ['Отлично , тогда договорились 🤝', 'И вам удачи ! Спасибо!']) {
+  const f=fixture();f.history=[{direction:'in',text,created_at:f.t}];f.raw=JSON.stringify({reply:null,escalate:false});
+  await igDmReply(f.env);assert.equal(handled(f),f.t);assert.equal(f.sent.length,0);assert.equal(f.systems.length,1);
+ }
+});
+test('complete requisites survive a silent response and a following empty reaction', async()=>{
+ const f=fixture();f.history=[{direction:'in',text:'Сумма 480 руб, +79001112233, Сбер, Анна',created_at:f.t},{id:'reaction',direction:'in',text:null,attachments_json:null,created_at:f.t}];f.freshAttachments='[]';
+ f.raw=JSON.stringify({reply:null,escalate:false,requisites:{amount_rub:480,phone:'+79001112233',bank:'Сбер',first_name:'Анна'}});
+ await igDmReply(f.env);assert.ok(f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));assert.equal(handled(f),f.t);assert.equal(f.sent.length,0);assert.equal(f.systems.length,1);
+ const g=fixture();g.failBatch=true;g.raw=f.raw;await igDmReply(g.env);
+ assert.equal(handled(g),undefined);assert.equal(incident(g).reason,'payout_registration_failed');assert.equal(g.sent.length,0);
+});
 test('runtime appends the current menu and sends exactly four cards',async()=>{
  const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:40000,status:'paid',konsol_payment_id:'k1',payout_date:'2026-10-17',paid_at:new Date(Date.parse(f.t)-3_600_000).toISOString()}];
  f.history=[{id:'ord',direction:'in',text:'Вот скрин',attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/x"}}]',created_at:f.t}];f.screenshots=[{mediaType:'image/png',data:'x'}];f.raw=JSON.stringify({reply:'Вот четыре сценария — какой вам ближе?',escalate:false,send_cards:true});await igDmReply(f.env);

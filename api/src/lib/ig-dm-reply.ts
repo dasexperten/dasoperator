@@ -69,7 +69,7 @@ export function isClosingReply(text: string, hasMedia: boolean): boolean {
 const CLOSING_WORDS = new Set(('да нет ок окей ok ладно хорошо отлично супер класс круто огонь ура понятно ясно поняла понял ' +
   'спасибо спс благодарю большое огромное вам вас и а тоже взаимно это вам я мне так очень приятно рада рад ' +
   'буду будем дальше стараться постараюсь жду ждем ждите пришлю пришлем обязательно конечно договорились ' +
-  'ага угу хорошего дня вечера всего доброго вы лучшие средства деньги пришли пришло дошли дошло получила получил ' +
+  'ага угу тогда удачи хорошего дня вечера всего доброго вы лучшие средства деньги пришли пришло дошли дошло получила получил ' +
   'ролик как будет готов готово сделаю сниму скоро').split(' '));
 
 /** One awaiting payout per blogger; an existing open row is reused. */
@@ -448,7 +448,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // Diana is asked once more to answer; still silent — the conversation goes to the Owner, never closed unseen.
       const pendingIn = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
       const realMessage = pendingIn.some((m) => !isClosingReply(m.text ?? '', Boolean(m.attachments_json && m.attachments_json !== '[]')));
-      if (!out.reply && !out.escalate && realMessage) {
+      if (!out.reply && !out.escalate && !out.requisites && realMessage) {
         if (pass === 0) { feedback = `\nБЛОГЕР НАПИСАЛ ПО ДЕЛУ, А ТЫ НЕ ОТВЕТИЛА. Молчать можно только на закрывающие реплики (хорошо, спасибо, ок). Ответь на её последнее сообщение по смыслу. Если решить можешь не ты, верни escalate=true и в reason одной фразой вопрос Владельцу. Верни строго один JSON.`; continue; }
         out = { ...out, escalate: true, reason: 'Диана не знает, что ответить на сообщение блогера; нужен ответ Владельца' };
       }
@@ -458,7 +458,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     }
     // Owner 2026-10-19: «в ту же минуту сразу ERP дать кнопку» — the payout row does not wait for Diana's reply
     // to pass; doubts go into the row for the Owner, who approves every payout by hand.
-    if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '' } as never); } catch { /* the reply path retries registration */ } }
+    if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '' } as never); } catch { await failStep('payout_registration_failed'); continue; } }
     if (generationFailed) continue;
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }

@@ -177,7 +177,9 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   const agreed = parsed.agreed === true;
   const refused = parsed.refused === true;
   const requisites = cleanRequisites(parsed.requisites);
-  if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
+  // Complete requisites are work even when Diana correctly sends no acknowledgement.
+  // Keep them available for registration independently of the outgoing words.
+  if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false, requisites, agreed, refused };
   // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — too long
   // Owner 2026-10-17: barter is TERMO paste only — no brush is offered or put in the cart.
   // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — offers a brush, paste only

@@ -81,7 +81,7 @@ function fixture() {
     async send(...args){sent.push(args);if(args[3]?.imageUrl)(f.cardUrls??=[]).push(args[3].imageUrl);return f.sendResults?.length?f.sendResults.shift():f.sendError?{ok:false,delivery:'not_sent',error:'send rejected'}:{ok:true,messageId:'mid-'+sent.length};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
   f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;return st;},async all(){
-    if(sql.includes("json_extract(value,'$.completion.creatorId')"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&JSON.parse(value).completion?.creatorId===p[0]&&JSON.parse(value).conversationId===p[1]).map(([,value])=>({value}))};
+    if(sql.includes("json_extract(value,'$.conversationId')=?1"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&JSON.parse(value).conversationId===p[0]).map(([,value])=>({value}))};
     if(sql.includes("key LIKE 'ig_reply_delivery:%'"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&!JSON.parse(value).acknowledgedAt&&JSON.parse(value).status!=='superseded').map(([key,value])=>({key,value}))};
     if(sql.includes('WITH last')) return {results:f.noWaiting?[]:[{cid,t:f.waitingAt??t,h:'tester'}]};
     if(sql.includes('SELECT id, direction'))return {results:[...(f.history??[{direction:'in',text:'Подскажите',created_at:t}])].sort((a,b)=>b.created_at.localeCompare(a.created_at))};
@@ -474,4 +474,57 @@ test('unverified legacy card history may answer a question but cannot regenerate
  {direction:'in',text:'Какой вариант выбрать?',created_at:newAt});
  const result=await igDmReply(f.env);
  assert.equal(result.errors,1);assert.equal(f.sent.length,0);assert.equal(f.creator.lifecycle_stage,'ordered');assert.match(incident(f).reason,/scenario_resend_unverified/);
+});
+
+async function receiptedScenarioOffer(review=false){
+ const f=scenarioFixture();
+ f.raw=JSON.stringify({replies:['Отлично, заказ оформлен!','Есть своя идея для ролика или выбрать из наших сценариев?'],send_cards:false,escalate:false});
+ await igDmReply(f.env);
+ const offer=JSON.parse([...f.states].find(([key])=>key.startsWith('ig_reply_delivery:'))[1]);
+ for(const [index,item] of offer.items.entries())f.history.push({id:item.messageId,direction:'out',text:item.text,created_at:new Date(Date.parse(f.t)+10_000+index*1000).toISOString()});
+ const newAt=new Date(Date.parse(f.t)+60_000).toISOString();f.waitingAt=newAt;f.latestIncoming=newAt;
+ f.history.push({id:'scenario-request',direction:'in',text:'Какие у вас сценарии?',created_at:newAt});
+ f.raw=JSON.stringify({reply:'Вот четыре сценария на выбор',send_cards:true,escalate:false});
+ if(review)f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify({handle:'tester',at:newAt,kind:'technical',status:'needs_review',reason:'send_failed: scenario_resend_unverified',attempts:1,same:1,notified_at:new Date().toISOString()}));
+ return f;
+}
+
+test('asliada: a receipted text-only offer allows the first scenario cards once',async()=>{
+ const f=await receiptedScenarioOffer();
+ const result=await igDmReply(f.env);
+ assert.equal(result.errors,0);assert.equal(result.replied,1);assert.equal(f.cardUrls.length,4);
+ assert.equal(f.creator.lifecycle_stage,'creation');assert.equal(handled(f),f.waitingAt);
+ assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
+ await igDmReply(f.env);assert.equal(f.cardUrls.length,4);assert.equal(f.sent.length,7);
+});
+
+test('asliada: the natural lane resumes the exact unsent review after proving the offer was text-only',async()=>{
+ const f=await receiptedScenarioOffer(true);
+ const result=await igDmReply(f.env);
+ assert.equal(result.replied,1);assert.equal(result.errors,0);assert.equal(f.cardUrls.length,4);
+ assert.equal(handled(f),f.waitingAt);assert.equal(f.states.has('ig_reply_escalated:'+f.cid),false);
+});
+
+test('scenario review recovery preserves unknown legacy attachments and mismatched receipts',async()=>{
+ for(const changed of ['receipt','attachment']){
+  const f=await receiptedScenarioOffer(true);const before=f.states.get('ig_reply_escalated:'+f.cid);
+  if(changed==='receipt')f.history.find(m=>m.text?.includes('из наших сценариев')).id='unverified-other-message';
+  else f.history.splice(-1,0,{id:'legacy-card',direction:'out',text:null,attachments_json:'[{"image_data":{"url":"legacy-card"}}]',created_at:new Date(Date.parse(f.t)+20_000).toISOString()});
+  const result=await igDmReply(f.env);
+  assert.equal(result.replied,0);assert.equal(f.sent.length,2);assert.equal(f.cardUrls?.length??0,0);
+  assert.equal(f.states.get('ig_reply_escalated:'+f.cid),before);assert.equal(f.systems.length,1);
+ }
+});
+
+test('scenario review recovery does not reopen a manual decision or an ambiguous current delivery',async()=>{
+ const manual=await receiptedScenarioOffer(true);manual.creator.lifecycle_stage='owner';
+ const review=manual.states.get('ig_reply_escalated:'+manual.cid);
+ await igDmReply(manual.env);assert.equal(manual.sent.length,2);assert.equal(manual.creator.lifecycle_stage,'owner');
+ assert.equal(manual.states.get('ig_reply_escalated:'+manual.cid),review);
+ const ambiguous=await receiptedScenarioOffer(true);
+ const key='ig_reply_delivery:'+ambiguous.cid+':'+ambiguous.waitingAt;
+ const intent=JSON.stringify({version:1,conversationId:ambiguous.cid,incomingAt:ambiguous.waitingAt,handle:'tester',status:'ambiguous',error:'delivery_interrupted_without_receipt',items:[{imageUrl:'card-unknown',status:'sending'}]});
+ ambiguous.states.set(key,intent);await igDmReply(ambiguous.env);
+ assert.equal(ambiguous.sent.length,2);assert.equal(ambiguous.states.get(key),intent);
+ assert.equal(ambiguous.creator.lifecycle_stage,'ordered');assert.equal(incident(ambiguous).status,'needs_review');
 });

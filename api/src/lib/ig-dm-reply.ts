@@ -221,6 +221,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         AND NOT EXISTS (SELECT 1 FROM crm_sync_state incident WHERE incident.key='ig_reply_escalated:'||m.conversation_id
           AND json_valid(incident.value) AND json_extract(incident.value,'$.at')=m.created_at
           AND (json_extract(incident.value,'$.status')='needs_review' AND json_extract(incident.value,'$.notified_at') IS NOT NULL
+            AND NOT (COALESCE(json_extract(incident.value,'$.kind'),'')='technical'
+              AND COALESCE(json_extract(incident.value,'$.reason'),'')='send_failed: scenario_resend_unverified')
             OR json_extract(incident.value,'$.status')='retry' AND json_extract(incident.value,'$.next_retry_at')>?3))
         AND NOT EXISTS (SELECT 1 FROM crm_sync_state done WHERE done.key='ig_reply:'||m.conversation_id AND done.value=m.created_at)
       ORDER BY m.created_at ASC LIMIT 100`
@@ -304,8 +306,14 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const asked = await askOwnerHardQuestion(env, w, state.reason).catch(() => 'failed' as const);
       if (asked !== 'failed') { state = { ...state, notified_at: new Date().toISOString() }; await saveState(state); }
     };
-    if (!canAttemptReply(state, w.t, now)) { await notify(); continue; }
-    attempted++;
+    // Reconsider only this guard's unsent review; receipt evidence below must
+    // prove a text-only offer before generation or delivery can resume.
+    const scenarioReview = state?.at === w.t && state.kind === 'technical' && state.status === 'needs_review'
+      && state.reason === 'send_failed: scenario_resend_unverified';
+    if (!canAttemptReply(state, w.t, now) && !scenarioReview) { await notify(); continue; }
+    if (scenarioReview && await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1')
+      .bind(igDeliveryKey(w.cid, w.t)).first()) continue;
+    if (!scenarioReview) attempted++;
     let lastDraft = '';
     const failStep = async (reason: string) => {
       state = nextReplyFailure(state, { handle: w.h, at: w.t, reason, now, draft: lastDraft });
@@ -347,7 +355,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     }
     // rama.zonshop: «Хорошо» after our request for a link triggered the same request again.
     // Finish pure acknowledgements before context/model work; a question or any meaningful item in the burst stays open.
-    if (lastOutIndex >= 0 && !previousQuestion
+    if (!scenarioReview && lastOutIndex >= 0 && !previousQuestion
       && pendingAcknowledgements.length > 0 && pendingAcknowledgements.every(isSimpleAcknowledgement)) {
       await mark();
       continue;
@@ -405,16 +413,28 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m)))?.created_at : undefined;
     // Text about scenarios and individual attachments do not prove all four cards arrived.
     type ScenarioPlan = { status?: string; incomingAt?: string; completedAt?: number;
-      completion?: { creatorId?: string }; items?: Array<{ imageUrl?: string; status?: string; messageId?: string }> };
-    let scenarioPlans: ScenarioPlan[] = [];
+      completion?: { creatorId?: string }; items?: Array<{ text?: string; imageUrl?: string; status?: string; messageId?: string }> };
+    let deliveryPlans: ScenarioPlan[] = [];
     if (creator) {
       try {
         const rows = (await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%'
-          AND json_valid(value) AND json_extract(value,'$.completion.creatorId')=?1
-          AND json_extract(value,'$.conversationId')=?2`).bind(creator.id, w.cid).all<{ value: string }>()).results ?? [];
-        scenarioPlans = rows.map(row => JSON.parse(row.value) as ScenarioPlan);
+          AND json_valid(value) AND json_extract(value,'$.conversationId')=?1`).bind(w.cid).all<{ value: string }>()).results ?? [];
+        deliveryPlans = rows.map(row => JSON.parse(row.value) as ScenarioPlan);
       } catch { await failStep('creator_stage_update_failed: scenario_delivery_evidence'); continue; }
     }
+    const scenarioPlans = deliveryPlans.filter(plan => plan.completion?.creatorId === creator?.id && Boolean(creator));
+    // A question about scenarios is known to be text-only when its exact Meta
+    // receipt belongs to a completed plan with no cards (asliada1310, 2026-10-23).
+    const knownTextReceipts = new Map<string, string>();
+    for (const plan of deliveryPlans) {
+      const items = plan.items ?? [];
+      if (plan.status === 'complete' && items.length && items.every(item => !item.imageUrl
+        && typeof item.text === 'string' && item.status === 'sent' && Boolean(item.messageId))) {
+        for (const item of items) knownTextReceipts.set(item.messageId!, item.text!);
+      }
+    }
+    const knownTextOnly = (message: Msg) => Boolean(message.id && knownTextReceipts.has(message.id)
+      && knownTextReceipts.get(message.id) === message.text && (!message.attachments_json || message.attachments_json === '[]'));
     const completeScenario = (plan: ScenarioPlan, after: number) => {
       const items = plan.items ?? [], cards = items.filter(item => item.imageUrl);
       return plan.status === 'complete' && plan.completion?.creatorId === creator?.id
@@ -435,8 +455,19 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const scenarioStageReached = ['creation', 'posted', 'gold'].includes(creator?.lifecycle_stage ?? '')
       || Boolean(scenarioOrderAt && currentOwnIdeaAt > scenarioOrderAt);
     // Pre-outbox history can stop an unsafe resend, but cannot establish new receipt evidence.
-    const legacyScenarioUncertain = !scenarioPlans.length && Boolean(orderAt && history.some(m => m.direction === 'out'
-      && m.created_at > orderAt && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|карточк/i.test(m.text ?? ''))));
+    const legacyScenarioMessages = orderAt ? history.filter(m => m.direction === 'out' && m.created_at > orderAt
+      && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|карточк/i.test(m.text ?? ''))) : [];
+    const legacyScenarioUncertain = !scenarioPlans.length && legacyScenarioMessages.some(message => !knownTextOnly(message));
+    if (scenarioReview) {
+      // No current delivery plan, no card attempt anywhere in these plans, and
+      // every suspicious history item is the exact receipted text-only offer.
+      // Keep unknown/partial deliveries and manual stage decisions untouched.
+      const safeToResume = ['paid', 'ordered'].includes(creator?.lifecycle_stage ?? '')
+        && legacyScenarioMessages.length > 0 && legacyScenarioMessages.every(knownTextOnly)
+        && !deliveryPlans.some(plan => (plan.items ?? []).some(item => item.imageUrl));
+      if (!safeToResume) continue;
+      attempted++;
+    }
     const ladder = partialScenario ? 'СТУПЕНЬ: Часть карточек уже доставлена, полного набора нет. Не отправляй полный набор заново и не утверждай, что сценарий выбран; send_cards=false. Незавершённая доставка требует внутренней проверки.\n' : scenarioStageReached ? 'СТУПЕНЬ: этап создания уже достигнут по текущему статусу или собственной идее блогера. Продолжай разговор о ролике; не предлагай полный набор карточек заново, send_cards=false. Это не подтверждение новой доставки карточек.\n' : legacyScenarioUncertain ? 'СТУПЕНЬ: подтверждения полного сценария ещё нет. В старой переписке есть упоминание сценария или вложение, но полного набора квитанций нет. Ответь на текущий вопрос без повторной отправки полного набора, send_cards=false; не утверждай, что все карточки доставлены.\n' : orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
     const context = `${ownerDecision ? `РЕШЕНИЕ ВЛАДЕЛЬЦА по текущему сообщению блогера: ${ownerDecision}. Это решение окончательное: ответь блогеру строго по нему, своими словами и в своём тоне, не спорь с ним и не передавай вопрос Владельцу повторно.\n` : ''}${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\nERP, перевод: ${transferFact}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 

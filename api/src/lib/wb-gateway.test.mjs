@@ -26,13 +26,14 @@ q,a,script=json.load(sys.stdin)
 c=sqlite3.connect(sys.argv[1]);c.row_factory=sqlite3.Row
 if script: c.executescript(q); rows=[]
 else: rows=[dict(r) for r in c.execute(q,a).fetchall()]
-c.commit();print(json.dumps(rows))`, path], { input:JSON.stringify([query,args,script]), encoding:'utf8' });
+changes=c.execute('SELECT changes()').fetchone()[0]
+c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':changes}}))`, path], { input:JSON.stringify([query,args,script]), encoding:'utf8' });
     if (p.status) throw new Error(p.stderr);
     return JSON.parse(p.stdout);
   }
   sql(readFileSync(new URL('../../../db/migrations/20260919_wb_gateway.sql',import.meta.url),'utf8')+`
-    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);`,[],true);
-  return { prepare(query) { let args=[]; return { bind(...a){args=a;return this;}, async first(){return sql(query,args)[0]??null;}, async run(){return sql(query,args);} }; } };
+    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8'),[],true);
+  return { prepare(query) { let args=[]; return { bind(...a){args=a;return this;}, async first(){return sql(query,args).results[0]??null;}, async run(){return sql(query,args);} }; } };
 }
 const url = 'https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-09-01';
 test('gateway denies SSRF and care hosts; honours server retry headers',()=>{

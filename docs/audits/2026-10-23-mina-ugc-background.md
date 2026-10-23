@@ -27,7 +27,11 @@ First deployment: main `b2c645d2f849842769c6fe0cb58c829abf694255`, CI [399498597
 
 Cloudflare `clientDisconnected` counts and old unfinished ERP journal rows remain observations, not a proven common root cause. A client-disconnect metric without its request context cannot establish which scheduled step failed. Final failure-propagation deployment and a naturally due Direct pass remain to be read back.
 
-Scope limits: the hourly auxiliary incident-control call is unchanged; internally suppressed failures in the numeric payout sweep are not represented by the new cron status. This audit does not certify every ERP job. The latest Ozon sales job returned HTTP 400, and the latest GEO snapshot reported a D1 connection loss. The old Modulbank API job is retired, not a current scheduled failure.
+Payout sweep extension: explicit registry-read, payment-status refresh, paid/failed notice and thrown reminder failures are accumulated and reported after preserving successful work. The existing numeric success interface, notice claims, retry rules and queued-browser outcomes are preserved. Three additional regressions were red before the fix; all 49 tests in the targeted sweep/execute/rules/cron suites pass.
+
+Scope limits: the hourly auxiliary incident-control call is unchanged. This audit does not certify every ERP job. The latest Ozon sales job returned HTTP 400, and the latest GEO snapshot reported a D1 connection loss. The old Modulbank API job is retired, not a current scheduled failure.
+
+Notice-evidence repair: two 22 October paid notices lacked their message IDs. Meta Graph GET verified both exact messages, timestamps and amounts against the ERP archive. Their existing payout rows now carry those verified IDs; guarded writes and readback each matched one row. No message was resent and no payment was started. Evidence keys: `mina_erp:261023:notice_evidence:<payout-id>`. Of 122 paid rows labelled delivered, 41 now have IDs and 81 older rows remain without this evidence; their delivery is not inferred.
 
 Official runtime reference: [Cloudflare scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/). Both awaiting the handler promise and scheduled `waitUntil` are supported; the existing wrapper's use of `waitUntil` alone was not treated as a defect.
 

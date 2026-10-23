@@ -89,7 +89,7 @@ jobs:
         run: node --test api/src/lib/ugc-dm-links.test.mjs
 
       - name: Test UGC partial failures and real retry status
-        run: node --test api/src/cron-steps.test.mjs api/src/lib/ig-dm-watch.test.mjs
+        run: node --test api/src/cron-steps.test.mjs api/src/lib/ig-dm-watch.test.mjs api/src/lib/ugc-payout-sweep.test.mjs
 
       # Konsol payouts (Owner 2026-10-14): limits, own RUB = balance − overdraft,
       # one payment per row, callback status mapping. Money code does not ship red.

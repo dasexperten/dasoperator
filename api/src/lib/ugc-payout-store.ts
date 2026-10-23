@@ -238,14 +238,23 @@ export async function linkRegistryPayouts(env: Env): Promise<string> {
 }
 
 export async function ugcPayoutSweep(env: Env): Promise<number> {
-  try { await linkRegistryPayouts(env); } catch { /* GET-only link; retried next tick */ }
+  const failures = { registry: 0, refresh: 0, paid_notice: 0, failed_notice: 0, reminders: 0 };
+  try {
+    const linked = await linkRegistryPayouts(env);
+    // No match/nothing to link is ordinary. Only the explicit failed-list
+    // result (or an exception) means the read did not finish.
+    if (linked.startsWith('registry: Konsol list failed (')) failures.registry++;
+  } catch { failures.registry++; }
   const pending = await env.DB.prepare(
     `SELECT id FROM ugc_payouts WHERE status='sent' AND konsol_payment_id IS NOT NULL ORDER BY updated_at LIMIT 50`
   ).all<{ id: string }>();
   let refreshed = 0;
   for (const r of pending.results ?? []) {
-    const out = await refreshUgcPayout(env, r.id);
-    if (out.ok) refreshed++;
+    try {
+      const out = await refreshUgcPayout(env, r.id);
+      if (out.ok) refreshed++;
+      else if (out.ok === false) failures.refresh++;
+    } catch { failures.refresh++; }
   }
   // Owner 2026-10-19: no periodic «was it delivered?» check — Instagram's answer to the send sets the status.
   // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
@@ -259,6 +268,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     const sent = await d.notifyBlogger(row, bloggerPaidText(row)).catch((e) => ({ ok: false, error: String(e) })) as { ok: boolean; error?: string };
     if (sent && sent.ok) refreshed++;
     else {
+      if (sent?.ok === false) failures.paid_notice++;
       // Owner 2026-10-18: «писать надо сразу» — an unsent paid notice keeps the payouts lane on its fast 3-minute step.
       refreshed++;
       await d.store.releaseNotice(row.id);
@@ -277,9 +287,16 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;
     const sent = await d.notifyBlogger(row, bloggerFailedText(row, row.konsol_error), 'failed').catch((e) => ({ ok: false, error: String(e) })) as { ok: boolean; error?: string };
     refreshed++;
-    if (!(sent && sent.ok)) await d.store.releaseNotice(row.id);
+    if (!(sent && sent.ok)) {
+      if (sent?.ok === false) failures.failed_notice++;
+      await d.store.releaseNotice(row.id);
+    }
   }
-  refreshed += await paidOrderReminders(env).catch(() => 0);
+  refreshed += await paidOrderReminders(env).catch(() => { failures.reminders++; return 0; });
+  // Preserve completed work and the existing claim/retry decisions, then make
+  // a partial failure visible to the adaptive runner instead of returning green.
+  const failed = Object.entries(failures).filter(([, count]) => count > 0);
+  if (failed.length) throw new Error(`UGC payout sweep failed: ${failed.map(([stage, count]) => `${stage}=${count}`).join(', ')}; processed=${refreshed}`);
   return refreshed;
 }
 

@@ -17,6 +17,7 @@ on:
     paths:
       - 'api/**'
       - '.github/workflows/deploy-worker.yml'
+      - 'scripts/deploy-worker-diagnostics*'
   workflow_dispatch:
     inputs:
       skip_guard:
@@ -62,7 +63,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
-        run: npx wrangler deploy
+        run: |
+          node --test ../scripts/deploy-worker-diagnostics.test.cjs
+          node ../scripts/deploy-worker-diagnostics.cjs
 
       # Worker secrets delivered from GitHub Actions secrets, only when the Worker
       # lacks them (a value already on the Worker is never overwritten by CI).

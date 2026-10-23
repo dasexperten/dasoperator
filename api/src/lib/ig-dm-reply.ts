@@ -195,16 +195,7 @@ export async function holdOpenPayouts(env: Env, creatorId: string, why: string):
 
 export async function igDmReply(env: Env): Promise<{ replied: number; escalated: number; errors: number }> {
   const now = Date.now();
-  const lane = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind('adaptive:ig_dm').first<{value: string}>();
-  let leaseOwner: number | null = null;
-  try { leaseOwner = JSON.parse(lane?.value ?? '{}').running_since ?? null; } catch { /* no timer lease */ }
-  // Keep the existing lane lease while reading skills/images. A later tick must
-  // not start a second Diana while the first is still thinking.
-  const heartbeat = leaseOwner == null ? null : setInterval(() => {
-    void env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.next_at',?2),updated_at=?3 WHERE key='adaptive:ig_dm' AND json_extract(value,'$.running_since')=?1`)
-      .bind(leaseOwner, Date.now() + 5 * 60_000, Date.now()).run().catch(() => {});
-  }, 60_000);
-  try {
+  // runAdaptiveLane owns renewal across reading, replying, and final scheduling.
   const waiting = (await env.DB.prepare(
     `WITH last AS (SELECT conversation_id cid, MAX(created_at) t FROM ugc_ig_messages GROUP BY 1)
      SELECT m.conversation_id cid, m.created_at t, LOWER(m.from_username) h
@@ -512,5 +503,4 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     else await failStep('send_failed');
   }
   return { replied, escalated, errors };
-  } finally { if (heartbeat != null) clearInterval(heartbeat); }
 }

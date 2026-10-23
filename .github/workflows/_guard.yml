@@ -82,6 +82,12 @@ jobs:
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs
 
+      - name: Test adaptive background job leases
+        run: node --test api/src/lib/adaptive-cadence.test.mjs api/src/lib/adaptive-runner.test.mjs
+
+      - name: Test bounded Direct link refresh
+        run: node --test api/src/lib/ugc-dm-links.test.mjs
+
       # Konsol payouts (Owner 2026-10-14): limits, own RUB = balance − overdraft,
       # one payment per row, callback status mapping. Money code does not ship red.
       - name: Test UGC payouts and Konsol money rules

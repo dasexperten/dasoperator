@@ -33,7 +33,7 @@ c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':cha
     return JSON.parse(p.stdout);
   }
   sql(readFileSync(new URL('../../../db/migrations/20260919_wb_gateway.sql',import.meta.url),'utf8')+`
-    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0138_erp_cron_api_owner.sql', import.meta.url), 'utf8'),[],true);
+    CREATE TABLE erp_cron_runs (id INTEGER PRIMARY KEY, worker TEXT, cron TEXT, started_at TEXT, dry_run INTEGER, finished_at TEXT, ok INTEGER, rows INTEGER, note TEXT, error TEXT);` + readFileSync(new URL('../../../db/migrations/0137_erp_cron_run_key.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0138_erp_cron_api_owner.sql', import.meta.url), 'utf8') + readFileSync(new URL('../../../db/migrations/0139_erp_cron_schedule_source.sql', import.meta.url), 'utf8'),[],true);
   return { prepare(query) { let args=[]; return { bind(...a){args=a;return this;}, async first(){return sql(query,args).results[0]??null;}, async run(){return sql(query,args);} }; } };
 }
 const url = 'https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-09-01';

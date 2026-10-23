@@ -34,7 +34,7 @@ changes=c.execute('SELECT changes()').fetchone()[0]
 c.commit();print(json.dumps({'success':True,'results':rows,'meta':{'changes':changes}}))`,path],{input:JSON.stringify([query,args,script]),encoding:'utf8'});
   if(p.status)throw Error(p.stderr);return JSON.parse(p.stdout);
  }
- for(const file of ['0091_erp_cron_runs.sql','0137_erp_cron_run_key.sql','0138_erp_cron_api_owner.sql'])sql(readFileSync(new URL('../../db/migrations/'+file,import.meta.url),'utf8'),[],true);
+ for(const file of ['0091_erp_cron_runs.sql','0137_erp_cron_run_key.sql','0138_erp_cron_api_owner.sql','0139_erp_cron_schedule_source.sql'])sql(readFileSync(new URL('../../db/migrations/'+file,import.meta.url),'utf8'),[],true);
  const db={sql,prepare(query){let args=[];return {bind(...a){args=a;return this},async first(){return sql(query,args).results[0]??null},async run(){
   const match=failure.match?.test(query)&&failures<(failure.times??1);
   if(match&&failure.before){failures++;throw Error('Network connection lost')}
@@ -117,11 +117,12 @@ test('timer exhausted lost terminal acknowledgements read back success',async t=
 
 for (const worker of ['erp-test','erp-web-analytics']) test('HTTP '+worker+' owns and persists actual result before returning',async t=>{
  const db=database(t),key=crypto.randomUUID();db.add(key,worker);const env={DB:db,ERP_RUN_SECRET:'fixture',calls:[]};const waits=[];
- const request=()=>new Request('https://internal/'+worker,{method:'POST',headers:{Authorization:'Bearer fixture','X-Erp-Run-Key':key}});
+ const request=()=>new Request('https://internal/'+worker,{method:'POST',headers:{Authorization:'Bearer fixture','X-Erp-Run-Key':key,'X-Erp-Trigger-Source':'external_clock'}});
  const ctx={waitUntil(p){waits.push(p)}};
  assert.equal((await route.fetch(request(),env,ctx)).status,200);
  assert.equal((await route.fetch(request(),env,ctx)).status,200);await Promise.all(waits);
  assert.equal(env.calls.length,1);assert.ok((await readRun(db,key)).api_owner);assert.equal((await readRun(db,key)).ok,1);
+ assert.equal(db.sql('SELECT api_trigger_source FROM erp_cron_runs').results[0].api_trigger_source,'external_clock');
 });
 test('HTTP legacy caller works without journal; invalid/missing key cannot execute tracked work',async t=>{
  const db=database(t),env={DB:db,ERP_RUN_SECRET:'fixture',calls:[]},ctx={waitUntil(){}};

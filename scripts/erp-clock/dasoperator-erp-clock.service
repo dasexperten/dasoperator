@@ -1,0 +1,34 @@
+[Unit]
+Description=ERP independent HTTPS minute transport
+After=network-online.target time-sync.target
+Wants=network-online.target
+ConditionPathExists=/etc/dasoperator-erp-clock.env
+
+[Service]
+Type=simple
+User=dasoperator-clock
+Group=dasoperator-clock
+EnvironmentFile=/etc/dasoperator-erp-clock.env
+ExecStart=/usr/bin/python3 -u /opt/dasoperator-erp-clock/current/clock.py
+RuntimeDirectory=dasoperator-erp-clock
+RuntimeDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+# Allow in-flight requests to reach the existing 15-minute ERP budget on stop.
+TimeoutStopSec=910
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

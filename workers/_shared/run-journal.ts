@@ -12,6 +12,9 @@ export interface JournalRow {
 }
 
 export interface JournalOutcome { ok: boolean; rows?: number; note?: string; error?: string }
+// A concurrent transport observed the same accepted slot. This is not a failed
+// transport and must not overwrite the running owner's journal or diagnostics.
+export class ApiStepPendingError extends Error {}
 type Phase = (name: string) => void;
 
 function transientD1(error: unknown): boolean {
@@ -80,16 +83,16 @@ export async function finishTimerRun(db: D1Database, runKey: string, outcome: Jo
 }
 
 export async function runApiStep(db: D1Database, worker: string, runKey: string,
-  job: () => Promise<string>, phase: Phase): Promise<JournalOutcome & { pending?: boolean }> {
+  job: () => Promise<string>, phase: Phase, triggerSource: string | null = null): Promise<JournalOutcome & { pending?: boolean }> {
   const owner = crypto.randomUUID();
   const startedAt = new Date().toISOString();
   phase('erp_claim_start');
   // Retrying this statement after a lost acknowledgement is safe only for this
   // invocation's owner token. Other callers never reclaim an in-flight step.
   let claimed: D1Result;
-  try { claimed = await journalWrite(() => db.prepare(`UPDATE erp_cron_runs SET api_owner = ?, api_started_at = ?
+  try { claimed = await journalWrite(() => db.prepare(`UPDATE erp_cron_runs SET api_owner = ?, api_started_at = ?, api_trigger_source = ?
     WHERE run_key = ? AND worker = ? AND finished_at IS NULL AND (api_owner IS NULL OR api_owner = ?)`)
-    .bind(owner, startedAt, runKey, worker, owner).run(), attempt => phase(`erp_claim_retry_${attempt}`));
+    .bind(owner, startedAt, triggerSource, runKey, worker, owner).run(), attempt => phase(`erp_claim_retry_${attempt}`));
   } catch (error) {
     const row = await readRun(db, runKey).catch(() => null);
     if (row?.worker !== worker || row.api_owner !== owner || row.finished_at) throw error;

@@ -114,6 +114,10 @@ route.post('/:worker', async (c) => {
   const cron = step ? 'step' : MOVED[worker];
   if (!cron) return c.json({ ok: false, error: `no ERP job for ${worker}` }, 404);
   const runKey = c.req.header('X-Erp-Run-Key') ?? '';
+  const triggerSource = c.req.header('X-Erp-Trigger-Source') ?? null;
+  if (triggerSource !== null && !['cloudflare', 'external_clock', 'manual'].includes(triggerSource)) {
+    return c.json({ ok: false, error: 'invalid ERP trigger source' }, 400);
+  }
   if (runKey && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(runKey)) {
     return c.json({ ok: false, error: 'invalid ERP run key' }, 400);
   }
@@ -128,7 +132,7 @@ route.post('/:worker', async (c) => {
   };
   try {
     if (runKey) {
-      const pending = runApiStep(c.env.DB, worker, runKey, job, trace);
+      const pending = runApiStep(c.env.DB, worker, runKey, job, trace, triggerSource);
       // Best effort for a disconnected caller: keep completion alive for the
       // documented HTTP waitUntil grace. This is not a durable job queue.
       c.executionCtx.waitUntil(pending.catch(() => undefined));

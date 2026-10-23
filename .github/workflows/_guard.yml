@@ -89,7 +89,10 @@ jobs:
         run: npm ci --workspace api --ignore-scripts --no-audit --no-fund
 
       - name: Test durable cron journal and truthful recovery
-        run: node --test workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs
+        run: node --test workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs workers/_shared/run-slot.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs
+
+      - name: Test independent ERP transport clock
+        run: python3 -m unittest discover -s scripts/erp-clock -p 'test_*.py'
 
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs

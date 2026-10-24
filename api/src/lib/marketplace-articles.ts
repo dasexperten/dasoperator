@@ -48,3 +48,6 @@ export function parseOzonArticle(article: string | null | undefined): ParsedArti
   }
   return parseMarketplaceArticle(article);
 }
+
+// Stock UI uses sellable pack SKUs: preserve AA/AAAA and merge only the alias.
+export const OZON_STOCK_PRODUCT_SQL = "CASE WHEN LOWER(offer_id) = 'de201a' THEN 'de201' ELSE LOWER(offer_id) END";

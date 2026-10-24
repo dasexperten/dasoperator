@@ -15,7 +15,7 @@ import { wbRequest } from '../lib/wb-gateway';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { parseOzonArticle } from '../lib/marketplace-articles';
+import { parseOzonArticle, OZON_STOCK_PRODUCT_SQL } from '../lib/marketplace-articles';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -37,12 +37,12 @@ marketplaces.get('/stocks', async (c) => {
       wb.synced_at AS wb_synced_at
     FROM products p
     LEFT JOIN (
-      SELECT LOWER(offer_id) AS sku_lc,
+      SELECT ${OZON_STOCK_PRODUCT_SQL} AS sku_lc,
              SUM(MAX(0, fbo_available - COALESCE(fbo_reserved, 0))) AS qty,
              SUM(COALESCE(fbo_reserved, 0)) AS reserved,
              MAX(synced_at) AS synced_at
       FROM marketplace_stocks_ozon
-      GROUP BY LOWER(offer_id)
+      GROUP BY ${OZON_STOCK_PRODUCT_SQL}
     ) oz ON oz.sku_lc = p.id
     LEFT JOIN (
       SELECT LOWER(supplier_article) AS sku_lc,

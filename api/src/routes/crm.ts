@@ -3,6 +3,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCacheStale, cacheKey } from '../lib/kv-cache';
 import { normalizePhone, tierFor } from '../lib/loyalty';
+import { OZON_STOCK_PRODUCT_SQL } from '../lib/marketplace-articles';
 
 // Ключ покупателя обезличенной ленты .ru — 12 hex-знаков sha256(соль+телефон).
 // До 31.08.2026 он прогонялся через normalizePhone, терял буквы и превращался в
@@ -633,10 +634,11 @@ export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Ma
       FROM products p WHERE lower(p.id) IN (${marks})
     `).bind(...skus).all<any>(),
     env.DB.prepare(`
-      SELECT lower(offer_id) AS sku,
-             MAX(0, fbo_available - fbo_reserved) AS ozon_available,
-             synced_at AS ozon_stock_at
-      FROM marketplace_stocks_ozon WHERE lower(offer_id) IN (${marks})
+      SELECT ${OZON_STOCK_PRODUCT_SQL} AS sku,
+             SUM(MAX(0, fbo_available - fbo_reserved)) AS ozon_available,
+             MAX(synced_at) AS ozon_stock_at
+      FROM marketplace_stocks_ozon WHERE ${OZON_STOCK_PRODUCT_SQL} IN (${marks})
+      GROUP BY ${OZON_STOCK_PRODUCT_SQL}
     `).bind(...skus).all<any>(),
     env.DB.prepare(`
       SELECT lower(p.id) AS sku,

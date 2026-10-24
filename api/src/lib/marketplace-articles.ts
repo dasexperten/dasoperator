@@ -22,7 +22,7 @@ export interface ParsedArticle {
  *   "DE201"      -> { baseSku: "de201", packFactor: 1 }
  *   "DE201AA"    -> { baseSku: "de201", packFactor: 2 }
  *   "DE201AAAA"  -> { baseSku: "de201", packFactor: 4 }
- *   "DE201A"     -> { baseSku: null, packFactor: 1 }   // typo, ignore
+ *   "DE201A"     -> { baseSku: null, packFactor: 1 }   // Ozon-only alias below
  *   "Random text"-> { baseSku: null, packFactor: 1 }
  *
  * Canonical SKUs are stored lowercase in the products table.
@@ -39,4 +39,12 @@ export function parseMarketplaceArticle(article: string | null | undefined): Par
   const base = m[1];
   if (!base) return { baseSku: null, packFactor: 1 };
   return { baseSku: base.toLowerCase(), packFactor: factor };
+}
+
+/** Exact Ozon legacy alias; Owner confirmed one DE201 tube on 2026-10-24. */
+export function parseOzonArticle(article: string | null | undefined): ParsedArticle {
+  if (String(article ?? '').trim().toUpperCase() === 'DE201A') {
+    return { baseSku: 'de201', packFactor: 1 };
+  }
+  return parseMarketplaceArticle(article);
 }

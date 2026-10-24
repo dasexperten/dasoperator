@@ -19,3 +19,13 @@ export function parseMarketplaceArticle(article) {
   const factor = suffix === "AAAA" ? 4 : suffix === "AA" ? 2 : 1;
   return { baseSku: m[1].toLowerCase(), packFactor: factor };
 }
+
+/** Ozon legacy listing: Owner confirmed DE201A is one DE201 tube on 2026-10-24.
+ * Keep this exact alias separate from the AA/AAAA convention used by WB too.
+ */
+export function parseOzonArticle(article) {
+  if (String(article ?? "").trim().toUpperCase() === "DE201A") {
+    return { baseSku: "de201", packFactor: 1 };
+  }
+  return parseMarketplaceArticle(article);
+}

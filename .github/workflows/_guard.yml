@@ -71,6 +71,9 @@ jobs:
       - name: Check erp-* timer workers
         run: node scripts/check-erp-workers.mjs
 
+      - name: Test private input for the legacy Ozon scraper installer
+        run: python3 -m unittest discover -s scripts -p 'test_ozon_scraper_install.py'
+
       # The ERP guard's expected-fires calculator (Viktor Palich, Owner 2026-09-18).
       - name: Install workers toolchain (esbuild)
         working-directory: workers
@@ -118,7 +121,7 @@ jobs:
         run: node --test api/src/marketplaces/fbo-sync.test.mjs
 
       - name: Test Ozon retry and marketplace health SLAs
-        run: node --test workers/_marketplace/ozon-read-retry.test.mjs api/src/lib/integration-health.test.mjs workers/_marketplace/wb-sku-daily.test.mjs workers/_marketplace/wb-advert-spend.test.mjs
+        run: node --test api/src/lib/marketplace-articles.test.mjs workers/_marketplace/ozon-read-retry.test.mjs api/src/lib/integration-health.test.mjs workers/_marketplace/wb-sku-daily.test.mjs workers/_marketplace/wb-advert-spend.test.mjs
 
       - name: Test Vietnam EasyInvoice transport and idempotency contract
         run: node --test workers/erp-vn-einvoice/src/easyinvoice.test.mjs

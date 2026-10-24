@@ -13,7 +13,7 @@ import { wbRead } from "./wb-egress.mjs";
  *
  * Controlled cadence only (daily at 00:30 Yerevan). No standing firehose.
  */
-import { parseMarketplaceArticle } from "./marketplace-articles.mjs";
+import { parseMarketplaceArticle, parseOzonArticle } from "./marketplace-articles.mjs";
 import { ozonClientId } from "./marketplace-api.mjs";
 import { beginLog, finishOk, finishErr } from "./marketplace-sync-log.mjs";
 import { fetchOzonRead, retryAfterMilliseconds } from "./ozon-read-retry.mjs";
@@ -74,7 +74,7 @@ export async function syncOzonStocksToErp(env) {
 
       for (const item of items) {
         const offerId = String(item.offer_id || "");
-        const { baseSku, packFactor } = parseMarketplaceArticle(offerId);
+        const { baseSku, packFactor } = parseOzonArticle(offerId);
         if (!baseSku) {
           unmatched.push(offerId);
           continue;

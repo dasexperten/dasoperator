@@ -15,7 +15,7 @@ import { wbRequest } from '../lib/wb-gateway';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { parseMarketplaceArticle } from '../lib/marketplace-articles';
+import { parseOzonArticle } from '../lib/marketplace-articles';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -126,7 +126,7 @@ marketplaces.post('/sync/ozon', async (c) => {
       const now = Math.floor(Date.now() / 1000);
       const stmts = [];
       for (const item of data.items) {
-        const { baseSku, packFactor } = parseMarketplaceArticle(item.offer_id);
+        const { baseSku, packFactor } = parseOzonArticle(item.offer_id);
         if (!baseSku) {
           unmatched.push(item.offer_id);
           continue;

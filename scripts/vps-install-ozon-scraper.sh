@@ -1,18 +1,54 @@
 #!/bin/bash
-set -e
-set -u
+set -euo pipefail
+umask 077
 
-# Create scraper user dir
+# Credentials are supplied separately from the private vault, never in this repo.
+# --check-env validates the input without touching services, files or the network.
+check_only=false
+if [[ "${1:-}" == "--check-env" ]]; then
+  check_only=true
+  shift
+fi
+if [[ "$#" -ne 1 || "$1" != /* || ! -f "$1" || -L "$1" || ! -r "$1" ]]; then
+  echo "Usage: $0 [--check-env] /absolute/path/to/private.env" >&2
+  exit 64
+fi
+scraper_env_source="$1"
+python3 - "$scraper_env_source" <<'VALIDATE_ENV'
+import os
+import stat
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if stat.S_IMODE(path.stat().st_mode) & 0o077:
+    sys.exit("Credential file must be private (chmod 600).")
+values = {}
+for line in path.read_text().splitlines():
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+    name, separator, value = line.partition("=")
+    if not separator or name.strip() in values:
+        sys.exit("Credential file has invalid or duplicate fields.")
+    values[name.strip()] = value.strip()
+if not values.get("OZON_COOKIES") or len(values.get("INGEST_SECRET", "")) < 32:
+    sys.exit("Credential file requires OZON_COOKIES and INGEST_SECRET.")
+if values.get("WORKER_URL") != "https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/ozon/portal-ingest":
+    sys.exit("Credential file has an unsupported ingest destination.")
+print("Credential file validated; values not displayed.")
+VALIDATE_ENV
+if [[ "$check_only" == true ]]; then
+  exit 0
+fi
+if [[ "$EUID" -ne 0 ]]; then
+  echo "Installation requires root; validation made no changes." >&2
+  exit 77
+fi
+
+# Create scraper user dir, then copy only the explicitly supplied private file.
 mkdir -p /home/telegramer/ozon-scraper
+install -m 600 "$scraper_env_source" /home/telegramer/ozon-scraper/.env
 cd /home/telegramer/ozon-scraper
-
-# Write .env
-cat > .env << 'ENVEOF'
-OZON_COOKIES=sc_company_id=374116; ob_theme=SYSTEM; __Secure-ab-group=64; __Secure-user-id=85607026; bacntid=904890; __Secure-ext_xcid=de15566c1f1508f63d637007af0ea422; __Secure-product-user-id=85607026; __Secure-sid=sc1.rKCVF8NPSeqzcMu1cjdbFg.AaayqW3jQIdurHzDpjdiv2jUntfQYTYYp1kjO-SO348N2si4PgLa4F168M9nRGJpyw_CdnST17UKY9pTL98gB0A.u1dUo5aCg96mMtW1vYkBZfxKE3LHZigM6t6qW5OSIjg.1dc871e7c60ba48a8; xcid=120a6d78ba53fd682ec962455a701e9d; x-o3-language=ru; __Secure-ETC=6646281e1d1348f4e8c8668a42810127; __Secure-token=p8.85607026.rKCVF8NPSeqzcMu1cjdbFg.64.AcpIHKRpjaBJcghfGeQ-wONeNDR5ht02zaIY3-IL9uLp-IP3QYYwtakTZ_l4JsaXDtdk3uTGn52AKJRkUbpTzD7OK2-b1ZQcAcU-fe7ILjN2N6UkgoIHP3XE2iEIL0mRLOh4EbjfnWiOxWKw7DNTvWTdOS5e7JR_mPCEbMgxgenvVD7hugwsap4Ti8qtvIUs7zUB5xMMNums7E0clS7Q0bQuClF6VtbLIHx8uw8j8bZo.20211216192225.20260516172554.1.UCSEnsZBhxQXSZZ1rE6PJ4QMiHWVSZ7DWgXcAwiEkzg.15981274dd56f3a01; __Secure-access-token=12.85607026.rKCVF8NPSeqzcMu1cjdbFg.64.AeBJozJ9xC_GmQoMdOk99qh022HAElD52RQf93eFkmzU_-wvP-JtVTf7nEZ5Tpp57tFonkiDETVXm_uyoYDd32U6i4AMwvaid6WRDI5AcG58zJOe5z7XHaaMOs9-o8tpAefSlNojzMKR0xSXyQXwnE0.20211216192225.20260516175354.1.SkO2kJFj-wMyXDK7oak936ke4uLOHEyEroxj6-tDL1o.129dcc6cf26f93624; __Secure-refresh-token=12.85607026.rKCVF8NPSeqzcMu1cjdbFg.64.AeBJozJ9xC_GmQoMdOk99qh022HAElD52RQf93eFkmzU_-wvP-JtVTf7nEZ5Tpp57tFonkiDETVXm_uyoYDd32U6i4AMwvaid6WRDI5AcG58zJOe5z7XHaaMOs9-o8tpAefSlNojzMKR0xSXyQXwnE0.20211216192225.20260516175354.1.Rx8UG-hWVHz8HEELdlrIkUNGB0XnE65QSSeNX5q5qK0.1910233f972ad9611
-INGEST_SECRET=8268691cd8a0ea7d3172099b0b5ea9be12915f2dcba296e1ef32f4f7caef116d
-WORKER_URL=https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/ozon/portal-ingest
-ENVEOF
-chmod 600 .env
 
 # Write scraper
 cat > scraper.py << 'PYEOF_INNER'

@@ -197,18 +197,23 @@ externalRequests.post('/sync', async (c) => {
   if (!wh) return fail(c, 'no_f4_warehouse', 'No warehouse marked as f4_skladbot', 500);
   const warehouseId = wh.id;
 
-  // Step 1: list all 120 requests
-  const listResp = await fetch(
-    'https://api.skladbot.ru/v1/requests?customer_id=4735&limit=200',
-    {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  // Step 1: list every request, all pages (Skladbot caps a page at 200;
+  // 242 on 2026-10-25, so page 2 was never read before).
+  const list: any[] = [];
+  for (let page = 1, last = 1; page <= last && page <= 20; page++) {
+    const listResp = await fetch(
+      `https://api.skladbot.ru/v1/requests?customer_id=4735&limit=200&page=${page}`,
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      }
+    );
+    if (!listResp.ok) {
+      return fail(c, 'skladbot_list_failed', `HTTP ${listResp.status} on page ${page}`, 500);
     }
-  );
-  if (!listResp.ok) {
-    return fail(c, 'skladbot_list_failed', `HTTP ${listResp.status}`, 500);
+    const listJson: any = await listResp.json();
+    list.push(...(listJson.data ?? []));
+    last = Number(listJson.meta?.last_page ?? 1) || 1;
   }
-  const listJson: any = await listResp.json();
-  const list: any[] = listJson.data ?? [];
 
   const errors: string[] = [];
   let synced = 0;
@@ -220,7 +225,10 @@ externalRequests.post('/sync', async (c) => {
     try {
       // Step 2: pull detail for this request (with retry on rate limit)
       let detResp: Response | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
+      // Skladbot allows 60 calls a minute and answers 429 with Retry-After.
+      // The old 2s/4s back-off gave up inside the window, so every 60th
+      // request failed each run (3 errors a run since 2026-10-24).
+      for (let attempt = 0; attempt < 5; attempt++) {
         detResp = await fetch(
           `https://api.skladbot.ru/v1/requests/show/${r.id}`,
           {
@@ -228,7 +236,9 @@ externalRequests.post('/sync', async (c) => {
           }
         );
         if (detResp.status === 429) {
-          await sleep(2000 * (attempt + 1)); // 2s, 4s, 6s back-off
+          const ra = Number(detResp.headers.get('Retry-After'));
+          const waitS = Number.isFinite(ra) && ra > 0 ? Math.min(ra + 1, 65) : 15 * (attempt + 1);
+          await sleep(waitS * 1000);
           continue;
         }
         break;

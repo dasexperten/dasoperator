@@ -17,11 +17,11 @@ bucket_name = "das-erp-docs-dev"
 
 [vars]
 # Production account supplied by SoftDreams on 2026-10-07.
-# Keep issuance disabled until the assigned production pattern and HSM are verified.
+# Manual issuance requires recorded actual transfer; verified drafts alone are never released.
 EASYINVOICE_BASE_URL = "https://api.easyinvoice.vn"
-EASYINVOICE_ENABLED = "0"
+EASYINVOICE_ENABLED = "1"
 # Production range verified read-only through the provider usage report on 2026-10-15.
-# Issuance remains disabled until signing and the final template are verified.
+# Existing drafts are issued through the documented HSM route with the same Ikey.
 EASYINVOICE_PATTERN = "1C26MAA"
 # Circular 78 combines the former template and symbol in Pattern. EasyInvoice
 # v8 requires an explicitly empty Serial for patterns such as 1C26TAA.

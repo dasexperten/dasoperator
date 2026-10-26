@@ -16,7 +16,7 @@ const { default: route } = await import(pathToFileURL(join(dir, 'route.mjs')));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
 const token = 'session-fixture-not-a-real-token';
-function fixture(access = 'rw', overrides = {}) {
+function fixture(access = 'rw', overrides = {}, documents = []) {
   const reads = [], forwarded = [], archiveReads = [];
   const user = { id: 'operator-test', name: 'Test operator', role: 'manager', active: 1,
     expires_at: Date.now() + 60_000, permissions: JSON.stringify({ '/operations': access }), ...overrides };
@@ -30,7 +30,7 @@ function fixture(access = 'rw', overrides = {}) {
         if (sql.includes('provider_pdf_r2_key')) return { provider_pdf_r2_key: 'private/test.pdf', provider_xml_r2_key: null };
         return null;
       },
-      async all() { reads.push(sql); return { results: [] }; },
+      async all() { reads.push(sql); return { results: /SELECT v\.\*/.test(sql) ? documents : [] }; },
       async run() { return { meta: { changes: 1 } }; },
     }; } },
     DOCS: { async get(key) { archiveReads.push(key); return { body: new Blob(['%PDF-fixture']).stream() }; } },
@@ -116,4 +116,28 @@ test('unarchived or unsupported file types do not reveal archive objects', async
   const f = fixture('read');
   for (const kind of ['xml', 'secret']) assert.equal((await request(f.env, `/record/file/${kind}`)).status, 404);
   assert.equal(f.archiveReads.length, 0);
+});
+
+const savedOrder = {
+  source_order_id:'530124445322445',currency:'VND',buyer:{kind:'business',name:'Buyer'},
+  items:[{sku:'DE203',name:'GINGER',unit:'Tube',quantity:1,gross_amount:99000,vat_rate:8},{sku:'DE210',name:'INNOWEISS',unit:'Tube',quantity:1,gross_amount:199000,vat_rate:8}],
+  shipping_gross:32800,shipping_discount:32800,total_gross:298000,
+};
+const savedRow = {id:'doc',state:'received',provider_invoice_status:0,transfer_at:null,normalized_order_json:JSON.stringify(savedOrder)};
+test('saved order automatically returns source dates, items and tax totals without mutating transfer',async()=>{
+  const source={order_created_at:'2026-10-25T22:37:00+07:00',provider_draft:{ArisingDate:'26/10/2026'},carrier:'J&T VN',tracking_number:'JNTMP0043304208VNA'};
+  const f=fixture('read',{},[{...savedRow,source_snapshot_json:JSON.stringify(source)}]);
+  const r=await request(f.env);assert.equal(r.status,200);const document=(await r.json()).result.documents[0];
+  assert.deepEqual(document.source_facts,{order_created_at:source.order_created_at,draft_date:'26/10/2026',carrier:'J&T VN',tracking_number:source.tracking_number});
+  assert.deepEqual(document.fiscal_totals,{net:275926,vat:22074,gross:298000});
+  assert.deepEqual(document.fiscal_lines.map(x=>[x.sku,x.net_amount,x.vat_amount,x.gross_amount]),[['DE203',91667,7333,99000],['DE210',184259,14741,199000]]);
+  assert.equal(document.transfer_at,null);assert.equal(document.display_status,'draft');assert.equal(document.source_snapshot_json,undefined);
+  assert.equal(f.forwarded.length,0);assert.equal(f.archiveReads.length,0);
+});
+test('missing or malformed old source metadata keeps saved order usable and dates unset',async()=>{
+  for(const source_snapshot_json of [null,'not-json','{}','null','[]','42']){
+    const f=fixture('read',{},[{...savedRow,source_snapshot_json}]);const r=await request(f.env);assert.equal(r.status,200);
+    const document=(await r.json()).result.documents[0];assert.deepEqual(document.source_facts,{order_created_at:null,draft_date:null,carrier:null,tracking_number:null});
+    assert.equal(document.fiscal_totals.gross,298000);assert.equal(document.transfer_at,null);assert.equal(f.forwarded.length,0);
+  }
 });

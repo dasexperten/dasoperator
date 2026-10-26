@@ -85,6 +85,16 @@ type Doc = {
   transfer_at: string | null;
   transfer_evidence: string | null;
   order: Order;
+  fiscal_lines: Array<
+    Order["items"][number] & { net_amount: number; vat_amount: number }
+  >;
+  fiscal_totals: { net: number; vat: number; gross: number };
+  source_facts: {
+    order_created_at: string | null;
+    draft_date: string | null;
+    carrier: string | null;
+    tracking_number: string | null;
+  };
 };
 function Field({
   label,
@@ -282,7 +292,7 @@ export default function VietnamInvoices() {
               setShowForm(true);
             }}
           >
-            Новый заказ
+            Ввести заказ вручную
           </button>
         </div>
       </div>
@@ -652,6 +662,139 @@ export default function VietnamInvoices() {
               </>
             )}
           </div>
+          <section
+            aria-label="Данные из заказа и черновика"
+            style={{ display: "grid", gap: 12 }}
+          >
+            <p style={{ fontSize: 13, color: "var(--fg-2)" }}>
+              Данные из сохранённого заказа и черновика.
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: 20,
+                flexWrap: "wrap",
+                fontSize: 14,
+              }}
+            >
+              {d.source_facts?.order_created_at && (
+                <span>
+                  Дата заказа:{" "}
+                  <strong>
+                    {new Date(d.source_facts.order_created_at).toLocaleString(
+                      "ru-RU",
+                      { timeZone: "Asia/Ho_Chi_Minh" },
+                    )}
+                  </strong>{" "}
+                  (Вьетнам)
+                </span>
+              )}
+              {d.source_facts?.draft_date && (
+                <span>
+                  Дата черновика EasyInvoice:{" "}
+                  <strong>{d.source_facts.draft_date}</strong>
+                </span>
+              )}
+              {d.source_facts?.tracking_number && (
+                <span>
+                  {d.source_facts.carrier}:{" "}
+                  <strong>{d.source_facts.tracking_number}</strong>
+                </span>
+              )}
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 14,
+                }}
+              >
+                <caption
+                  style={{
+                    textAlign: "left",
+                    paddingBottom: 8,
+                    color: "var(--fg-2)",
+                  }}
+                >
+                  Товары и суммы в VND
+                </caption>
+                <thead>
+                  <tr>
+                    {["Товар", "Количество", "Без НДС", "НДС", "С НДС"].map(
+                      (label) => (
+                        <th
+                          key={label}
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 10px",
+                            borderBottom: "1px solid var(--line-1)",
+                          }}
+                        >
+                          {label}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.fiscal_lines?.map((line, index) => (
+                    <tr key={index}>
+                      <td style={{ padding: "10px" }}>
+                        <strong>{line.sku}</strong>
+                        <br />
+                        {line.name}
+                      </td>
+                      <td style={{ padding: "10px" }}>
+                        {line.quantity} {line.unit}
+                      </td>
+                      <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
+                        {line.net_amount.toLocaleString("ru-RU")}
+                      </td>
+                      <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
+                        {line.vat_amount.toLocaleString("ru-RU")} (
+                        {line.vat_rate}%)
+                      </td>
+                      <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
+                        {line.gross_amount.toLocaleString("ru-RU")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {d.fiscal_totals && (
+                  <tfoot>
+                    <tr
+                      style={{
+                        fontWeight: 700,
+                        borderTop: "1px solid var(--line-1)",
+                      }}
+                    >
+                      <td colSpan={2} style={{ padding: 10 }}>
+                        Итого
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        {d.fiscal_totals.net.toLocaleString("ru-RU")}
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        {d.fiscal_totals.vat.toLocaleString("ru-RU")}
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        {d.fiscal_totals.gross.toLocaleString("ru-RU")}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--fg-2)" }}>
+              Доставка: {d.order.shipping_gross.toLocaleString("ru-RU")} −
+              скидка {d.order.shipping_discount.toLocaleString("ru-RU")} ={" "}
+              {(
+                d.order.shipping_gross - d.order.shipping_discount
+              ).toLocaleString("ru-RU")}{" "}
+              VND. Способ оплаты: {d.order.payment_method}.
+            </p>
+          </section>
           {d.display_status === "needs_attention" && (
             <p role="alert" style={{ color: "var(--brand-rot)" }}>
               {errorMessage(

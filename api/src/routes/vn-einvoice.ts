@@ -7,6 +7,39 @@ import {
   type ManualRow,
 } from "../../../workers/erp-vn-einvoice/src/manual-workflow";
 
+import {
+  fiscalLines,
+  fiscalTotals,
+  type ManualOrder,
+} from "../../../workers/erp-vn-einvoice/src/manual-order";
+
+function withOrderFacts(row: ManualRow) {
+  const { source_snapshot_json, ...record } = row;
+  let source: Record<string, any> = {};
+  try {
+    const parsed = JSON.parse(source_snapshot_json || "{}");
+    source =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+  } catch {
+    /* Old records may have no source metadata. */
+  }
+  const document = publicManual(record as ManualRow);
+  const order = document.order as ManualOrder;
+  return {
+    ...document,
+    fiscal_lines: fiscalLines(order),
+    fiscal_totals: fiscalTotals(order),
+    source_facts: {
+      order_created_at: source.order_created_at ?? null,
+      draft_date: source.provider_draft?.ArisingDate ?? null,
+      carrier: source.carrier ?? null,
+      tracking_number: source.tracking_number ?? null,
+    },
+  };
+}
+
 const route = new Hono<{ Bindings: Env; Variables: { actorId: string } }>();
 route.use("*", async (c, next) => {
   const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") || "";
@@ -30,7 +63,13 @@ route.use("*", async (c, next) => {
 });
 route.get("/", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT * FROM vn_einvoice_documents WHERE workflow='manual' ORDER BY created_at DESC LIMIT 100",
+    `SELECT v.*,
+       (SELECT d.raw_extract_json FROM document_extractions d
+         WHERE d.deleted_at IS NULL AND json_valid(d.raw_extract_json)
+           AND json_extract(d.raw_extract_json,'$.provider_draft.Ikey')=v.ikey
+         ORDER BY d.created_at DESC LIMIT 1) AS source_snapshot_json
+       FROM vn_einvoice_documents v WHERE v.workflow='manual'
+       ORDER BY v.created_at DESC LIMIT 100`,
   ).all<ManualRow>();
   const candidates = await c.env.DB.prepare(
     `SELECT d.id,d.filename FROM document_extractions d
@@ -39,7 +78,7 @@ route.get("/", async (c) => {
     ORDER BY d.created_at DESC LIMIT 20`,
   ).all();
   return ok(c, {
-    documents: (rows.results ?? []).map(publicManual),
+    documents: (rows.results ?? []).map(withOrderFacts),
     saved_drafts: candidates.results ?? [],
   });
 });

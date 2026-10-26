@@ -172,8 +172,7 @@ function errorMessage(code: string) {
         mixed_rates_require_template_mapping:
           "Для разных ставок НДС требуется подтверждённый шаблон.",
         order_total_mismatch: "Итог заказа должен совпадать с суммой строк.",
-        verified_draft_required:
-          "Дождитесь проверки черновика перед фиксацией передачи.",
+        verified_draft_required: "Дождитесь проверки черновика перед выпуском.",
       } as Record<string, string>
     )[code] ?? "Не удалось обработать запрос. Проверьте данные. Код: " + code
   );
@@ -188,6 +187,7 @@ export default function VietnamInvoices() {
     [notice, setNotice] = useState("");
   const [transferFor, setTransferFor] = useState<string | null>(null),
     [transferAt, setTransferAt] = useState(""),
+    [preciseTransferTime, setPreciseTransferTime] = useState(false),
     [evidence, setEvidence] = useState("");
   const load = useCallback(async () => {
     const r = await apiGet<{
@@ -270,7 +270,9 @@ export default function VietnamInvoices() {
   async function confirmTransfer() {
     if (!transferFor) return;
     const r = await action(`${BASE}/${transferFor}/transfer`, {
-      actual_transfer_at: `${transferAt}:00+07:00`,
+      ...(preciseTransferTime
+        ? { actual_transfer_at: `${transferAt}:00+07:00` }
+        : { actual_transfer_date: transferAt }),
       evidence_ref: evidence,
     });
     if (r) {
@@ -278,7 +280,7 @@ export default function VietnamInvoices() {
       setTransferAt("");
       setEvidence("");
       setNotice(
-        "Передача зафиксирована. " +
+        "Основание выпуска зафиксировано. " +
           (statusLabels[r.document?.display_status] ?? "Проверяем результат."),
       );
     }
@@ -330,8 +332,8 @@ export default function VietnamInvoices() {
               Электронные счета Вьетнам
             </h1>
             <p style={{ color: "var(--fg-2)", marginTop: 6 }}>
-              Сохраните заказ, затем зафиксируйте фактическую передачу
-              покупателю для выпуска счёта.
+              Данные заказа, статусы и выпуск по подтверждённому основанию
+              перехода права собственности или пользования.
             </p>
           </div>
           <button
@@ -711,10 +713,12 @@ export default function VietnamInvoices() {
             {d.transfer_at && (
               <>
                 {" "}
-                · Фактическая передача:{" "}
-                {new Date(d.transfer_at).toLocaleString("ru-RU", {
-                  timeZone: "Asia/Ho_Chi_Minh",
-                })}{" "}
+                · Дата основания выпуска:{" "}
+                {/^\d{4}-\d{2}-\d{2}$/.test(d.transfer_at)
+                  ? `${d.transfer_at.slice(8, 10)}.${d.transfer_at.slice(5, 7)}.${d.transfer_at.slice(0, 4)} (без указания времени)`
+                  : new Date(d.transfer_at).toLocaleString("ru-RU", {
+                      timeZone: "Asia/Ho_Chi_Minh",
+                    })}{" "}
                 Вьетнам
               </>
             )}
@@ -938,10 +942,11 @@ export default function VietnamInvoices() {
                 onClick={() => {
                   setTransferFor(d.id);
                   setTransferAt("");
+                  setPreciseTransferTime(false);
                   setEvidence("");
                 }}
               >
-                Зафиксировать передачу
+                Указать основание выпуска
               </button>
             )}
           </div>
@@ -961,9 +966,33 @@ export default function VietnamInvoices() {
                 полной оплатой, используйте подтверждённую дату оплаты. Ожидать
                 статус «Доставлен» в таком случае не требуется.
               </p>
-              <Field label="Момент перехода права · Вьетнам (UTC+7)">
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  fontSize: 13,
+                }}
+              >
                 <input
-                  type="datetime-local"
+                  type="checkbox"
+                  checked={preciseTransferTime}
+                  onChange={(e) => {
+                    setPreciseTransferTime(e.target.checked);
+                    setTransferAt("");
+                  }}
+                />
+                Указать точное время, если оно подтверждено источником
+              </label>
+              <Field
+                label={
+                  preciseTransferTime
+                    ? "Дата и время основания выпуска · Вьетнам (UTC+7)"
+                    : "Подтверждённая дата основания выпуска · Вьетнам"
+                }
+              >
+                <input
+                  type={preciseTransferTime ? "datetime-local" : "date"}
                   style={inputStyle}
                   value={transferAt}
                   onChange={(e) => setTransferAt(e.target.value)}

@@ -490,3 +490,36 @@ test("HTTP200 HTML error cannot complete an accepted invoice archive", async () 
   assert.equal(f.row().state, "issued_archive_pending");
   assert.equal(f.row().provider_xml_r2_key, null);
 });
+
+test('date-only release validates the real calendar and preserves source precision', () => {
+  assert.equal(model.validTransferDate('2024-02-29'),'2024-02-29');
+  assert.equal(model.validTransferMoment('2026-10-20'),'2026-10-20');
+  assert.equal(model.vietnamDate('2026-10-20'),'20/10/2026');
+  for(const date of ['2026-02-29','2026-02-30','2026-04-31','2026-00-01','2026-13-01','2026-10-00','20/10/2026','2026-10-20Z','2026-10-20T00:00:00+07:00'])assert.throws(()=>model.validTransferDate(date));
+});
+test('date-only future validation uses Vietnam calendar day, not UTC midnight', t => {
+  t.mock.method(Date,'now',()=>Date.parse('2026-10-25T18:30:00Z'));
+  assert.equal(model.validTransferDate('2026-10-26'),'2026-10-26');
+  assert.throws(()=>model.validTransferDate('2026-10-27'),/future/);
+});
+test('explicit timestamp release retains timezone and strict time validation',()=>{
+  const time='2026-10-20T23:30:00-07:00';
+  assert.equal(model.validTransferMoment(time),time);assert.equal(model.vietnamDate(time),'21/10/2026');
+  for(const value of ['2026-10-20T12:00:00','2026-10-20T25:00:00Z','2026-10-20T12:00:00+99:00','2026-02-30T12:00:00Z'])assert.throws(()=>model.validTransferMoment(value));
+  assert.throws(()=>model.validTimestamp('2026-10-20','captured_at'));
+});
+test('date-only transfer releases the same draft without inventing midnight; exact replay is idempotent',async()=>{
+  const f=fixture({enabled:true});await processManual(f.env,'doc');
+  const body={actual_transfer_date:'2026-10-20',evidence_ref:'Confirmed full payment on 20 October and title clause'};
+  assert.equal((await response(f.env,'/doc/transfer',body)).status,200);
+  assert.equal(f.row().transfer_at,'2026-10-20');assert.equal(f.row().state,'issued');
+  const imported=f.calls.find(x=>x.endpoint==='importInvoice');assert.match(imported.body.XmlData,/<ArisingDate>20\/10\/2026<\/ArisingDate>/);assert.ok(!imported.body.XmlData.includes('T00:00'));
+  assert.equal((await response(f.env,'/doc/transfer',body)).status,200);
+  assert.equal(f.calls.filter(x=>x.endpoint==='issueInvoices').length,1);
+  assert.equal((await response(f.env,'/doc/transfer',{actual_transfer_at:'2026-10-20T00:00:00+07:00',evidence_ref:body.evidence_ref})).status,409);
+});
+test('ambiguous date-and-time or impossible date fails before recording an event',async()=>{
+  const f=fixture();await processManual(f.env,'doc');
+  for(const body of [{actual_transfer_date:'2026-10-20',actual_transfer_at:'2026-10-20T12:00:00Z',evidence_ref:'source'},{actual_transfer_date:'2026-02-30',evidence_ref:'source'}])assert.equal((await response(f.env,'/doc/transfer',body)).status,422);
+  assert.equal(f.row().transfer_at,null);assert.equal(f.calls.filter(x=>x.endpoint==='issueInvoices').length,0);
+});

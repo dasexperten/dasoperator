@@ -17,6 +17,8 @@ import {
   invoiceStage,
   seriesMatches,
   validTimestamp,
+  validTransferDate,
+  validTransferMoment,
   textField,
   vietnamDate,
   type ManualOrder,
@@ -413,7 +415,7 @@ export async function processManual(
         });
         return read(env, id);
       }
-      validTimestamp(row.transfer_at, "actual_transfer_at");
+      validTransferMoment(row.transfer_at);
       textField(row.transfer_evidence, "transfer_evidence_ref", 2000);
       if (env.EASYINVOICE_ENABLED !== "1") {
         await update(env, id, {
@@ -646,11 +648,16 @@ export async function manualRoutes(
       if (!row) return json({ ok: false, error: "not_found" }, 404);
       if (match[2] === "transfer") {
         const body = (await request.json()) as any;
-        const at = validTimestamp(
-            body.actual_transfer_at,
-            "actual_transfer_at",
-          ),
-          evidence = textField(body.evidence_ref, "evidence_ref", 2000);
+        if (
+          body.actual_transfer_date !== undefined &&
+          body.actual_transfer_at !== undefined
+        )
+          return json({ ok: false, error: "transfer_date_ambiguous" }, 422);
+        const at =
+          body.actual_transfer_date !== undefined
+            ? validTransferDate(body.actual_transfer_date)
+            : validTimestamp(body.actual_transfer_at, "actual_transfer_at");
+        const evidence = textField(body.evidence_ref, "evidence_ref", 2000);
         if (
           row.transfer_at &&
           (row.transfer_at !== at || row.transfer_evidence !== evidence)

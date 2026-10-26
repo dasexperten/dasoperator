@@ -254,8 +254,11 @@ Saving creates an unsigned draft, or adopts a verified `document_extractions` so
 with the same Ikey. Adoption does not create another provider invoice. Verified drafts
 without transfer remain unsigned, including when issuance is enabled.
 
-Recording the transfer of ownership or use requires a timezone-aware timestamp
-and evidence under the applicable order contract. A confirmed full-payment event
+Recording the transfer of ownership or use requires a confirmed Vietnam calendar
+date and evidence under the applicable order contract. The manual release API accepts
+`actual_transfer_date` (`YYYY-MM-DD`) or the existing `actual_transfer_at` timezone-aware
+timestamp, never both. Date-only evidence remains a date-only string in `transfer_at`;
+no midnight time is invented. Existing timestamp records retain their precision. A confirmed full-payment event
 can establish that moment when the contract explicitly transfers title on full
 payment; a Delivered status is not a universal prerequisite. Record the contractual
 basis and verified event instead of assuming that any payment, payout or carrier

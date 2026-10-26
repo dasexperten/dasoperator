@@ -60,6 +60,30 @@ export function validTimestamp(
   if (notFuture && n > Date.now()) throw new Error(`${name}_future`);
   return s;
 }
+// Preserve source precision: a fiscal calendar date is not a midnight timestamp.
+export function validTransferDate(value: unknown): string {
+  const s = textField(value, "actual_transfer_date", 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!match) throw new Error("actual_transfer_date_invalid");
+  const year = Number(match[1]),
+    month = Number(match[2]),
+    day = Number(match[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const maxDay =
+    month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  if (month < 1 || month > 12 || day < 1 || day > maxDay)
+    throw new Error("actual_transfer_date_invalid");
+  const todayVietnam = new Date(Date.now() + 7 * 3600_000)
+    .toISOString()
+    .slice(0, 10);
+  if (s > todayVietnam) throw new Error("actual_transfer_date_future");
+  return s;
+}
+export function validTransferMoment(value: unknown): string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? validTransferDate(value)
+    : validTimestamp(value, "actual_transfer_at");
+}
 export function normalizeOrder(input: unknown): ManualOrder {
   if (!input || typeof input !== "object") throw new Error("order_required");
   const v = input as Record<string, any>;
@@ -152,9 +176,9 @@ export function fiscalTotals(order: ManualOrder) {
   };
 }
 export function vietnamDate(timestamp: string): string {
-  const day = new Date(Date.parse(timestamp) + 7 * 3600_000)
-    .toISOString()
-    .slice(0, 10);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(timestamp)
+    ? timestamp
+    : new Date(Date.parse(timestamp) + 7 * 3600_000).toISOString().slice(0, 10);
   return `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}`;
 }
 function xml(s: string | number): string {

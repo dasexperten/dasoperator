@@ -1184,6 +1184,7 @@ export default function OperationsPage() {
           </p>
         </div>
         <MobilePageActions>
+          <Link href="/operations/vietnam" className="inline-flex items-center gap-2 px-3 py-2">Счета Вьетнам</Link>
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2"

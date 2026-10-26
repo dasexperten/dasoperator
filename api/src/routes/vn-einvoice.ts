@@ -1,0 +1,183 @@
+import { Hono } from "hono";
+import type { Env } from "../types";
+import { validateSession } from "../lib/auth";
+import { ok, fail } from "../lib/responses";
+import {
+  publicManual,
+  type ManualRow,
+} from "../../../workers/erp-vn-einvoice/src/manual-workflow";
+
+const route = new Hono<{ Bindings: Env; Variables: { actorId: string } }>();
+route.use("*", async (c, next) => {
+  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") || "";
+  const user = token ? await validateSession(c.env.DB, token) : null;
+  if (!user)
+    return fail(c, 401, [{ code: "unauthorized", message: "Войдите в ERP" }]);
+  const access =
+    user.role === "admin"
+      ? "full"
+      : (user.permissions["/operations"] ?? "none");
+  if (
+    access === "none" ||
+    (c.req.method !== "GET" && !["full", "rw"].includes(access))
+  ) {
+    return fail(c, 403, [
+      { code: "forbidden", message: "Нужен доступ к операциям" },
+    ]);
+  }
+  c.set("actorId", user.id);
+  return next();
+});
+route.get("/", async (c) => {
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM vn_einvoice_documents WHERE workflow='manual' ORDER BY created_at DESC LIMIT 100",
+  ).all<ManualRow>();
+  const candidates = await c.env.DB.prepare(
+    `SELECT d.id,d.filename FROM document_extractions d
+    WHERE d.deleted_at IS NULL AND json_extract(d.raw_extract_json,'$.provider_draft.Ikey') IS NOT NULL
+      AND NOT EXISTS(SELECT 1 FROM vn_einvoice_documents v WHERE v.ikey=json_extract(d.raw_extract_json,'$.provider_draft.Ikey'))
+    ORDER BY d.created_at DESC LIMIT 20`,
+  ).all();
+  return ok(c, {
+    documents: (rows.results ?? []).map(publicManual),
+    saved_drafts: candidates.results ?? [],
+  });
+});
+function xmlValue(xml: string, key: string): string | undefined {
+  const value = new RegExp(`<${key}>([\\s\\S]*?)</${key}>`).exec(xml)?.[1];
+  return value
+    ?.replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+route.get("/source/:id", async (c) => {
+  const ext = await c.env.DB.prepare(
+    "SELECT raw_extract_json,created_at FROM document_extractions WHERE id=? AND deleted_at IS NULL",
+  )
+    .bind(c.req.param("id"))
+    .first<{ raw_extract_json: string; created_at: number }>();
+  if (!ext)
+    return fail(c, 404, [
+      { code: "not_found", message: "Сохранённый черновик не найден" },
+    ]);
+  const source = JSON.parse(ext.raw_extract_json);
+  if (!source.provider_draft?.Ikey || !source.marketplace_order_id)
+    return fail(c, 422, [
+      {
+        code: "source_invalid",
+        message: "Документ не является подготовленным черновиком заказа",
+      },
+    ]);
+  const sourceKey = source.artifacts?.submitted_source_xml?.r2_key;
+  const object = sourceKey ? await c.env.DOCS.get(sourceKey) : null;
+  const xml = object ? await object.text() : "";
+  const products = [...xml.matchAll(/<Product>([\s\S]*?)<\/Product>/g)].map(
+    (m) => m[1]!,
+  );
+  const order = {
+    source_order_id: source.marketplace_order_id,
+    channel: String(source.marketplace ?? "manual").toLowerCase(),
+    swifthub_order_id: source.swifthub_order_uuid,
+    source_evidence_ref: `Order ${source.marketplace_order_id}; ERP source ${c.req.param("id")}`,
+    captured_at: new Date(ext.created_at * 1000).toISOString(),
+    currency: "VND",
+    buyer: {
+      kind: source.billing.tax_code ? "business" : "consumer",
+      name: source.billing.name,
+      address: source.billing.address,
+      tax_code: source.billing.tax_code,
+    },
+    payment_method: xmlValue(xml, "PaymentMethod") ?? source.payment_method,
+    items: source.items.map((line: any) => {
+      const product =
+        products.find((p) => xmlValue(p, "Code") === line.sku) ?? "";
+      return {
+        sku: line.sku,
+        name: xmlValue(product, "ProdName") ?? line.description,
+        unit: xmlValue(product, "ProdUnit") ?? "Tuýp",
+        quantity: line.qty,
+        gross_amount: line.line_amount,
+        vat_rate: line.vat_rate_pct,
+        vat_evidence_ref: (source.vat_evidence ?? []).join("\n"),
+      };
+    }),
+    shipping_gross: source.shipping_original_vnd,
+    shipping_discount: Math.abs(source.shipping_discount_vnd),
+    total_gross: source.payable_gross_vnd,
+    adopt_extraction_id: c.req.param("id"),
+  };
+  return ok(c, { order });
+});
+async function proxy(c: any, path: string) {
+  if (!c.env.VN_EINVOICE || !c.env.ERP_RUN_SECRET)
+    return fail(c, 503, [
+      {
+        code: "not_configured",
+        message: "Подключение EasyInvoice не настроено",
+      },
+    ]);
+  const body = await c.req.text();
+  const result = await c.env.VN_EINVOICE.fetch(
+    new Request(`https://vn-einvoice/manual/orders${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${c.env.ERP_RUN_SECRET}`,
+        "X-Actor-Id": c.get("actorId"),
+      },
+      body,
+    }),
+  );
+  const value = (await result.json()) as any;
+  if (!value.ok)
+    return fail(c, result.status, [
+      {
+        code: value.error ?? "invoice_error",
+        message: value.error ?? "Invoice service failed",
+      },
+    ]);
+  return ok(c, value);
+}
+route.post("/", (c) => proxy(c, ""));
+route.post("/:id/transfer", (c) =>
+  proxy(c, `/${encodeURIComponent(c.req.param("id"))}/transfer`),
+);
+route.post("/:id/reconcile", (c) =>
+  proxy(c, `/${encodeURIComponent(c.req.param("id"))}/reconcile`),
+);
+route.get("/:id/file/:kind", async (c) => {
+  const row = await c.env.DB.prepare(
+    "SELECT provider_pdf_r2_key,provider_xml_r2_key FROM vn_einvoice_documents WHERE id=? AND workflow='manual'",
+  )
+    .bind(c.req.param("id"))
+    .first<{
+      provider_pdf_r2_key: string | null;
+      provider_xml_r2_key: string | null;
+    }>();
+  const kind = c.req.param("kind");
+  const key =
+    kind === "pdf"
+      ? row?.provider_pdf_r2_key
+      : kind === "xml"
+        ? row?.provider_xml_r2_key
+        : null;
+  if (!key)
+    return fail(c, 404, [
+      { code: "not_archived", message: "Файл ещё не добавлен в архив" },
+    ]);
+  const object = await c.env.DOCS.get(key);
+  if (!object)
+    return fail(c, 404, [
+      { code: "file_missing", message: "Файл архива не найден" },
+    ]);
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": kind === "pdf" ? "application/pdf" : "application/xml",
+      "Cache-Control": "private, no-store",
+      "Content-Disposition": `attachment; filename="invoice-${c.req.param("id")}.${kind}"`,
+    },
+  });
+});
+export default route;

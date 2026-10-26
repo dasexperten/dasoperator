@@ -79,7 +79,7 @@ export default function SystemHealth() {
               status: r.status,
               message: r.message,
               detail: r.detail || undefined,
-              href: '/finance',
+              href: '/operations/vietnam',
             };
           })
           .catch((): HealthCheck => ({

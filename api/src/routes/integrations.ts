@@ -5,11 +5,13 @@
 // =============================================================================
 
 import { Hono } from 'hono';
+import vnEinvoiceOrders from './vn-einvoice';
 import type { Env } from '../types';
 import { computeIntegrationHealth } from '../lib/integration-health';
 import { runWatchdog } from '../lib/watchdog';
 
 const route = new Hono<{ Bindings: Env }>();
+route.route('/vn-einvoice/orders', vnEinvoiceOrders);
 
 route.get('/health', async (c) => {
   const report = await computeIntegrationHealth(c.env);

@@ -316,3 +316,8 @@ service = "erp-wb-sales"
 [[services]]
 binding = "ERP_OZON_SALES"
 service = "erp-ozon-sales"
+
+# Session-authenticated manual Vietnam invoice workflow; provider keys remain on the dedicated worker.
+[[services]]
+binding = "VN_EINVOICE"
+service = "erp-vn-einvoice"

@@ -1,6 +1,6 @@
 // The pinned Workers types trail the runtime; node:crypto is available through
 // the worker's nodejs_compat flag on the selected compatibility date.
-// @ts-expect-error Cloudflare runtime API documented for current compatibility date
+// @ts-ignore The API build includes node types; the standalone worker typecheck does not.
 import { createHash, randomBytes } from 'node:crypto';
 
 export type InvoiceAction = 'issue' | 'adjust' | 'replace' | 'cancel';

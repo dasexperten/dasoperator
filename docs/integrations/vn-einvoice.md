@@ -239,3 +239,34 @@ must prove duplicate replay safety before enabling production issuance.
 SwiftHub publicly describes APIs for parcel/status integration, but that is not
 an account-specific order API contract or working credentials:
 [SwiftHub API overview](https://swifthub.net/en/fulfillment-en/how-to-buy-spx-jt-ghn-labels-in-vietnam-via-swifthub/).
+
+## Manual ERP orders (2026-10-26)
+
+The authenticated ERP page `/operations/vietnam` inherits `/operations` permissions.
+Read access lists/orders/downloads; `rw` or `full` records orders and transfer evidence.
+The API proxies to `VN_EINVOICE` using its server-only `ERP_RUN_SECRET` and session actor.
+Migration `0142_vn_einvoice_manual.sql` adds manual workflow fields to the existing outbox.
+
+An order carries VND gross line amounts, explicit VAT rates and evidence, buyer billing,
+source references, and original shipping/discount components. The validated template
+currently supports one VAT rate and zero net shipping; unsupported allocations fail.
+Saving creates an unsigned draft, or adopts a verified `document_extractions` source
+with the same Ikey. Adoption does not create another provider invoice. Verified drafts
+without transfer remain unsigned, including when issuance is enabled.
+
+Recording actual buyer transfer requires a timezone-aware timestamp and evidence;
+payment, payout and carrier pickup are not substitutes. Before first issue, the same
+unsigned draft is restored from canonical saved lines and the Vietnam transfer date.
+Provider Ikey, buyer, totals and series must match. The worker then uses the documented
+HSM `issueInvoices` endpoint. A persisted phase and lease prevent concurrent writes;
+uncertain issue results are queried, never blindly resubmitted.
+
+Provider draft, signing, issued/pending-tax, tax-rejected and accepted states are
+separate. Final PDF/XML are refreshed after acceptance and stored privately with
+SHA256 and provider-readback provenance. HTML/error downloads cannot complete the
+archive. The provider guide does not document exported XML field names; fiscal facts
+are matched through the same-Ikey provider readback, not guessed XML tags.
+
+The SwiftHub raw webhook adapter is still absent. This manual path does not claim
+that feed is connected. Production signed/accepted end-to-end testing still needs a
+real eligible transfer or working demo tenant; no artificial production invoice is used.

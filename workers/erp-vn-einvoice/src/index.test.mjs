@@ -16,6 +16,8 @@ const compiled = await build({
   entryPoints: [new URL('./index.ts', import.meta.url).pathname],
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'run-log', setup(b) {
+    b.onResolve({ filter: /manual-workflow$/ }, () => ({ path: 'manual-stub', namespace: 'manual-stub' }));
+    b.onLoad({ filter: /.*/, namespace: 'manual-stub' }, () => ({ contents: 'export async function runManual(){return 0}; export async function manualRoutes(){return new Response(null,{status:404})}' }));
     b.onResolve({ filter: /_shared\/run$/ }, () => ({ path: 'run-log', namespace: 'test' }));
     b.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents:
       'export async function runLogged(env, name, cron, job) { return await job(env, false); }' }));
@@ -111,20 +113,20 @@ test('valid queued issue reaches provider status then submission', async (t) => 
   t.mock.method(globalThis, 'fetch', async (url) => {
     calls.push(String(url));
     return Response.json(calls.length === 1
-      ? { Status: 2, Data: { KeyInvoiceMsg: { 'swh-42': '-1' } } }
+      ? { Status: 2, Data: { Invoices: [] } }
       : { Status: 5, ErrorCode: 176 });
   });
   const f = fixture({ enabled: true, row: queuedIssue });
   await runQueue(f);
   assert.equal(calls.length, 2);
-  assert.match(calls[0], /checkInvoiceState$/);
+  assert.match(calls[0], /getInvoicesByIkeys$/);
   assert.match(calls[1], /importAndIssueInvoice$/);
 });
 test('stored completion is checked again immediately before submission', async (t) => {
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url) => {
     calls.push(String(url));
-    return Response.json({ Status: 2, Data: { KeyInvoiceMsg: { 'swh-42': '-1' } } });
+    return Response.json({ Status: 2, Data: { Invoices: [] } });
   });
   const f = fixture({ enabled: true, row: queuedIssue });
   let reads = 0;
@@ -138,12 +140,12 @@ test('uncertain prior submission keeps verification even without completed_at', 
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url) => {
     calls.push(String(url));
-    return Response.json({ Status: 2, Data: { KeyInvoiceMsg: { 'swh-42': '-1' } } });
+    return Response.json({ Status: 2, Data: { Invoices: [] } });
   });
   const f = fixture({ enabled: true, row: { ...queuedIssue, state: 'verify_pending' },
     payload: { ...valid, completed_at: undefined } });
   f.env.DOCS.get = async () => { throw new Error('verification_does_not_need_source_payload'); };
   await runQueue(f);
-  assert.equal(calls.length, 1); assert.match(calls[0], /checkInvoiceState$/);
+  assert.equal(calls.length, 1); assert.match(calls[0], /getInvoicesByIkeys$/);
   assert.equal(f.writes.some(w => w.values[0] === 'manual_review'), false);
 });

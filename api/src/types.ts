@@ -54,6 +54,7 @@ export interface Env {
   ERP_WB_SALES: Fetcher;
   ERP_OZON_SALES: Fetcher;
   ERP_RUN_SECRET?: string;
+  VN_EINVOICE?: Fetcher;
   ARINA_WB: Fetcher;
   /**
    * Fleet Worker julian-geo — GEO seat. The nightly snapshot writes six tables

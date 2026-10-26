@@ -61,10 +61,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node 20
+      - name: Use Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       # workers/erp-*: a timer worker that imports a model client or holds a key
       # in its code does not ship (Owner 2026-09-18: model-free timers only).
@@ -124,7 +124,7 @@ jobs:
         run: node --test api/src/lib/marketplace-articles.test.mjs workers/_marketplace/ozon-read-retry.test.mjs api/src/lib/integration-health.test.mjs workers/_marketplace/wb-sku-daily.test.mjs workers/_marketplace/wb-advert-spend.test.mjs
 
       - name: Test Vietnam EasyInvoice transport and idempotency contract
-        run: node --test workers/erp-vn-einvoice/src/*.test.mjs
+        run: node --test workers/erp-vn-einvoice/src/*.test.mjs api/src/routes/vn-einvoice.test.mjs
 
   stock-source:
     runs-on: ubuntu-latest

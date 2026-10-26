@@ -1,3 +1,5 @@
+import { manualRoutes, runManual } from './manual-workflow';
+import { matchedInvoice, invoiceStage } from './manual-order';
 // @ts-expect-error Cloudflare runtime API documented for current compatibility date
 import { createHash } from 'node:crypto';
 import { runLogged, type BaseEnv } from '../../_shared/run';
@@ -307,9 +309,9 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
   const started = Math.floor(Date.now() / 1000);
   const target = row.action === 'cancel' ? row.original_ikey || row.ikey : row.ikey;
   try {
-    const result = await callJson(config, 'status', statusBody(target));
+    const result = await callEndpoint(config, 'api/publish/getInvoicesByIkeys', statusBody(target));
     const responseKey = await archiveProviderResponse(env, row, 'verify', result);
-    if (isMissingIkey(result.body, target)) {
+    if (codeOf(result.body) === '128' || (isProviderSuccess(result.body) && Array.isArray((result.body.Data as any)?.Invoices) && (result.body.Data as any).Invoices.length === 0)) {
       const misses = row.verify_count + 1;
       const manual = row.state === 'verify_pending' && misses >= MAX_VERIFY_MISSES;
       await updateDocument(env, row.id, {
@@ -327,6 +329,11 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
       });
       return manual ? 'manual_review' : 'not_found';
     }
+    const providerInvoice = matchedInvoice(result.body, target);
+    if (isProviderSuccess(result.body) && (!providerInvoice || !['issued_pending_tax','tax_accepted'].includes(invoiceStage(providerInvoice)))) {
+      await updateDocument(env, row.id, { state: 'manual_review', provider_message: 'existing_invoice_not_issued', response_r2_key: responseKey, next_attempt_at: null, updated_at: Math.floor(Date.now() / 1000) });
+      return 'existing_invoice_not_issued';
+    }
     if (isProviderSuccess(result.body) && row.action === 'cancel') {
       // The status call shows the original invoice exists, not that it was
       // cancelled: before submission it clears the cancel to go ahead; after an
@@ -340,6 +347,10 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
         httpStatus: result.httpStatus, body: result.body, responseKey,
       });
       return 'manual_review';
+    }
+    if (isProviderSuccess(result.body) && providerInvoice && invoiceStage(providerInvoice) === 'issued_pending_tax') {
+      await updateDocument(env,row.id,{state:'verify_pending',provider_message:'tax_acceptance_pending',response_r2_key:responseKey,next_attempt_at:Math.floor(Date.now()/1000)+RETRY_SECONDS,updated_at:Math.floor(Date.now()/1000)});
+      return 'tax_acceptance_pending';
     }
     if (isProviderSuccess(result.body)) {
       const nextState = row.action === 'cancel' ? 'cancelled' : 'issued_archive_pending';
@@ -467,21 +478,22 @@ async function loadDocument(env: Env, id: string): Promise<DocumentRow | null> {
 async function queueRun(env: Env, dry: boolean): Promise<{ rows: number; note: string }> {
   const ready = readiness(env);
   if (dry) return { rows: 0, note: `dry · ready=${ready.ready} · blockers=${ready.blockers.join(',') || 'none'}` };
+  const manualHandled = await runManual(env);
   if (!ready.ready || !ready.config) {
     const now = Math.floor(Date.now() / 1000);
     await env.DB.prepare(
       `UPDATE vn_einvoice_documents
           SET state='blocked_config', provider_message=?, next_attempt_at=NULL, updated_at=?
-        WHERE state IN ('received','checking','submitting','verify_pending','blocked_config')`,
+        WHERE workflow='xml' AND state IN ('received','checking','submitting','verify_pending','blocked_config')`,
     ).bind(ready.blockers.join(','), now).run();
-    return { rows: 0, note: `blocked · ${ready.blockers.join(',')}` };
+    return { rows: manualHandled, note: `manual=${manualHandled} · legacy blocked · ${ready.blockers.join(',')}` };
   }
   const now = Math.floor(Date.now() / 1000);
   const rows = await env.DB.prepare(
     `SELECT id, source, source_event_id, source_order_id, action, ikey, original_ikey,
             pattern, serial, state, request_r2_key, retry_count, verify_count
        FROM vn_einvoice_documents
-      WHERE state IN ('received','blocked_config','verify_pending','issued_archive_pending')
+      WHERE workflow='xml' AND state IN ('received','blocked_config','verify_pending','issued_archive_pending')
         AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
       ORDER BY created_at ASC LIMIT 20`,
   ).bind(now).all<DocumentRow>();
@@ -490,7 +502,7 @@ async function queueRun(env: Env, dry: boolean): Promise<{ rows: number; note: s
     await processDocument(env, row, ready.config);
     handled++;
   }
-  return { rows: handled, note: `ready · handled=${handled}` };
+  return { rows: handled + manualHandled, note: `ready · xml=${handled} · manual=${manualHandled}` };
 }
 
 async function health(env: Env): Promise<Response> {
@@ -679,6 +691,7 @@ export default {
 
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/manual/')) return manualRoutes(request, env);
     if (request.method === 'GET' && url.pathname === '/health') return health(env);
     if (request.method === 'POST' && url.pathname === '/webhooks/swifthub') return ingest(request, env);
     if (request.method === 'POST' && url.pathname === '/run') {

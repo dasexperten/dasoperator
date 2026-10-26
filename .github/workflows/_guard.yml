@@ -124,7 +124,7 @@ jobs:
         run: node --test api/src/lib/marketplace-articles.test.mjs workers/_marketplace/ozon-read-retry.test.mjs api/src/lib/integration-health.test.mjs workers/_marketplace/wb-sku-daily.test.mjs workers/_marketplace/wb-advert-spend.test.mjs
 
       - name: Test Vietnam EasyInvoice transport and idempotency contract
-        run: node --test workers/erp-vn-einvoice/src/easyinvoice.test.mjs
+        run: node --test workers/erp-vn-einvoice/src/*.test.mjs
 
   stock-source:
     runs-on: ubuntu-latest

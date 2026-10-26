@@ -79,6 +79,21 @@ function safeString(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
+// This is the existing normalized fiscal-event contract, not SwiftHub's raw
+// status mapping or a legal determination of the invoice date.
+function completionError(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return 'completed_at_required';
+  if (typeof value !== 'string') return 'completed_at_invalid';
+  const match = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);
+  const timestamp = Date.parse(value);
+  if (!match || !Number.isFinite(timestamp)) return 'completed_at_invalid';
+  const [, year, month, day] = match.map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) return 'completed_at_invalid';
+  if (timestamp > Date.now()) return 'completion_pending';
+  return null;
+}
+
 function safeKey(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100) || 'event';
 }
@@ -356,8 +371,21 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
   }
 }
 
+async function holdIncompleteIssue(env: Env, row: DocumentRow, payload: IngestEvent): Promise<string | null> {
+  const error = row.action === 'issue' ? completionError(payload.completed_at) : null;
+  if (error) {
+    await updateDocument(env, row.id, {
+      state: 'manual_review', provider_message: error, next_attempt_at: null,
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+  }
+  return error;
+}
+
 async function submitDocument(env: Env, row: DocumentRow, config: EasyInvoiceConfig): Promise<string> {
   const payload = await loadPayload(env, row);
+  const completion = await holdIncompleteIssue(env, row, payload);
+  if (completion) return completion;
   const body = submitBody({
     action: row.action,
     ikey: row.ikey,
@@ -406,6 +434,10 @@ async function processDocument(env: Env, row: DocumentRow, config: EasyInvoiceCo
     return await archiveIssuedFiles(env, row, config) ? 'archive_complete' : 'archive_pending';
   }
   if (row.state === 'verify_pending') return verifyDocument(env, row, config);
+  if (row.action === 'issue') {
+    const completion = await holdIncompleteIssue(env, row, await loadPayload(env, row));
+    if (completion) return completion;
+  }
   await updateDocument(env, row.id, { state: 'checking', updated_at: Math.floor(Date.now() / 1000) });
   const preflight = await verifyDocument(env, { ...row, state: 'checking' }, config);
   if (preflight === 'original_found') return submitDocument(env, row, config);
@@ -522,6 +554,8 @@ async function ingest(request: Request, env: Env): Promise<Response> {
     ).bind(orderId).first();
     if (existingOrder) return json({ ok: true, idempotent: true, document: existingOrder });
   }
+  const completion = invoiceAction === 'issue' ? completionError(body.completed_at) : null;
+  if (completion) return json({ ok: false, error: completion }, 422);
   const ikey = safeString(body.ikey, 120) || defaultIkey(orderId, invoiceAction, eventId);
   const originalIkey = safeString(body.original_ikey, 120) || null;
   const xmlData = safeString(body.xml_data, 2_000_000) || null;

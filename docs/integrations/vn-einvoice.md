@@ -2,10 +2,16 @@
 
 ## Purpose
 
-This connector turns a completed SwiftHub order into one auditable Vietnam
-e-invoice operation:
+This connector accepts a normalized fiscal command for a completed SwiftHub
+order and performs one auditable Vietnam e-invoice operation:
 
 `SwiftHub -> erp-vn-einvoice -> D1 outbox -> SoftDreams EasyInvoice -> private R2 archive`
+
+The SwiftHub raw-order adapter is **not implemented or connected** as verified
+on 2026-10-26. This endpoint requires prepared EasyInvoice XML; it does not pull
+orders, accept the native SwiftHub order payload, or derive fiscal facts from a
+marketplace order. `ingress_configured` means only that the receiver secret is
+bound, not that SwiftHub has configured or delivered a webhook.
 
 It supports issue, adjustment, replacement, cancellation, status verification,
 and PDF/XML archival. The provider is disabled until every production-readiness
@@ -50,6 +56,15 @@ Fields:
   omitted. If supplied, it must match the XML `<Ikey>`.
 - `xml_data` is required except for cancellation. It must follow the
   EasyInvoice v8 XML schema and contain the final fiscal facts from SwiftHub.
+- `completed_at` is required for a new `issue`: an ISO 8601 timestamp with
+  timezone, representing an already completed event. Missing, malformed, or
+  future timestamps return `422` without archiving or enqueuing a command.
+  Existing event/order replays still return their existing document. Legacy
+  queued issues are checked again before first submission and held in
+  `manual_review` if completion is absent or invalid. Verification of uncertain
+  submissions and archival of issued documents continue, to avoid losing the
+  outcome of a previous provider call. This is a technical contract check;
+  the actual source-status mapping and legal issuance time require confirmation.
 - `original_ikey` is required for adjustment, replacement, and cancellation.
 - `pattern` and `serial` may override the configured values only when the
   provider has assigned an order-specific value.
@@ -197,3 +212,30 @@ when `EASYINVOICE_BASE_URL` is a demo host (`appdemo.softdreams.vn`), ignores
 `{"download": true, "body": {"Ikey": "...", "Option": 0}}` for the PDF. The
 response carries the provider envelope, never the authentication header. The
 secret is deleted when an acceptance run ends, which disables the route.
+
+## SwiftHub connection gap verified 2026-10-26
+
+Lazada order `530124445322445` is present in SwiftHub as order
+`aaf186cb-63c1-43cf-b29d-098705f5a86d`, status Packed. This establishes the
+marketplace-to-OMS leg only. ERP invoice documents and attempts were both zero;
+production issuance remains disabled. A Packed order must not be manufactured
+into a completed fiscal command just to populate this outbox.
+
+Before implementing the missing upstream adapter, obtain from SwiftHub:
+
+1. The documented order-read API or webhook contract, authentication, retry and
+   replay rules, and one actual payload for this order.
+2. The relationship between immutable SwiftHub order ID and marketplace order
+   ID, event ID/version, timestamp timezone, and source status lifecycle.
+3. Line quantities and amounts, discounts, shipping, currency, payment/settlement
+   fields, buyer legal name/address/tax code, and returns/cancellation events.
+
+ERP owns raw-event retention, the approved status-to-fiscal-event mapping,
+amount reconciliation and EasyInvoice XML construction. Finance must approve
+VAT, buyer and template mapping and the issuance trigger. A read-only replay of
+this Packed order must prove that no invoice is queued. A completed-event test
+must prove duplicate replay safety before enabling production issuance.
+
+SwiftHub publicly describes APIs for parcel/status integration, but that is not
+an account-specific order API contract or working credentials:
+[SwiftHub API overview](https://swifthub.net/en/fulfillment-en/how-to-buy-spx-jt-ghn-labels-in-vietnam-via-swifthub/).

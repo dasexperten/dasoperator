@@ -349,7 +349,7 @@ export async function issueDocuments(
   operationId: string, env: Env, reqUrl: string,
   filterTypes?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN'>,
 ): Promise<IssueOutcome> {
-  const vn = await env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=? AND workflow='manual'").bind(operationId).first();
+  const vn = await env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=?").bind(operationId).first();
   if (vn) return fail({ code: 'vn_invoice_managed', message: 'Для этой операции используется существующий инвойс EasyInvoice.' },409,[]);
   // 1. Load
   let input: Awaited<ReturnType<typeof loadInvoicerInput>>;

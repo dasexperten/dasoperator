@@ -97,6 +97,8 @@ function resolvePartnerLabel(op: { partner_id?: string | null; partner_trade_nam
 interface OpThread { key: string; head: Operation; rest: Operation[] }
 
 function threadKey(op: Operation): string {
+  // Every Vietnam marketplace invoice is visible as its own ordinary operation.
+  if (op.vn_einvoice_document_id) return `vn:${op.id}`;
   if ((op as { is_batch?: boolean }).is_batch === true) {
     const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
     return mp === 'WB' ? 'mp:wb' : mp === 'OZN' ? 'mp:ozon' : 'mp:batch';
@@ -124,6 +126,14 @@ function statusLabel(status: string, opType?: string): string {
     if (opType === 'sale') return 'Awaiting payment';
   }
   return STATUS_LABELS[status] ?? status;
+}
+
+function operationReference(op: Operation): string {
+  if (op.vn_einvoice_document_id && op.vn_marketplace && op.vn_source_order_id) {
+    const channel = ({ lazada: 'Lazada', shopee: 'Shopee', tiktok: 'TikTok', tiktok_shop: 'TikTok' } as Record<string, string>)[op.vn_marketplace.toLowerCase()] ?? op.vn_marketplace;
+    return `${channel} · ${op.vn_source_order_id}`;
+  }
+  return op.reference ?? op.id;
 }
 
 function formatDate(unix: number): string {
@@ -704,7 +714,9 @@ export default function OperationsPage() {
     return operations.filter((op) => {
       if (search) {
         const q = search.toLowerCase();
-        const m = op.reference?.toLowerCase().includes(q) ||
+        const m = operationReference(op).toLowerCase().includes(q) ||
+                  op.vn_invoice_no?.toLowerCase().includes(q) ||
+                  op.reference?.toLowerCase().includes(q) ||
                   op.partner_trade_name?.toLowerCase().includes(q) ||
                   op.manufacturer_name?.toLowerCase().includes(q) ||
                   op.contract_no?.toLowerCase().includes(q);
@@ -921,7 +933,7 @@ export default function OperationsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
           <span style={{ display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap', minWidth: 0 }}>
             <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
-              {op.reference ?? op.id.slice(0, 12)}
+              {operationReference(op)}
             </span>
             {thread && thread.rest.length > 0 && (
               <ThreadToggle
@@ -948,10 +960,11 @@ export default function OperationsPage() {
             }}
           >
             <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sd.fg, display: 'inline-block' }} />
-            {statusLabel(op.status, op.operation_type)}
+            {op.vn_einvoice_document_id && op.status === 'issued' ? 'Инвойс выпущен' : statusLabel(op.status, op.operation_type)}
           </span>
         </div>
 
+        {op.vn_invoice_no && op.vn_invoice_no !== '0' && <p style={{ fontSize: 13, color: 'var(--fg-2)', marginTop: 6 }}>Инвойс № {op.vn_invoice_no}</p>}
         {/* Row 2: counterparty (bottom-left, bold) + amount stack (bottom-right) */}
         <div style={{
           display: 'flex',
@@ -1026,8 +1039,11 @@ export default function OperationsPage() {
             href={isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`}
             style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
           >
-            {op.reference ?? op.id}
+            {operationReference(op)}
           </Link>
+          {op.vn_invoice_no && op.vn_invoice_no !== '0' && (
+            <div style={{ color: 'var(--fg-2)', fontSize: 13, fontWeight: 400, marginTop: 4 }}>Инвойс № {op.vn_invoice_no}</div>
+          )}
         </td>
         <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
         {/* v2 manufacturer fallback — deployed 2026-05-11 */}
@@ -1184,7 +1200,7 @@ export default function OperationsPage() {
           </p>
         </div>
         <MobilePageActions>
-          <Link href="/operations/vietnam" className="inline-flex items-center gap-2 px-3 py-2">Счета Вьетнам</Link>
+          <Link href="/operations/vietnam" className="inline-flex items-center gap-2 px-3 py-2">Импорт заказа Вьетнам</Link>
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2"

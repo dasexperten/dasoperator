@@ -4,6 +4,7 @@ export const runtime = "edge";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
@@ -182,6 +183,7 @@ function errorMessage(code: string) {
 export default function VietnamInvoices() {
   const [docs, setDocs] = useState<Doc[]>([]),
     [saved, setSaved] = useState<Array<{ id: string; filename: string }>>([]);
+  const router = useRouter();
   const [order, setOrder] = useState<Order>(emptyOrder),
     [showForm, setShowForm] = useState(false),
     [busy, setBusy] = useState(false),
@@ -256,6 +258,10 @@ export default function VietnamInvoices() {
     if (r) {
       setShowForm(false);
       setOrder(emptyOrder());
+      if (r.document?.operation_id) {
+        router.push(`/operations/${r.document.operation_id}`);
+        return;
+      }
       setNotice(
         r.document?.display_status === "draft"
           ? "Заказ сохранён, черновик подготовлен."
@@ -318,11 +324,11 @@ export default function VietnamInvoices() {
         >
           <div>
             <h1 style={{ fontSize: 27, fontWeight: 750 }}>
-              Электронные счета Вьетнам
+              Импорт заказа Вьетнам
             </h1>
             <p style={{ color: "var(--fg-2)", marginTop: 6 }}>
-              Данные заказа уже заполнены. Подпись и отправку в налоговую
-              выполнит EasyInvoice.
+              Заказы Lazada, Shopee и TikTok находятся в общем списке «Операции».
+              Здесь можно добавить заказ из источника.
             </p>
           </div>
         </div>
@@ -344,7 +350,7 @@ export default function VietnamInvoices() {
           {notice}
         </div>
       )}
-      {docs.map((d) => (
+      {docs.filter((d) => !d.operation_id).map((d) => (
         <article key={d.id} style={{ ...card, display: "grid", gap: 14 }}>
           <div
             style={{
@@ -686,7 +692,7 @@ export default function VietnamInvoices() {
       ))}
       <details style={{ ...card, color: "var(--fg-2)" }}>
         <summary style={{ cursor: "pointer", fontSize: 14 }}>
-          Добавить другой заказ
+          Добавить заказ
         </summary>
         <div style={{ display: "grid", gap: 18, marginTop: 18 }}>
           <button
@@ -1017,9 +1023,9 @@ export default function VietnamInvoices() {
           )}
         </div>
       </details>
-      {!docs.length && !showForm && (
+      {!showForm && (
         <p style={{ color: "var(--fg-2)" }}>
-          Заказов пока нет. Откройте подготовленный черновик или добавьте заказ.
+          <Link href="/operations" style={{ textDecoration: "underline" }}>Открыть все операции</Link>
         </p>
       )}
     </div>

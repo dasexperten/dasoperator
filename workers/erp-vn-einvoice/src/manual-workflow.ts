@@ -1,4 +1,4 @@
-import { syncManualOperation, linkManualOperation } from "./operation-link";
+import { ensureOperationLink, linkManualOperation } from "./operation-link";
 import {
   callEndpoint,
   codeOf,
@@ -315,7 +315,7 @@ async function submitDraft(
   at: string,
   phase: string,
 ) {
-  const xml = orderXml(order, at);
+  const xml = orderXml(order, at, row.ikey);
   const sourceKey = `vn-einvoice/${row.id}/${Date.now()}-${phase}-source.xml`;
   await env.DOCS.put(sourceKey, xml, {
     httpMetadata: { contentType: "application/xml" },
@@ -460,7 +460,7 @@ export async function processManual(
       await hold(env, row, "provider_series_mismatch");
       return read(env, id);
     }
-    if (!invoiceMatches(order, inv)) {
+    if (!invoiceMatches(order, inv, row.ikey)) {
       await hold(env, row, "provider_fiscal_facts_mismatch");
       return read(env, id);
     }
@@ -521,7 +521,7 @@ export async function processManual(
         );
         if (
           !inv ||
-          !invoiceMatches(order, inv) ||
+          !invoiceMatches(order, inv, row.ikey) ||
           !seriesMatches(inv, cfg.pattern, cfg.serial) ||
           String(inv.ArisingDate).slice(0, 10) !== vietnamDate(invoiceDate)
         ) {
@@ -559,7 +559,7 @@ export async function processManual(
       inv = await getInvoice(env, row, cfg);
       if (
         !inv ||
-        !invoiceMatches(order, inv) ||
+        !invoiceMatches(order, inv, row.ikey) ||
         !seriesMatches(inv, cfg.pattern, cfg.serial)
       ) {
         await uncertain(env, row, "issue_readback_pending");
@@ -604,22 +604,12 @@ export async function processManual(
       .bind(id, lease)
       .run();
     const linked = await read(env, id);
-    if (linked?.operation_id) {
-      try {
-        await syncManualOperation(env, linked);
-        await update(env, id, { operation_sync_error: null });
-      } catch (error) {
-        // Accounting sync must not undo or misrepresent an already successful fiscal action.
-        const message =
-          error instanceof Error
-            ? error.message.slice(0, 300)
-            : "operation_sync_failed";
-        await update(env, id, { operation_sync_error: message }).catch(
-          () => {},
-        );
-        console.error("vn_operation_sync_failed", id, message);
-      }
-    }
+    if (linked)
+      await ensureOperationLink(
+        env,
+        linked,
+        releaseActor ?? "system:vn-einvoice",
+      );
   }
   return read(env, id);
 }
@@ -637,7 +627,8 @@ async function validateAdoption(
   const src = JSON.parse(ext.raw_extract_json);
   if (
     src.marketplace_order_id !== order.source_order_id ||
-    src.provider_draft?.Ikey !== manualIkey(order) ||
+    String(src.marketplace ?? "").toLowerCase() !== order.channel ||
+    !src.provider_draft?.Ikey ||
     src.payable_gross_vnd !== order.total_gross ||
     src.billing?.tax_code !== (order.buyer.tax_code ?? "") ||
     src.billing?.name !== order.buyer.name ||
@@ -652,6 +643,7 @@ async function validateAdoption(
     .sort();
   if (JSON.stringify(a) !== JSON.stringify(b))
     throw new Error("adoption_items_mismatch");
+  return textField(src.provider_draft.Ikey, "provider_ikey", 120);
 }
 export async function manualRoutes(
   request: Request,
@@ -668,12 +660,12 @@ export async function manualRoutes(
   try {
     if (request.method === "POST" && url.pathname === "/manual/orders") {
       const body = (await request.json()) as any,
-        order = normalizeOrder(body),
-        ikey = manualIkey(order);
+        order = normalizeOrder(body);
+      let ikey = manualIkey(order);
       const existing = await env.DB.prepare(
-        "SELECT * FROM vn_einvoice_documents WHERE ikey=?",
+        "SELECT * FROM vn_einvoice_documents WHERE workflow='manual' AND source_order_id=? AND json_extract(normalized_order_json,'$.channel')=? LIMIT 1",
       )
-        .bind(ikey)
+        .bind(order.source_order_id, order.channel)
         .first<ManualRow>();
       if (existing) {
         if (
@@ -681,14 +673,18 @@ export async function manualRoutes(
           existing.normalized_order_json !== JSON.stringify(order)
         )
           return json({ ok: false, error: "existing_order_differs" }, 409);
+        const operation_id = await ensureOperationLink(env, existing, actor);
         return json({
           ok: true,
           idempotent: true,
-          document: publicManual(existing),
+          document: publicManual({
+            ...existing,
+            operation_id: operation_id ?? existing.operation_id,
+          }),
         });
       }
       if (body.adopt_extraction_id)
-        await validateAdoption(
+        ikey = await validateAdoption(
           env,
           textField(body.adopt_extraction_id, "adopt_extraction_id", 120),
           order,
@@ -730,14 +726,21 @@ export async function manualRoutes(
         )
           .bind(ikey)
           .first<ManualRow>();
-        if (found && found.normalized_order_json === JSON.stringify(order))
+        if (found && found.normalized_order_json === JSON.stringify(order)) {
+          const operation_id = await ensureOperationLink(env, found, actor);
           return json({
             ok: true,
             idempotent: true,
-            document: publicManual(found),
+            document: publicManual({
+              ...found,
+              operation_id: operation_id ?? found.operation_id,
+            }),
           });
+        }
         throw e;
       }
+      const saved = await read(env, id);
+      if (saved) await ensureOperationLink(env, saved, actor);
       const row = await processManual(env, id);
       return json({ ok: true, document: row ? publicManual(row) : null }, 202);
     }

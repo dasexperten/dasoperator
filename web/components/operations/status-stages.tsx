@@ -128,7 +128,7 @@ export default function StatusStages({ op }: { op: Operation }) {
         return (
           <span
             key={key}
-            title={`${meta.label} — ${lit ? 'done' : 'pending'}`}
+            title={op.vn_einvoice_document_id && key === 'PAY' ? `Выплата маркетплейса — ${lit ? 'подтверждена' : 'ожидает сверки'}` : `${meta.label} — ${lit ? 'done' : 'pending'}`}
             style={{
               width: '30px',
               height: '30px',

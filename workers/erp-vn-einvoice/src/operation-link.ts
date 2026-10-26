@@ -12,6 +12,15 @@ import { isProviderSuccess } from "./easyinvoice";
 import type { ManualEnv, ManualRow } from "./manual-workflow";
 
 const now = () => Math.floor(Date.now() / 1000);
+export const marketplaceLabel = (channel: string) =>
+  (
+    ({
+      lazada: "Lazada",
+      shopee: "Shopee",
+      tiktok: "TikTok",
+      manual: "Manual",
+    }) as Record<string, string>
+  )[channel] ?? channel;
 async function receipt(
   env: ManualEnv,
   row: ManualRow,
@@ -27,7 +36,7 @@ async function receipt(
   if (!invoice) return null;
   if (
     !seriesMatches(invoice, row.pattern, row.serial) ||
-    !invoiceMatches(order, invoice)
+    !invoiceMatches(order, invoice, row.ikey)
   )
     throw new Error("operation_invoice_facts_mismatch");
   return invoice;
@@ -130,7 +139,7 @@ export async function linkManualOperation(
       id,
       dateEpoch(date),
       partnerId,
-      `VN-${order.channel.toUpperCase()}-${order.source_order_id}`,
+      `${marketplaceLabel(order.channel)}-${order.source_order_id}`,
       issued ? "issued" : "draft",
       totals.gross,
       order.items[0]!.vat_rate,
@@ -157,6 +166,15 @@ export async function linkManualOperation(
         timestamp,
       ),
     );
+  statements.push(
+    env.DB.prepare(
+      "UPDATE operations SET reference=? WHERE id=? AND reference=?",
+    ).bind(
+      `${marketplaceLabel(order.channel)}-${order.source_order_id}`,
+      id,
+      `VN-${order.channel.toUpperCase()}-${order.source_order_id}`,
+    ),
+  );
   statements.push(
     env.DB.prepare(
       "UPDATE vn_einvoice_documents SET operation_id=?,operation_sync_error=NULL WHERE id=? AND (operation_id IS NULL OR operation_id=?)",
@@ -212,4 +230,39 @@ export async function syncManualOperation(env: ManualEnv, row: ManualRow) {
     );
   }
   await env.DB.batch(statements);
+}
+
+// Every durable normalized issue can repair its general operation independently
+// of the browser/API response. Recovery NEVER calls the invoice provider.
+export async function ensureOperationLink(
+  env: ManualEnv,
+  row: ManualRow,
+  actor = "system:vn-einvoice",
+) {
+  if (row.action !== "issue" || ["cancelled"].includes(row.state)) return null;
+  if (!row.normalized_order_json) return null;
+  try {
+    return await linkManualOperation(env, row, actor);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, 300)
+        : "operation_sync_failed";
+    await env.DB.prepare(
+      "UPDATE vn_einvoice_documents SET operation_sync_error=?,updated_at=unixepoch() WHERE id=?",
+    )
+      .bind(message, row.id)
+      .run()
+      .catch(() => {});
+    return null;
+  }
+}
+export async function repairOperationLinks(env: ManualEnv) {
+  const rows = await env.DB.prepare(
+    `SELECT v.* FROM vn_einvoice_documents v LEFT JOIN operations o ON o.id=v.operation_id WHERE v.action='issue' AND v.state!='cancelled' AND v.normalized_order_json IS NOT NULL AND json_valid(v.normalized_order_json) AND (v.operation_id IS NULL OR v.operation_sync_error IS NOT NULL OR o.reference LIKE 'VN-%') ORDER BY v.updated_at,v.created_at LIMIT 50`,
+  ).all<ManualRow>();
+  let linked = 0;
+  for (const row of rows.results ?? [])
+    if (await ensureOperationLink(env, row)) linked++;
+  return { checked: rows.results?.length ?? 0, linked };
 }

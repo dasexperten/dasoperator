@@ -282,3 +282,24 @@ are matched through the same-Ikey provider readback, not guessed XML tags.
 The SwiftHub raw webhook adapter is still absent. This manual path does not claim
 that feed is connected. Production signed/accepted end-to-end testing still needs a
 real authorized issue or working demo tenant; no artificial production invoice is used.
+
+## General Operations and marketplace identity (2026-10-26)
+
+Normalized Vietnam orders enter the ordinary `operations` register automatically
+at durable worker creation, replay and processing completion. The queue runner
+also repairs missing links for normalized issue documents, including completed
+ones, independently of an interrupted browser/API response. Repair calls no
+provider endpoint. Corrections/cancellations do not create another sale.
+
+Lazada, Shopee and TikTok use separate channel-qualified keys for **new**
+invoices; an existing/adopted invoice always retains its stored provider Ikey.
+The readable operation reference is `Lazada-<order>`, `Shopee-<order>` or
+`TikTok-<order>`. Buyer identity remains the actual customer. The general list
+shows each order separately with its issued invoice number; the Vietnam entry
+page is only an import screen and opens the regular operation after saving.
+
+Production audit: one Lazada invoice, one linked ordinary operation, no other
+manual or XML documents and no unlinked invoices as of this deployment. The
+raw SwiftHub adapter remains absent. Legacy XML commands without normalized
+buyer, item, VAT and channel facts cannot produce a truthful sale record; this
+change does not infer those facts or claim to poll marketplace/provider portals.

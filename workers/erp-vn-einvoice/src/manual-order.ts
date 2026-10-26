@@ -118,9 +118,13 @@ export function normalizeOrder(input: unknown): ManualOrder {
   // templates need their own approved provider mapping, not an invented rate.
   if (new Set(items.map((x) => x.vat_rate)).size !== 1)
     throw new Error("mixed_rates_require_template_mapping");
+  const rawChannel = textField(v.channel, "channel", 40).toLowerCase();
+  const channel = rawChannel === "tiktok shop" ? "tiktok" : rawChannel;
+  if (!["lazada", "shopee", "tiktok", "manual"].includes(channel))
+    throw new Error("channel_unsupported");
   const order: ManualOrder = {
     source_order_id: textField(v.source_order_id, "source_order_id", 100),
-    channel: textField(v.channel, "channel", 40),
+    channel,
     source_evidence_ref: textField(
       v.source_evidence_ref,
       "source_evidence_ref",
@@ -155,9 +159,9 @@ export function normalizeOrder(input: unknown): ManualOrder {
 export function manualIkey(order: ManualOrder): string {
   if (!/^[A-Za-z0-9._-]{1,90}$/.test(order.source_order_id))
     throw new Error("source_order_id_invalid");
-  // Preserve the previously created production draft's key. Do not substitute
-  // the SwiftHub UUID for the marketplace order number.
-  return `swh-${order.source_order_id}`;
+  // New invoices include channel: different platforms may reuse an order number.
+  // Existing/adopted invoices always use their durable stored provider key.
+  return `swh-${order.channel}-${order.source_order_id}`;
 }
 export function fiscalLines(order: ManualOrder) {
   return order.items.map((x) => {
@@ -239,7 +243,11 @@ export function vndWords(n: number): string {
   const s = words.filter(Boolean).join(" ") + " đồng";
   return s[0]!.toUpperCase() + s.slice(1);
 }
-export function orderXml(order: ManualOrder, arisingAt: string): string {
+export function orderXml(
+  order: ManualOrder,
+  arisingAt: string,
+  ikey = manualIkey(order),
+): string {
   const totals = fiscalTotals(order),
     rate = order.items[0]!.vat_rate;
   const tag = (name: string, value: string | number) =>
@@ -264,7 +272,7 @@ export function orderXml(order: ManualOrder, arisingAt: string): string {
     .join("");
   return (
     "<Invoices><Inv><Invoice>" +
-    tag("Ikey", manualIkey(order)) +
+    tag("Ikey", ikey) +
     tag(
       "CusCode",
       order.buyer.tax_code
@@ -304,10 +312,11 @@ export function matchedInvoice(
 export function invoiceMatches(
   order: ManualOrder,
   inv: Record<string, any>,
+  ikey = manualIkey(order),
 ): boolean {
   const t = fiscalTotals(order);
   return (
-    inv.Ikey === manualIkey(order) &&
+    inv.Ikey === ikey &&
     Number(inv.Total) === t.net &&
     Number(inv.TaxAmount) === t.vat &&
     Number(inv.Amount) === t.gross &&

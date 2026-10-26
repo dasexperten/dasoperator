@@ -8,7 +8,10 @@ import { join } from 'node:path';
 const dir=mkdtempSync(join(tmpdir(),'vn-operation-'));
 const bundle=await build({entryPoints:[new URL('./operation-link.ts',import.meta.url).pathname],bundle:true,platform:'node',format:'esm',write:false});
 writeFileSync(join(dir,'link.mjs'),bundle.outputFiles[0].text);
-const {linkManualOperation,syncManualOperation}=await import(join(dir,'link.mjs'));
+const {linkManualOperation,syncManualOperation,repairOperationLinks}=await import(join(dir,'link.mjs'));
+for(const name of ['manual-workflow','manual-order']){const b=await build({entryPoints:[new URL(`./${name}.ts`,import.meta.url).pathname],bundle:true,platform:'node',format:'esm',write:false});writeFileSync(join(dir,`${name}.mjs`),b.outputFiles[0].text);}
+const {manualRoutes}=await import(join(dir,'manual-workflow.mjs'));
+const model=await import(join(dir,'manual-order.mjs'));
 test.after(()=>rmSync(dir,{recursive:true,force:true}));
 const migration=n=>readFileSync(new URL(`../../../db/migrations/${n}`,import.meta.url),'utf8');
 function fixture() {
@@ -32,9 +35,10 @@ function fixture() {
  sql.prepare(`INSERT INTO vn_einvoice_documents(id,source,source_event_id,source_order_id,action,ikey,pattern,serial,state,request_r2_key,response_r2_key,created_at,updated_at,workflow,normalized_order_json,provider_pdf_r2_key,provider_xml_r2_key) VALUES('doc','manual_lazada','event',?,'issue',?,'1C26MAA','','issued','request','receipt',1,1,'manual',?,'final.pdf','final.xml')`).run(order.source_order_id,inv.Ikey,JSON.stringify(order));
  sql.prepare("INSERT INTO document_extractions(id,status,raw_extract_json) VALUES('dex','pending_review',?)").run(JSON.stringify({provider_draft:{Ikey:inv.Ikey}}));
  const DB={prepare(q){let args=[];return {bind(...values){args=values;return this;},async first(){return sql.prepare(q).get(...args)??null;},async all(){return {results:sql.prepare(q).all(...args)};},async run(){return {meta:{changes:Number(sql.prepare(q).run(...args).changes)}};}};},async batch(stmts){sql.exec('BEGIN');try{const out=[];for(const stmt of stmts)out.push(await stmt.run());sql.exec('COMMIT');return out;}catch(e){sql.exec('ROLLBACK');throw e;}}};
- const env={DB,DOCS:{async get(){return {text:async()=>JSON.stringify({body:{Status:2,Data:{Invoices:[inv]}}})};}}};
+ const objects=new Map();
+ const env={DB,ERP_RUN_SECRET:'test',DOCS:{async put(k,v){objects.set(k,v);},async get(k){if(k==='receipt')return {text:async()=>JSON.stringify({body:{Status:2,Data:{Invoices:[inv]}}})};return objects.has(k)?{text:async()=>objects.get(k)}:null;}}};
  const row=()=>sql.prepare("SELECT * FROM vn_einvoice_documents WHERE id='doc'").get();
- return {sql,env,row,inv};
+ return {sql,env,row,inv,order};
 }
 test('VAT migration preserves old rates, inbound FK rows and triggers; accepts8 and rejects unsupported rates',()=>{
  const {sql}=fixture();assert.equal(sql.prepare("SELECT vat_rate FROM operations WHERE id='old'").get().vat_rate,20);assert.equal(sql.prepare("SELECT line_amount FROM line_items WHERE id='oldline'").get().line_amount,123);assert.equal(sql.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger' AND name='preserve_operations_trigger'").get().n,1);assert.deepEqual(sql.prepare('PRAGMA foreign_key_check').all(),[]);assert.throws(()=>sql.exec("UPDATE operations SET vat_rate=7 WHERE id='old'"));
@@ -54,4 +58,31 @@ test('mismatched provider identity or missing product cannot partially create a 
 });
 test('existing changed total is held; refresh never creates a second invoice attachment or marks delivery',async()=>{
  const f=fixture(),id=await linkManualOperation(f.env,f.row(),'actor');await syncManualOperation(f.env,f.row());assert.equal(f.sql.prepare('SELECT count(*) n FROM operation_attachments').get().n,2);f.sql.prepare('UPDATE operations SET total_amount=1 WHERE id=?').run(id);await assert.rejects(linkManualOperation(f.env,f.row(),'actor'),/operation_link_conflict/);
+});
+
+test('all three marketplaces automatically create separate general operations at worker ingress, then replay without duplicates',async()=>{
+ const f=fixture(),keys=[],ids=[];
+ for(const channel of ['Lazada','Shopee','TikTok Shop']){
+  const body={...f.order,channel,source_order_id:'123'};
+  const invoke=()=>manualRoutes(new Request('https://worker/manual/orders',{method:'POST',headers:{Authorization:'Bearer test','X-Actor-Id':'operator'},body:JSON.stringify(body)}),f.env);
+  const first=await invoke();assert.equal(first.status,202);const a=await first.json();assert.ok(a.document.operation_id);keys.push(a.document.ikey);ids.push(a.document.operation_id);
+  const again=await invoke();const b=await again.json();assert.equal(b.idempotent,true);assert.equal(b.document.operation_id,a.document.operation_id);assert.equal(b.document.ikey,a.document.ikey);
+ }
+ assert.equal(new Set(keys).size,3);assert.equal(new Set(ids).size,3);
+ assert.deepEqual(f.sql.prepare("SELECT reference FROM operations WHERE order_doc_ref='123' ORDER BY reference").all().map(x=>x.reference),['Lazada-123','Shopee-123','TikTok-123']);
+});
+test('cron repairs a completed unlinked normalized invoice without provider calls, preserves old Ikey, and skips missing facts/corrections',async()=>{
+ const f=fixture();let providerCalls=0;const old=globalThis.fetch;globalThis.fetch=()=>{providerCalls++;throw new Error('unexpected provider call');};
+ try{const one=await repairOperationLinks(f.env);assert.equal(one.linked,1);const id=f.row().operation_id;assert.ok(id);assert.equal(f.row().ikey,'swh-530124445322445');
+ assert.equal((await repairOperationLinks(f.env)).checked,0);assert.equal(providerCalls,0);
+ f.sql.exec("UPDATE vn_einvoice_documents SET operation_id=NULL,normalized_order_json=NULL,workflow='xml' WHERE id='doc'");assert.equal((await repairOperationLinks(f.env)).checked,0);
+ f.sql.prepare("UPDATE vn_einvoice_documents SET normalized_order_json=?,action='replace' WHERE id='doc'").run(JSON.stringify(f.order));assert.equal((await repairOperationLinks(f.env)).checked,0);
+ }finally{globalThis.fetch=old;}
+});
+test('legacy adoption and serialization pin the real provider key while new orders use channel-specific keys',async()=>{
+ const f=fixture(),normalized=model.normalizeOrder(f.order);f.sql.prepare("UPDATE vn_einvoice_documents SET normalized_order_json=? WHERE id='doc'").run(JSON.stringify(normalized));
+ const response=await manualRoutes(new Request('https://worker/manual/orders',{method:'POST',headers:{Authorization:'Bearer test','X-Actor-Id':'operator'},body:JSON.stringify(f.order)}),f.env);assert.equal(response.status,200);const b=await response.json();assert.equal(b.document.ikey,'swh-530124445322445');
+ assert.ok(model.orderXml(normalized,'2026-10-26',b.document.ikey).includes('<Ikey>swh-530124445322445</Ikey>'));
+ assert.equal(model.invoiceMatches(normalized,f.inv,b.document.ikey),true);assert.equal(model.invoiceMatches(normalized,f.inv),false);
+ assert.throws(()=>model.normalizeOrder({...f.order,channel:'unknown/platform'}),/channel_unsupported/);
 });

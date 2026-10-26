@@ -18,7 +18,7 @@ operations.use('*',async(c,next)=>{
     const operationId=lineIndex>=0 && segments[lineIndex+1]
       ? (await c.env.DB.prepare('SELECT operation_id FROM line_items WHERE id=?').bind(segments[lineIndex+1]).first<{operation_id:string}>())?.operation_id
       : segments[segments.length-(deletion?1:2)];
-    const linked=operationId && await c.env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=? AND workflow='manual'").bind(operationId).first();
+    const linked=operationId && await c.env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=?").bind(operationId).first();
     if(linked) return fail(c,409,[{code:'vn_invoice_managed',message:'Товары и суммы связаны с EasyInvoice. Изменение требует исправления инвойса.'}]);
   }
   return next();
@@ -765,7 +765,10 @@ operations.get('/', async (c) => {
   let sql = `
     SELECT
       ${columns},
-      (SELECT v.id FROM vn_einvoice_documents v WHERE v.operation_id=o.id AND v.workflow='manual') AS vn_einvoice_document_id,
+      (SELECT v.id FROM vn_einvoice_documents v WHERE v.operation_id=o.id) AS vn_einvoice_document_id,
+      (SELECT v.invoice_no FROM vn_einvoice_documents v WHERE v.operation_id=o.id) AS vn_invoice_no,
+      (SELECT json_extract(v.normalized_order_json,'$.channel') FROM vn_einvoice_documents v WHERE v.operation_id=o.id) AS vn_marketplace,
+      (SELECT v.source_order_id FROM vn_einvoice_documents v WHERE v.operation_id=o.id) AS vn_source_order_id,
       COALESCE(vps.paid_total, 0) AS paid_amount,
       vps.payment_status,
       p.acceptance_required AS partner_acceptance_required,
@@ -1005,11 +1008,15 @@ operations.get('/:id', async (c) => {
   const hasAcceptance = Number(attachmentCounts?.acceptance_n ?? 0) > 0;
   const hasInvoice    = Number(attachmentCounts?.invoice_n ?? 0) > 0;
 
-  const vnInvoiceId=(await c.env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=? AND workflow='manual'").bind(opId).first<{id:string}>())?.id ?? null;
+  const vnInvoice=(await c.env.DB.prepare("SELECT id,invoice_no,source_order_id,json_extract(normalized_order_json,'$.channel') AS marketplace FROM vn_einvoice_documents WHERE operation_id=?").bind(opId).first<{id:string;invoice_no:string|null;source_order_id:string;marketplace:string}>());
+  const vnInvoiceId=vnInvoice?.id??null;
   return ok(c, {
     operation: {
       ...op,
       vn_einvoice_document_id: vnInvoiceId,
+      vn_invoice_no: vnInvoice?.invoice_no??null,
+      vn_marketplace: vnInvoice?.marketplace??null,
+      vn_source_order_id: vnInvoice?.source_order_id??null,
       paid_amount: paid,
       payment_state: vnInvoiceId && paid === 0 ? 'neutral' : derivePaymentState(total, paid, String(op.status), op.partner_id as string | null, op.reference as string | null),
       // Service-track chip signals (read by ServiceStatusBar)

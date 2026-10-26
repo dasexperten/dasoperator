@@ -1,3 +1,4 @@
+import { repairOperationLinks } from "./operation-link";
 import { manualRoutes, runManual } from './manual-workflow';
 import { matchedInvoice, invoiceStage } from './manual-order';
 // @ts-expect-error Cloudflare runtime API documented for current compatibility date
@@ -478,6 +479,7 @@ async function loadDocument(env: Env, id: string): Promise<DocumentRow | null> {
 async function queueRun(env: Env, dry: boolean): Promise<{ rows: number; note: string }> {
   const ready = readiness(env);
   if (dry) return { rows: 0, note: `dry · ready=${ready.ready} · blockers=${ready.blockers.join(',') || 'none'}` };
+  await repairOperationLinks(env);
   const manualHandled = await runManual(env);
   if (!ready.ready || !ready.config) {
     const now = Math.floor(Date.now() / 1000);

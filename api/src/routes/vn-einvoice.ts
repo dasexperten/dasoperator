@@ -156,7 +156,7 @@ const manualQuery = `SELECT v.*,
             AND a.phase='verify' AND a.outcome='invoice-readback'
             AND (a.provider_status=2 OR a.provider_error_code='0')
           ORDER BY a.id DESC LIMIT 1) AS provider_checked_at
-       FROM vn_einvoice_documents v WHERE v.workflow='manual'
+       FROM vn_einvoice_documents v WHERE v.action='issue' AND (v.workflow='manual' OR v.operation_id IS NOT NULL)
 `;
 async function getDocument(env: Env, id: string) {
   return env.DB.prepare(manualQuery + " AND v.id=?")
@@ -349,7 +349,7 @@ route.post("/:id/reconcile", (c) =>
 );
 route.get("/:id/file/:kind", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT provider_pdf_r2_key,provider_xml_r2_key FROM vn_einvoice_documents WHERE id=? AND workflow='manual'",
+    "SELECT provider_pdf_r2_key,provider_xml_r2_key FROM vn_einvoice_documents WHERE id=?",
   )
     .bind(c.req.param("id"))
     .first<{

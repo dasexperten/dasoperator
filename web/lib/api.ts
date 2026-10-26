@@ -1158,6 +1158,9 @@ export async function getProductPriceForContract(productId: string, contractId: 
 export interface Operation {
   id: string;
   vn_einvoice_document_id?: string | null;
+  vn_marketplace?: string | null;
+  vn_source_order_id?: string | null;
+  vn_invoice_no?: string | null;
   contract_id: string | null;
   contract_no?: string | null;
   partner_id: string | null;

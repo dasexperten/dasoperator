@@ -40,6 +40,7 @@ async function withOrderFacts(env: Env, row: ManualRow) {
     available: boolean;
     invoice_status: number | null;
     invoice_no: string | null;
+    invoice_date: string | null;
     tax_status_raw: string | null;
     tax_error: string | null;
     tax_authority_code: string | null;
@@ -48,6 +49,7 @@ async function withOrderFacts(env: Env, row: ManualRow) {
     available: false,
     invoice_status: null,
     invoice_no: null,
+    invoice_date: null,
     tax_status_raw: null,
     tax_error: null,
     tax_authority_code: null,
@@ -71,6 +73,10 @@ async function withOrderFacts(env: Env, row: ManualRow) {
           available: true,
           invoice_status: validStatus ? Number(status) : null,
           invoice_no: invoice.No == null ? null : String(invoice.No),
+          invoice_date:
+            typeof invoice.ArisingDate === "string"
+              ? invoice.ArisingDate
+              : null,
           tax_status_raw:
             invoice.TCTCheckStatus == null
               ? null
@@ -267,6 +273,9 @@ async function proxy(c: any, path: string) {
 route.post("/", (c) => proxy(c, ""));
 route.post("/:id/transfer", (c) =>
   proxy(c, `/${encodeURIComponent(c.req.param("id"))}/transfer`),
+);
+route.post("/:id/issue", (c) =>
+  proxy(c, `/${encodeURIComponent(c.req.param("id"))}/issue`),
 );
 route.post("/:id/reconcile", (c) =>
   proxy(c, `/${encodeURIComponent(c.req.param("id"))}/reconcile`),

@@ -107,7 +107,12 @@ function fixture({
       transfer,
       transfer ? "customer acceptance" : null,
     );
-  const objects = new Map(),
+  const objects = new Map([
+      [
+        "source",
+        JSON.stringify({ order: normalized, recorded_by: "source-operator" }),
+      ],
+    ]),
     calls = [];
   let provider = invoice ? { ...invoice } : null;
   const DB = {
@@ -491,35 +496,217 @@ test("HTTP200 HTML error cannot complete an accepted invoice archive", async () 
   assert.equal(f.row().provider_xml_r2_key, null);
 });
 
-test('date-only release validates the real calendar and preserves source precision', () => {
-  assert.equal(model.validTransferDate('2024-02-29'),'2024-02-29');
-  assert.equal(model.validTransferMoment('2026-10-20'),'2026-10-20');
-  assert.equal(model.vietnamDate('2026-10-20'),'20/10/2026');
-  for(const date of ['2026-02-29','2026-02-30','2026-04-31','2026-00-01','2026-13-01','2026-10-00','20/10/2026','2026-10-20Z','2026-10-20T00:00:00+07:00'])assert.throws(()=>model.validTransferDate(date));
+test("date-only release validates the real calendar and preserves source precision", () => {
+  assert.equal(model.validTransferDate("2024-02-29"), "2024-02-29");
+  assert.equal(model.validTransferMoment("2026-10-20"), "2026-10-20");
+  assert.equal(model.vietnamDate("2026-10-20"), "20/10/2026");
+  for (const date of [
+    "2026-02-29",
+    "2026-02-30",
+    "2026-04-31",
+    "2026-00-01",
+    "2026-13-01",
+    "2026-10-00",
+    "20/10/2026",
+    "2026-10-20Z",
+    "2026-10-20T00:00:00+07:00",
+  ])
+    assert.throws(() => model.validTransferDate(date));
 });
-test('date-only future validation uses Vietnam calendar day, not UTC midnight', t => {
-  t.mock.method(Date,'now',()=>Date.parse('2026-10-25T18:30:00Z'));
-  assert.equal(model.validTransferDate('2026-10-26'),'2026-10-26');
-  assert.throws(()=>model.validTransferDate('2026-10-27'),/future/);
+test("date-only future validation uses Vietnam calendar day, not UTC midnight", (t) => {
+  t.mock.method(Date, "now", () => Date.parse("2026-10-25T18:30:00Z"));
+  assert.equal(model.validTransferDate("2026-10-26"), "2026-10-26");
+  assert.throws(() => model.validTransferDate("2026-10-27"), /future/);
 });
-test('explicit timestamp release retains timezone and strict time validation',()=>{
-  const time='2026-10-20T23:30:00-07:00';
-  assert.equal(model.validTransferMoment(time),time);assert.equal(model.vietnamDate(time),'21/10/2026');
-  for(const value of ['2026-10-20T12:00:00','2026-10-20T25:00:00Z','2026-10-20T12:00:00+99:00','2026-02-30T12:00:00Z'])assert.throws(()=>model.validTransferMoment(value));
-  assert.throws(()=>model.validTimestamp('2026-10-20','captured_at'));
+test("explicit timestamp release retains timezone and strict time validation", () => {
+  const time = "2026-10-20T23:30:00-07:00";
+  assert.equal(model.validTransferMoment(time), time);
+  assert.equal(model.vietnamDate(time), "21/10/2026");
+  for (const value of [
+    "2026-10-20T12:00:00",
+    "2026-10-20T25:00:00Z",
+    "2026-10-20T12:00:00+99:00",
+    "2026-02-30T12:00:00Z",
+  ])
+    assert.throws(() => model.validTransferMoment(value));
+  assert.throws(() => model.validTimestamp("2026-10-20", "captured_at"));
 });
-test('date-only transfer releases the same draft without inventing midnight; exact replay is idempotent',async()=>{
-  const f=fixture({enabled:true});await processManual(f.env,'doc');
-  const body={actual_transfer_date:'2026-10-20',evidence_ref:'Confirmed full payment on 20 October and title clause'};
-  assert.equal((await response(f.env,'/doc/transfer',body)).status,200);
-  assert.equal(f.row().transfer_at,'2026-10-20');assert.equal(f.row().state,'issued');
-  const imported=f.calls.find(x=>x.endpoint==='importInvoice');assert.match(imported.body.XmlData,/<ArisingDate>20\/10\/2026<\/ArisingDate>/);assert.ok(!imported.body.XmlData.includes('T00:00'));
-  assert.equal((await response(f.env,'/doc/transfer',body)).status,200);
+test("date-only transfer releases the same draft without inventing midnight; exact replay is idempotent", async () => {
+  const f = fixture({ enabled: true });
+  await processManual(f.env, "doc");
+  const body = {
+    actual_transfer_date: "2026-10-20",
+    evidence_ref: "Confirmed full payment on 20 October and title clause",
+  };
+  assert.equal((await response(f.env, "/doc/transfer", body)).status, 200);
+  assert.equal(f.row().transfer_at, "2026-10-20");
+  assert.equal(f.row().state, "issued");
+  const imported = f.calls.find((x) => x.endpoint === "importInvoice");
+  assert.match(
+    imported.body.XmlData,
+    /<ArisingDate>20\/10\/2026<\/ArisingDate>/,
+  );
+  assert.ok(!imported.body.XmlData.includes("T00:00"));
+  assert.equal((await response(f.env, "/doc/transfer", body)).status, 200);
+  assert.equal(f.calls.filter((x) => x.endpoint === "issueInvoices").length, 1);
+  assert.equal(
+    (
+      await response(f.env, "/doc/transfer", {
+        actual_transfer_at: "2026-10-20T00:00:00+07:00",
+        evidence_ref: body.evidence_ref,
+      })
+    ).status,
+    409,
+  );
+});
+test("ambiguous date-and-time or impossible date fails before recording an event", async () => {
+  const f = fixture();
+  await processManual(f.env, "doc");
+  for (const body of [
+    {
+      actual_transfer_date: "2026-10-20",
+      actual_transfer_at: "2026-10-20T12:00:00Z",
+      evidence_ref: "source",
+    },
+    { actual_transfer_date: "2026-02-30", evidence_ref: "source" },
+  ])
+    assert.equal((await response(f.env, "/doc/transfer", body)).status, 422);
+  assert.equal(f.row().transfer_at, null);
+  assert.equal(f.calls.filter((x) => x.endpoint === "issueInvoices").length, 0);
+});
+
+test("bodyless issue pins provider ArisingDate and records explicit actor without any transfer event", async () => {
+  const f = fixture({
+    enabled: true,
+    invoice: { ...draft, ArisingDate: "21/10/2026", IssueDate: "26/10/2026" },
+  });
+  await processManual(f.env, "doc");
+  const responseValue = await response(f.env, "/doc/issue", {
+    actual_transfer_date: "2026-10-01",
+    amount: 1,
+    xml_data: "caller data must be ignored",
+  });
+  assert.equal(responseValue.status, 200);
+  assert.equal(f.row().state, "issued");
+  assert.equal(f.row().transfer_at, null);
+  assert.equal(f.row().transfer_evidence, null);
+  assert.equal(f.row().transfer_recorded_by, null);
+  const source = JSON.parse(f.objects.get(f.row().request_r2_key));
+  assert.equal(source.release_request.requested_by, "session-user");
+  assert.equal(source.release_request.invoice_date, "2026-10-21");
+  assert.equal(source.release_request.date_source, "EasyInvoice.ArisingDate");
+  assert.equal(source.release_request.provider_ikey, draft.Ikey);
+  assert.ok(source.release_request.provider_readback_r2_key);
+  assert.equal(source.release_request.source_request_r2_key, "source");
+  assert.equal(source.order.total_gross, 298000);
+  assert.ok(f.objects.has("source"));
+  assert.match(
+    f.calls.find((x) => x.endpoint === "importInvoice").body.XmlData,
+    /<ArisingDate>21\/10\/2026<\/ArisingDate>/,
+  );
+  assert.equal(
+    f.sql
+      .prepare(
+        "SELECT count(*) n FROM vn_einvoice_attempts WHERE outcome='explicit_release_requested'",
+      )
+      .get().n,
+    1,
+  );
+});
+test("plain reconcile and cron never turn an unsigned saved order into a release request", async () => {
+  const f = fixture({ enabled: true });
+  await processManual(f.env, "doc");
+  await response(f.env, "/doc/reconcile", {});
+  await runManual(f.env);
+  assert.equal(f.row().state, "received");
+  assert.equal(f.row().request_r2_key, "source");
+  assert.equal(
+    f.calls.filter((x) =>
+      ["importInvoice", "issueInvoices"].includes(x.endpoint),
+    ).length,
+    0,
+  );
+});
+test("concurrent and repeated issue clicks keep one audit request and one provider issue", async () => {
+  const f = fixture({ enabled: true });
+  await processManual(f.env, "doc");
+  await Promise.all([
+    response(f.env, "/doc/issue", undefined),
+    response(f.env, "/doc/issue", undefined),
+  ]);
+  await response(f.env, "/doc/issue", undefined);
+  assert.equal(f.calls.filter((x) => x.endpoint === "issueInvoices").length, 1);
+  assert.equal(
+    f.sql
+      .prepare(
+        "SELECT count(*) n FROM vn_einvoice_attempts WHERE outcome='explicit_release_requested'",
+      )
+      .get().n,
+    1,
+  );
+  assert.equal(f.row().transfer_at, null);
+});
+test("persisted explicit request resumes with pinned invoice date after configuration recovery", async () => {
+  const f = fixture({ invoice: { ...draft, ArisingDate: "21/10/2026" } });
+  await processManual(f.env, "doc");
+  const initial = await response(f.env, "/doc/issue", undefined);
+  const initialBody = await initial.json();
+  assert.equal(initialBody.document.display_status, "issuance_disabled");
+  assert.equal(f.row().provider_phase, "release_requested");
+  f.setInvoice({ ...draft, ArisingDate: "22/10/2026" });
+  f.env.EASYINVOICE_ENABLED = "1";
+  await runManual(f.env);
+  assert.equal(f.row().state, "issued");
+  assert.equal(f.row().transfer_at, null);
+  assert.match(
+    f.calls.find((x) => x.endpoint === "importInvoice").body.XmlData,
+    /<ArisingDate>21\/10\/2026<\/ArisingDate>/,
+  );
+});
+test("explicit issue timeout is reconciled only, never resubmitted or recorded as transfer", async () => {
+  const f = fixture({ enabled: true });
+  await processManual(f.env, "doc");
+  f.setHandler((endpoint) => {
+    if (endpoint === "issueInvoices") throw Error("timeout");
+  });
+  await response(f.env, "/doc/issue", undefined);
+  await response(f.env, "/doc/issue", undefined);
+  await response(f.env, "/doc/reconcile", {});
+  assert.equal(f.calls.filter((x) => x.endpoint === "issueInvoices").length, 1);
+  assert.equal(f.calls.filter((x) => x.endpoint === "importInvoice").length, 1);
+  assert.equal(f.row().transfer_at, null);
+  assert.equal(
+    f.sql
+      .prepare(
+        "SELECT count(*) n FROM vn_einvoice_attempts WHERE outcome='explicit_release_requested'",
+      )
+      .get().n,
+    1,
+  );
+});
+test("invalid provider invoice date cannot fall back to IssueDate or order capture date", async () => {
+  const f = fixture({
+    enabled: true,
+    invoice: { ...draft, ArisingDate: "31/02/2026", IssueDate: "26/10/2026" },
+  });
+  await processManual(f.env, "doc");
+  await response(f.env, "/doc/issue", undefined);
+  assert.equal(f.row().request_r2_key, "source");
+  assert.equal(
+    f.calls.filter((x) =>
+      ["importInvoice", "issueInvoices"].includes(x.endpoint),
+    ).length,
+    0,
+  );
+  assert.equal(f.row().transfer_at, null);
+});
+
+test('persisted explicit request resumes after draft-upsert transport failure without another authorization or transfer', async()=>{
+  const f=fixture({enabled:true,invoice:{...draft,ArisingDate:'21/10/2026'}});await processManual(f.env,'doc');
+  let first=true;f.setHandler(endpoint=>{if(endpoint==='importInvoice'&&first){first=false;throw Error('transport timeout')}});
+  await response(f.env,'/doc/issue',undefined);assert.equal(f.row().state,'verify_pending');assert.equal(f.row().provider_phase,'release_payload_sent');
+  await response(f.env,'/doc/reconcile',{});assert.equal(f.row().state,'issued');assert.equal(f.row().transfer_at,null);
   assert.equal(f.calls.filter(x=>x.endpoint==='issueInvoices').length,1);
-  assert.equal((await response(f.env,'/doc/transfer',{actual_transfer_at:'2026-10-20T00:00:00+07:00',evidence_ref:body.evidence_ref})).status,409);
-});
-test('ambiguous date-and-time or impossible date fails before recording an event',async()=>{
-  const f=fixture();await processManual(f.env,'doc');
-  for(const body of [{actual_transfer_date:'2026-10-20',actual_transfer_at:'2026-10-20T12:00:00Z',evidence_ref:'source'},{actual_transfer_date:'2026-02-30',evidence_ref:'source'}])assert.equal((await response(f.env,'/doc/transfer',body)).status,422);
-  assert.equal(f.row().transfer_at,null);assert.equal(f.calls.filter(x=>x.endpoint==='issueInvoices').length,0);
+  assert.equal(f.sql.prepare("SELECT count(*) n FROM vn_einvoice_attempts WHERE outcome='explicit_release_requested'").get().n,1);
+  assert.equal(JSON.parse(f.objects.get(f.row().request_r2_key)).release_request.invoice_date,'2026-10-21');
 });

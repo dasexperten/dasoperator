@@ -243,7 +243,7 @@ an account-specific order API contract or working credentials:
 ## Manual ERP orders (2026-10-26)
 
 The authenticated ERP page `/operations/vietnam` inherits `/operations` permissions.
-Read access lists/orders/downloads; `rw` or `full` records orders and transfer evidence.
+Read access lists/orders/downloads; `rw` or `full` records orders and requests issue.
 The API proxies to `VN_EINVOICE` using its server-only `ERP_RUN_SECRET` and session actor.
 Migration `0142_vn_einvoice_manual.sql` adds manual workflow fields to the existing outbox.
 
@@ -251,19 +251,24 @@ An order carries VND gross line amounts, explicit VAT rates and evidence, buyer 
 source references, and original shipping/discount components. The validated template
 currently supports one VAT rate and zero net shipping; unsupported allocations fail.
 Saving creates an unsigned draft, or adopts a verified `document_extractions` source
-with the same Ikey. Adoption does not create another provider invoice. Verified drafts
-without transfer remain unsigned, including when issuance is enabled.
+with the same Ikey. Adoption does not create another provider invoice. Saving,
+ordinary GET, reconciliation and cron never request release of an unsigned draft.
 
-Recording the transfer of ownership or use requires a confirmed Vietnam calendar
-date and evidence under the applicable order contract. The manual release API accepts
-`actual_transfer_date` (`YYYY-MM-DD`) or the existing `actual_transfer_at` timezone-aware
-timestamp, never both. Date-only evidence remains a date-only string in `transfer_at`;
-no midnight time is invented. Existing timestamp records retain their precision. A confirmed full-payment event
-can establish that moment when the contract explicitly transfers title on full
-payment; a Delivered status is not a universal prerequisite. Record the contractual
-basis and verified event instead of assuming that any payment, payout or carrier
-scan establishes title transfer. Before first issue, the same unsigned draft is
-restored from canonical saved lines and the Vietnam transfer date.
+The primary card action calls bodyless `POST /api/integrations/vn-einvoice/orders/:id/issue`.
+It uses the canonical stored order and the fresh, matching provider draft's `ArisingDate`;
+caller-supplied amounts, XML and dates are ignored. Under the processing lease, the
+worker archives a durable `release_request` with actor, request time, pinned invoice
+date, date source and the exact provider readback/source object references. The prior
+source object remains immutable; `request_r2_key` points at a new source envelope
+containing this audit. Neither `transfer_at` nor transfer evidence is invented.
+The same draft is restored from canonical saved lines and the pinned invoice date,
+then issued through HSM. Retry processing requires this persisted explicit request
+(or the separately recorded, legacy transfer event); an uncertain issue is only queried.
+
+The optional transfer-event API remains compatible with `actual_transfer_date`
+(`YYYY-MM-DD`) or `actual_transfer_at` with timezone, never both. Date-only evidence
+remains date-only; no midnight time is invented. This event is distinct from the
+invoice date and is not a mandatory blank form in the primary issue workflow.
 Provider Ikey, buyer, totals and series must match. The worker then uses the documented
 HSM `issueInvoices` endpoint. A persisted phase and lease prevent concurrent writes;
 uncertain issue results are queried, never blindly resubmitted.
@@ -276,4 +281,4 @@ are matched through the same-Ikey provider readback, not guessed XML tags.
 
 The SwiftHub raw webhook adapter is still absent. This manual path does not claim
 that feed is connected. Production signed/accepted end-to-end testing still needs a
-real eligible transfer or working demo tenant; no artificial production invoice is used.
+real authorized issue or working demo tenant; no artificial production invoice is used.

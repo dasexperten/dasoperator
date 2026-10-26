@@ -99,7 +99,14 @@ async function update(
 export function publicManual(row: ManualRow) {
   let display_status = row.state;
   if (row.provider_invoice_status === 0)
-    display_status = row.transfer_at ? "awaiting_issue" : "draft";
+    display_status =
+      row.transfer_at ||
+      ["release_requested", "release_payload_sent", "issue_sent"].includes(
+        row.provider_phase ?? "",
+      ) ||
+      row.state === "submitting"
+        ? "awaiting_issue"
+        : "draft";
   if (row.state === "verify_pending") display_status = "verifying";
   if (row.state === "blocked_config") display_status = "issuance_disabled";
   if (row.state === "manual_review" || row.state === "failed_terminal")
@@ -326,9 +333,81 @@ async function submitDraft(
     throw new Error(`draft_${codeOf(result.body) || "rejected"}`);
   return getInvoice(env, row, cfg);
 }
+type ReleaseRequest = {
+  requested_by: string;
+  requested_at: string;
+  invoice_date: string;
+  date_source: "EasyInvoice.ArisingDate";
+  provider_ikey: string;
+  provider_readback_r2_key: string;
+  source_request_r2_key: string;
+};
+function dateFromProvider(value: unknown): string {
+  const match =
+    typeof value === "string"
+      ? /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim())
+      : null;
+  if (!match) throw new Error("provider_invoice_date_invalid");
+  return validTransferDate(`${match[3]}-${match[2]}-${match[1]}`);
+}
+async function releaseIntent(
+  env: ManualEnv,
+  row: ManualRow,
+  invoice: Record<string, any>,
+  actor?: string,
+): Promise<ReleaseRequest | null> {
+  const object = await env.DOCS.get(row.request_r2_key);
+  const source = object ? JSON.parse(await object.text()) : null;
+  if (source?.release_request) {
+    const saved = source.release_request as ReleaseRequest;
+    if (
+      saved.provider_ikey !== row.ikey ||
+      saved.date_source !== "EasyInvoice.ArisingDate" ||
+      !saved.requested_by ||
+      !saved.requested_at
+    )
+      throw new Error("release_audit_invalid");
+    validTransferDate(saved.invoice_date);
+    return saved;
+  }
+  if (!actor) return null;
+  if (!source) throw new Error("manual_order_source_missing");
+  const latest = await read(env, row.id);
+  const intent: ReleaseRequest = {
+    requested_by: actor,
+    requested_at: new Date().toISOString(),
+    invoice_date: dateFromProvider(invoice.ArisingDate),
+    date_source: "EasyInvoice.ArisingDate",
+    provider_ikey: row.ikey,
+    provider_readback_r2_key: latest?.response_r2_key ?? "",
+    source_request_r2_key: row.request_r2_key,
+  };
+  const key = `vn-einvoice/${row.id}/${Date.now()}-${crypto.randomUUID()}-release-request.json`;
+  await env.DOCS.put(
+    key,
+    JSON.stringify({ ...source, release_request: intent }),
+    { httpMetadata: { contentType: "application/json" } },
+  );
+  await update(env, row.id, {
+    request_r2_key: key,
+    provider_phase: "release_requested",
+    state: "submitting",
+    next_attempt_at: now(),
+  });
+  await env.DB.prepare(
+    "INSERT INTO vn_einvoice_attempts(document_id,phase,started_at,finished_at,outcome,detail) VALUES(?, 'preflight',?,?, 'explicit_release_requested',?)",
+  )
+    .bind(row.id, now(), now(), JSON.stringify(intent))
+    .run();
+  row.request_r2_key = key;
+  row.provider_phase = "release_requested";
+  row.state = "submitting";
+  return intent;
+}
 export async function processManual(
   env: ManualEnv,
   id: string,
+  releaseActor?: string,
 ): Promise<ManualRow | null> {
   const lease = crypto.randomUUID();
   const locked = await env.DB.prepare(
@@ -405,7 +484,8 @@ export async function processManual(
         await miss(env, row, "issue_result_not_yet_visible");
         return read(env, id);
       }
-      if (!row.transfer_at) {
+      const release = await releaseIntent(env, row, inv, releaseActor);
+      if (!row.transfer_at && !release) {
         await files(env, row, cfg, true);
         await update(env, id, {
           state: "received",
@@ -415,8 +495,11 @@ export async function processManual(
         });
         return read(env, id);
       }
-      validTransferMoment(row.transfer_at);
-      textField(row.transfer_evidence, "transfer_evidence_ref", 2000);
+      const invoiceDate = release?.invoice_date ?? row.transfer_at!;
+      if (!release) {
+        validTransferMoment(invoiceDate);
+        textField(row.transfer_evidence, "transfer_evidence_ref", 2000);
+      }
       if (env.EASYINVOICE_ENABLED !== "1") {
         await update(env, id, {
           state: "blocked_config",
@@ -432,16 +515,16 @@ export async function processManual(
           row,
           cfg,
           order,
-          row.transfer_at,
-          "draft_date_update_sent",
+          invoiceDate,
+          release ? "release_payload_sent" : "draft_date_update_sent",
         );
         if (
           !inv ||
           !invoiceMatches(order, inv) ||
           !seriesMatches(inv, cfg.pattern, cfg.serial) ||
-          String(inv.ArisingDate).slice(0, 10) !== vietnamDate(row.transfer_at)
+          String(inv.ArisingDate).slice(0, 10) !== vietnamDate(invoiceDate)
         ) {
-          await hold(env, row, "transfer_date_readback_mismatch");
+          await hold(env, row, "invoice_date_readback_mismatch");
           return read(env, id);
         }
         if (invoiceStage(inv) !== "draft") {
@@ -640,9 +723,10 @@ export async function manualRoutes(
       const row = await processManual(env, id);
       return json({ ok: true, document: row ? publicManual(row) : null }, 202);
     }
-    const match = /^\/manual\/orders\/([^/]+)\/(transfer|reconcile)$/.exec(
-      url.pathname,
-    );
+    const match =
+      /^\/manual\/orders\/([^/]+)\/(transfer|reconcile|issue)$/.exec(
+        url.pathname,
+      );
     if (request.method === "POST" && match) {
       const row = await read(env, decodeURIComponent(match[1]!));
       if (!row) return json({ ok: false, error: "not_found" }, 404);
@@ -679,7 +763,12 @@ export async function manualRoutes(
             return json({ ok: false, error: "transfer_conflict" }, 409);
         }
       }
-      const processed = await processManual(env, row.id);
+      // The issue route intentionally ignores all caller-supplied fiscal fields.
+      const processed = await processManual(
+        env,
+        row.id,
+        match[2] === "issue" ? actor : undefined,
+      );
       return json({
         ok: true,
         document: processed ? publicManual(processed) : null,
@@ -698,7 +787,7 @@ export async function manualRoutes(
 }
 export async function runManual(env: ManualEnv): Promise<number> {
   const rows = await env.DB.prepare(
-    `SELECT id FROM vn_einvoice_documents WHERE workflow='manual' AND state IN ('received','blocked_config','verify_pending','issued_archive_pending','submitting') AND (next_attempt_at IS NULL OR next_attempt_at<=?) AND (provider_invoice_status IS NULL OR transfer_at IS NOT NULL OR state IN ('verify_pending','issued_archive_pending','submitting') OR provider_pdf_r2_key IS NULL) ORDER BY created_at LIMIT 20`,
+    `SELECT id FROM vn_einvoice_documents WHERE workflow='manual' AND state IN ('received','blocked_config','verify_pending','issued_archive_pending','submitting') AND (next_attempt_at IS NULL OR next_attempt_at<=?) AND (provider_invoice_status IS NULL OR transfer_at IS NOT NULL OR state IN ('verify_pending','issued_archive_pending','submitting') OR provider_pdf_r2_key IS NULL OR provider_phase='release_requested') ORDER BY created_at LIMIT 20`,
   )
     .bind(now())
     .all<{ id: string }>();

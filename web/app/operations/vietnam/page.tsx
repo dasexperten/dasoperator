@@ -88,6 +88,7 @@ type Doc = {
     available: boolean;
     invoice_status: number | null;
     invoice_no: string | null;
+    invoice_date: string | null;
     tax_status_raw: string | null;
     tax_error: string | null;
     tax_authority_code: string | null;
@@ -185,10 +186,6 @@ export default function VietnamInvoices() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
-  const [transferFor, setTransferFor] = useState<string | null>(null),
-    [transferAt, setTransferAt] = useState(""),
-    [preciseTransferTime, setPreciseTransferTime] = useState(false),
-    [evidence, setEvidence] = useState("");
   const load = useCallback(async () => {
     const r = await apiGet<{
       documents: Doc[];
@@ -267,22 +264,10 @@ export default function VietnamInvoices() {
       );
     }
   }
-  async function confirmTransfer() {
-    if (!transferFor) return;
-    const r = await action(`${BASE}/${transferFor}/transfer`, {
-      ...(preciseTransferTime
-        ? { actual_transfer_at: `${transferAt}:00+07:00` }
-        : { actual_transfer_date: transferAt }),
-      evidence_ref: evidence,
-    });
+  async function issue(id: string) {
+    const r = await action(`${BASE}/${id}/issue`, {});
     if (r) {
-      setTransferFor(null);
-      setTransferAt("");
-      setEvidence("");
-      setNotice(
-        "Основание выпуска зафиксировано. " +
-          (statusLabels[r.document?.display_status] ?? "Проверяем результат."),
-      );
+      setNotice(statusLabels[r.document?.display_status] ?? "Проверяем результат выпуска.");
     }
   }
   async function download(id: string, kind: string) {
@@ -332,8 +317,8 @@ export default function VietnamInvoices() {
               Электронные счета Вьетнам
             </h1>
             <p style={{ color: "var(--fg-2)", marginTop: 6 }}>
-              Данные заказа, статусы и выпуск по подтверждённому основанию
-              перехода права собственности или пользования.
+              Заказ уже заполнен. Выпустите счёт — подпись и отправку в
+              налоговую выполнит EasyInvoice.
             </p>
           </div>
           <button
@@ -804,10 +789,10 @@ export default function VietnamInvoices() {
                   (Вьетнам)
                 </span>
               )}
-              {d.source_facts?.draft_date && (
+              {(d.provider_check?.invoice_date || d.source_facts?.draft_date) && (
                 <span>
-                  Дата черновика EasyInvoice:{" "}
-                  <strong>{d.source_facts.draft_date}</strong>
+                  Дата счёта:{" "}
+                  <strong>{d.provider_check?.invoice_date || d.source_facts?.draft_date}</strong>
                 </span>
               )}
               {d.source_facts?.tracking_number && (
@@ -935,97 +920,16 @@ export default function VietnamInvoices() {
             >
               Проверить EasyInvoice
             </button>
-            {d.display_status === "draft" && !d.transfer_at && (
+            {d.display_status === "draft" && (
               <button
                 disabled={busy}
                 style={primary}
-                onClick={() => {
-                  setTransferFor(d.id);
-                  setTransferAt("");
-                  setPreciseTransferTime(false);
-                  setEvidence("");
-                }}
+                onClick={() => issue(d.id)}
               >
-                Указать основание выпуска
+                {busy ? "Выпускаем…" : "Выпустить счёт"}
               </button>
             )}
           </div>
-          {transferFor === d.id && (
-            <div
-              style={{
-                padding: 16,
-                background: "var(--paper-sunk)",
-                borderRadius: 8,
-                display: "grid",
-                gap: 14,
-              }}
-            >
-              <p>
-                Основание выпуска — подтверждённый переход права собственности
-                или пользования по условиям заказа. Если договор связывает его с
-                полной оплатой, используйте подтверждённую дату оплаты. Ожидать
-                статус «Доставлен» в таком случае не требуется.
-              </p>
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  fontSize: 13,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={preciseTransferTime}
-                  onChange={(e) => {
-                    setPreciseTransferTime(e.target.checked);
-                    setTransferAt("");
-                  }}
-                />
-                Указать точное время, если оно подтверждено источником
-              </label>
-              <Field
-                label={
-                  preciseTransferTime
-                    ? "Дата и время основания выпуска · Вьетнам (UTC+7)"
-                    : "Подтверждённая дата основания выпуска · Вьетнам"
-                }
-              >
-                <input
-                  type={preciseTransferTime ? "datetime-local" : "date"}
-                  style={inputStyle}
-                  value={transferAt}
-                  onChange={(e) => setTransferAt(e.target.value)}
-                />
-              </Field>
-              <Field label="Основание перехода собственности / передачи товара">
-                <textarea
-                  rows={2}
-                  style={inputStyle}
-                  value={evidence}
-                  onChange={(e) => setEvidence(e.target.value)}
-                  placeholder="Подтверждение оплаты, условие договора, акт или ссылка на источник"
-                />
-              </Field>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  disabled={busy || !transferAt || !evidence.trim()}
-                  style={primary}
-                  onClick={confirmTransfer}
-                >
-                  {busy
-                    ? "Обработка…"
-                    : "Подтвердить основание и выпустить счёт"}
-                </button>
-                <button
-                  style={buttonStyle}
-                  onClick={() => setTransferFor(null)}
-                >
-                  Отмена
-                </button>
-              </div>
-            </div>
-          )}
         </article>
       ))}
       {!docs.length && !showForm && (

@@ -59,7 +59,7 @@ test('missing, unknown, inactive and expired sessions cannot read invoice data o
 
 test('users without operations permission cannot list, download or mutate invoices', async () => {
   const f = fixture('none');
-  for (const [path, method] of [['/', 'GET'], ['/record/file/pdf', 'GET'], ['/', 'POST'], ['/record/transfer', 'POST'], ['/record/reconcile', 'POST']]) {
+  for (const [path, method] of [['/', 'GET'], ['/record/file/pdf', 'GET'], ['/', 'POST'], ['/record/transfer', 'POST'], ['/record/issue', 'POST'], ['/record/reconcile', 'POST']]) {
     assert.equal((await request(f.env, path, method, method === 'POST' ? {} : undefined)).status, 403);
   }
   assert.equal(f.reads.length, 0);
@@ -74,7 +74,7 @@ test('read-only operators may list and download but cannot create, record transf
   assert.equal(file.status, 200);
   assert.equal(file.headers.get('cache-control'), 'private, no-store');
   assert.equal(await file.text(), '%PDF-fixture');
-  for (const path of ['/', '/record/transfer', '/record/reconcile']) {
+  for (const path of ['/', '/record/transfer', '/record/issue', '/record/reconcile']) {
     assert.equal((await request(f.env, path, 'POST', {})).status, 403);
   }
   assert.equal(f.forwarded.length, 0);
@@ -83,7 +83,7 @@ test('read-only operators may list and download but cannot create, record transf
 test('authorized mutations use the authenticated actor and server credential, ignoring a spoofed actor header', async () => {
   for (const [access, role] of [['rw', 'manager'], ['full', 'manager'], ['none', 'admin']]) {
     const f = fixture(access, { role });
-    for (const path of ['/', '/record/transfer', '/record/reconcile']) {
+    for (const path of ['/', '/record/transfer', '/record/issue', '/record/reconcile']) {
       const body = { source_order_id: 'fixture-order' };
       const res = await request(f.env, path, 'POST', body, { 'X-Actor-Id': 'spoofed-user' });
       assert.equal(res.status, 200);
@@ -150,9 +150,9 @@ function providerFixture(invoice, options={}) {
   return f;
 }
 test('successful read of an unsigned draft exposes unsent tax status and actual receipt time, not acceptance',async()=>{
-  const f=providerFixture({Ikey:'swh-530124445322445',InvoiceStatus:0,No:'0',TCTCheckStatus:'Chưa gửi thuế',TaxAuthorityCode:null});
+  const f=providerFixture({Ikey:'swh-530124445322445',InvoiceStatus:0,No:'0',ArisingDate:'26/10/2026',TCTCheckStatus:'Chưa gửi thuế',TaxAuthorityCode:null});
   const doc=(await(await request(f.env)).json()).result.documents[0];
-  assert.deepEqual(doc.provider_check,{available:true,invoice_status:0,invoice_no:'0',tax_status_raw:'Chưa gửi thuế',tax_error:null,tax_authority_code:null,checked_at:1793023866});
+  assert.deepEqual(doc.provider_check,{available:true,invoice_status:0,invoice_no:'0',invoice_date:'26/10/2026',tax_status_raw:'Chưa gửi thuế',tax_error:null,tax_authority_code:null,checked_at:1793023866});
   assert.deepEqual(doc.accounting_document,{id:'dex_lazada_530124445322445',status:'pending_review',reviewed_at:null,target_id:null});
   assert.equal(f.forwarded.length,0);assert.equal(doc.transfer_at,null);
 });
@@ -166,7 +166,17 @@ test('missing, malformed or mismatched receipts never inherit stored invoice or 
   for(const options of [{missing:true},{invalid:true},{mismatch:true},{seriesMismatch:true}]){
     const f=providerFixture({Ikey:options.mismatch?'other-invoice':'swh-530124445322445',Pattern:options.seriesMismatch?'other-series':'1C26MAA',InvoiceStatus:1,No:'12',TCTCheckStatus:1,TaxAuthorityCode:'CQT-test'},options);
     const doc=(await(await request(f.env)).json()).result.documents[0];
-    assert.deepEqual(doc.provider_check,{available:false,invoice_status:null,invoice_no:null,tax_status_raw:null,tax_error:null,tax_authority_code:null,checked_at:null});
+    assert.deepEqual(doc.provider_check,{available:false,invoice_status:null,invoice_no:null,invoice_date:null,tax_status_raw:null,tax_error:null,tax_authority_code:null,checked_at:null});
     assert.equal(f.forwarded.length,0);
   }
+});
+
+test('one-click release forwards the stored document id and authenticated actor without a transfer form', async () => {
+  const f = fixture('rw');
+  const res = await request(f.env, '/real-draft/issue', 'POST', {});
+  assert.equal(res.status, 200);
+  assert.equal(f.forwarded.length, 1);
+  assert.equal(f.forwarded[0].url, 'https://vn-einvoice/manual/orders/real-draft/issue');
+  assert.deepEqual(f.forwarded[0].body, {});
+  assert.equal(f.forwarded[0].headers['x-actor-id'], 'operator-test');
 });

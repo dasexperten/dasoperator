@@ -34,12 +34,12 @@ interface ModelRow {
   source: string;
   product_id: string | null;
   qty_pieces: number | null;
-  note?: string;
+  note?: string | undefined;
 }
 interface ModelOut {
   warehouse_id: string | null;
   warehouse_certain: boolean;
-  counted_on?: string | null;
+  counted_on?: string | null | undefined;
   rows: ModelRow[];
 }
 

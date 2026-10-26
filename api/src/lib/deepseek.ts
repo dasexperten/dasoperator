@@ -79,7 +79,7 @@ async function callDeepSeek(
   }
 
   const data = await res.json() as {
-    choices: Array<{ message: { content: string } }>;
+    choices: Array<{ finish_reason?: string; message: { content: string; reasoning_content?: string } }>;
     usage: DeepSeekUsage;
   };
 

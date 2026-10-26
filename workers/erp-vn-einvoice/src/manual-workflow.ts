@@ -627,7 +627,7 @@ async function validateAdoption(
   const src = JSON.parse(ext.raw_extract_json);
   if (
     src.marketplace_order_id !== order.source_order_id ||
-    String(src.marketplace ?? "").toLowerCase() !== order.channel ||
+    String(src.marketplace ?? "").trim().toLowerCase().replace(/^tiktok shop$/, "tiktok") !== order.channel ||
     !src.provider_draft?.Ikey ||
     src.payable_gross_vnd !== order.total_gross ||
     src.billing?.tax_code !== (order.buyer.tax_code ?? "") ||

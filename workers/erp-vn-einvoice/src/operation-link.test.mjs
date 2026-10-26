@@ -86,3 +86,11 @@ test('legacy adoption and serialization pin the real provider key while new orde
  assert.equal(model.invoiceMatches(normalized,f.inv,b.document.ikey),true);assert.equal(model.invoiceMatches(normalized,f.inv),false);
  assert.throws(()=>model.normalizeOrder({...f.order,channel:'unknown/platform'}),/channel_unsupported/);
 });
+
+test('adoption normalizes TikTok Shop source alias and retains its existing provider key',async()=>{
+ const f=fixture();f.sql.exec("DELETE FROM vn_einvoice_documents WHERE id='doc'");
+ const src={marketplace:' TikTok Shop ',marketplace_order_id:f.order.source_order_id,provider_draft:{Ikey:f.inv.Ikey},payable_gross_vnd:f.order.total_gross,billing:{name:f.order.buyer.name,address:f.order.buyer.address,tax_code:f.order.buyer.tax_code},items:f.order.items.map(x=>({sku:x.sku,qty:x.quantity,line_amount:x.gross_amount,vat_rate_pct:x.vat_rate}))};
+ f.sql.prepare("UPDATE document_extractions SET raw_extract_json=? WHERE id='dex'").run(JSON.stringify(src));
+ const r=await manualRoutes(new Request('https://worker/manual/orders',{method:'POST',headers:{Authorization:'Bearer test','X-Actor-Id':'operator'},body:JSON.stringify({...f.order,channel:'TikTok Shop',adopt_extraction_id:'dex'})}),f.env);
+ assert.equal(r.status,202);const body=await r.json();assert.equal(body.document.ikey,f.inv.Ikey);assert.equal(body.document.order.channel,'tiktok');assert.ok(body.document.operation_id);
+});

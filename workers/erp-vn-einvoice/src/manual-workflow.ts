@@ -1,3 +1,4 @@
+import { syncManualOperation, linkManualOperation } from "./operation-link";
 import {
   callEndpoint,
   codeOf,
@@ -602,6 +603,23 @@ export async function processManual(
     )
       .bind(id, lease)
       .run();
+    const linked = await read(env, id);
+    if (linked?.operation_id) {
+      try {
+        await syncManualOperation(env, linked);
+        await update(env, id, { operation_sync_error: null });
+      } catch (error) {
+        // Accounting sync must not undo or misrepresent an already successful fiscal action.
+        const message =
+          error instanceof Error
+            ? error.message.slice(0, 300)
+            : "operation_sync_failed";
+        await update(env, id, { operation_sync_error: message }).catch(
+          () => {},
+        );
+        console.error("vn_operation_sync_failed", id, message);
+      }
+    }
   }
   return read(env, id);
 }
@@ -724,12 +742,20 @@ export async function manualRoutes(
       return json({ ok: true, document: row ? publicManual(row) : null }, 202);
     }
     const match =
-      /^\/manual\/orders\/([^/]+)\/(transfer|reconcile|issue)$/.exec(
+      /^\/manual\/orders\/([^/]+)\/(transfer|reconcile|issue|operation)$/.exec(
         url.pathname,
       );
     if (request.method === "POST" && match) {
       const row = await read(env, decodeURIComponent(match[1]!));
       if (!row) return json({ ok: false, error: "not_found" }, 404);
+      if (match[2] === "operation") {
+        const operation_id = await linkManualOperation(env, row, actor);
+        return json({
+          ok: true,
+          operation_id,
+          document: publicManual({ ...row, operation_id }),
+        });
+      }
       if (match[2] === "transfer") {
         const body = (await request.json()) as any;
         if (

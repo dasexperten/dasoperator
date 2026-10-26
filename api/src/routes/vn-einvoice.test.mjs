@@ -27,6 +27,7 @@ function fixture(access = 'rw', overrides = {}, documents = []) {
       async first() {
         if (sql.includes('FROM sessions')) return values[0] === token ? user : null;
         reads.push(sql);
+        if (/SELECT v\.\*/.test(sql)) return documents.find(d=>d.id===values[0])??null;
         if (sql.includes('provider_pdf_r2_key')) return { provider_pdf_r2_key: 'private/test.pdf', provider_xml_r2_key: null };
         return null;
       },
@@ -59,7 +60,7 @@ test('missing, unknown, inactive and expired sessions cannot read invoice data o
 
 test('users without operations permission cannot list, download or mutate invoices', async () => {
   const f = fixture('none');
-  for (const [path, method] of [['/', 'GET'], ['/record/file/pdf', 'GET'], ['/', 'POST'], ['/record/transfer', 'POST'], ['/record/issue', 'POST'], ['/record/reconcile', 'POST']]) {
+  for (const [path, method] of [['/', 'GET'], ['/record/file/pdf', 'GET'], ['/record','GET'], ['/record/operation','POST'], ['/', 'POST'], ['/record/transfer', 'POST'], ['/record/issue', 'POST'], ['/record/reconcile', 'POST']]) {
     assert.equal((await request(f.env, path, method, method === 'POST' ? {} : undefined)).status, 403);
   }
   assert.equal(f.reads.length, 0);
@@ -74,7 +75,7 @@ test('read-only operators may list and download but cannot create, record transf
   assert.equal(file.status, 200);
   assert.equal(file.headers.get('cache-control'), 'private, no-store');
   assert.equal(await file.text(), '%PDF-fixture');
-  for (const path of ['/', '/record/transfer', '/record/issue', '/record/reconcile']) {
+  for (const path of ['/', '/record/transfer', '/record/issue', '/record/reconcile', '/record/operation']) {
     assert.equal((await request(f.env, path, 'POST', {})).status, 403);
   }
   assert.equal(f.forwarded.length, 0);
@@ -179,4 +180,17 @@ test('one-click release forwards the stored document id and authenticated actor 
   assert.equal(f.forwarded[0].url, 'https://vn-einvoice/manual/orders/real-draft/issue');
   assert.deepEqual(f.forwarded[0].body, {});
   assert.equal(f.forwarded[0].headers['x-actor-id'], 'operator-test');
+});
+
+test('missing linked invoice returns404 with no worker invocation for read or operation import',async()=>{
+ const f=fixture();
+ for(const [path,method] of [['/missing','GET'],['/missing/operation','POST']]) assert.equal((await request(f.env,path,method,method==='POST'?{}:undefined)).status,404);
+ assert.equal(f.forwarded.length,0);
+});
+
+test('operation projection loads full canonical facts without issuing; import failure preserves successful fiscal response',async()=>{
+ const f=fixture('rw',{},[{...savedRow,id:'fixture-document',ikey:'swh-530124445322445'}]);
+ const read=await request(f.env,'/fixture-document');assert.equal(read.status,200);assert.equal((await read.json()).result.document.fiscal_totals.gross,298000);assert.equal(f.forwarded.length,0);
+ f.env.VN_EINVOICE.fetch=async()=>Response.json({ok:true,document:{id:'fixture-document',display_status:'tax_accepted_archived',invoice_no:'1'}});
+ const result=await request(f.env,'/fixture-document/issue','POST',{});assert.equal(result.status,200);const body=await result.json();assert.equal(body.result.document.invoice_no,'1');assert.equal(body.result.document.display_status,'tax_accepted_archived');assert.match(body.result.operation_sync_error,/vat_evidence_ref_required/);
 });

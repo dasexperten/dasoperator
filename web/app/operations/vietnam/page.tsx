@@ -74,6 +74,7 @@ const emptyOrder = () => ({
 type Order = ReturnType<typeof emptyOrder>;
 type Doc = {
   id: string;
+  operation_id?: string | null;
   source_order_id: string;
   display_status: string;
   provider_invoice_status: number | null;
@@ -413,6 +414,7 @@ export default function VietnamInvoices() {
             </p>
           )}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {d.operation_id && <Link style={buttonStyle} href={`/operations/${d.operation_id}`}>Открыть операцию</Link>}
             {d.display_status === "draft" && (
               <button
                 disabled={busy}

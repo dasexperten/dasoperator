@@ -1,3 +1,4 @@
+import { linkManualOperation } from "../../../workers/erp-vn-einvoice/src/operation-link";
 import { Hono } from "hono";
 import type { Env } from "../types";
 import { validateSession } from "../lib/auth";
@@ -141,9 +142,7 @@ route.use("*", async (c, next) => {
   c.set("actorId", user.id);
   return next();
 });
-route.get("/", async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT v.*,
+const manualQuery = `SELECT v.*,
        (SELECT d.raw_extract_json FROM document_extractions d
          WHERE d.deleted_at IS NULL AND json_valid(d.raw_extract_json)
            AND json_extract(d.raw_extract_json,'$.provider_draft.Ikey')=v.ikey
@@ -158,7 +157,44 @@ route.get("/", async (c) => {
             AND (a.provider_status=2 OR a.provider_error_code='0')
           ORDER BY a.id DESC LIMIT 1) AS provider_checked_at
        FROM vn_einvoice_documents v WHERE v.workflow='manual'
-       ORDER BY v.created_at DESC LIMIT 100`,
+`;
+async function getDocument(env: Env, id: string) {
+  return env.DB.prepare(manualQuery + " AND v.id=?")
+    .bind(id)
+    .first<ManualRow>();
+}
+route.get("/:id", async (c) => {
+  const row = await getDocument(c.env, c.req.param("id"));
+  if (!row)
+    return fail(c, 404, [{ code: "not_found", message: "Инвойс не найден" }]);
+  return ok(c, { document: await withOrderFacts(c.env, row) });
+});
+route.post("/:id/operation", async (c) => {
+  const row = await getDocument(c.env, c.req.param("id"));
+  if (!row)
+    return fail(c, 404, [{ code: "not_found", message: "Инвойс не найден" }]);
+  try {
+    const operation_id = await linkManualOperation(
+      c.env,
+      row,
+      c.get("actorId"),
+    );
+    return ok(c, {
+      operation_id,
+      document: await withOrderFacts(c.env, { ...row, operation_id }),
+    });
+  } catch (e) {
+    return fail(c, 409, [
+      {
+        code: "operation_link_failed",
+        message: e instanceof Error ? e.message : "Operation link failed",
+      },
+    ]);
+  }
+});
+route.get("/", async (c) => {
+  const rows = await c.env.DB.prepare(
+    manualQuery + " ORDER BY v.created_at DESC LIMIT 100",
   ).all<ManualRow>();
   const candidates = await c.env.DB.prepare(
     `SELECT d.id,d.filename FROM document_extractions d
@@ -268,6 +304,37 @@ async function proxy(c: any, path: string) {
         message: value.error ?? "Invoice service failed",
       },
     ]);
+  if (value.document?.id) {
+    try {
+      const row = await getDocument(c.env, value.document.id);
+      if (row) {
+        const operation_id = await linkManualOperation(
+          c.env,
+          row,
+          c.get("actorId"),
+        );
+        await c.env.DB.prepare(
+          "UPDATE vn_einvoice_documents SET operation_sync_error=NULL WHERE id=?",
+        )
+          .bind(row.id)
+          .run();
+        value.document = await withOrderFacts(c.env, {
+          ...row,
+          operation_id,
+          operation_sync_error: null,
+        });
+      }
+    } catch (error) {
+      value.operation_sync_error =
+        error instanceof Error ? error.message : "operation_sync_failed";
+      await c.env.DB.prepare(
+        "UPDATE vn_einvoice_documents SET operation_sync_error=? WHERE id=?",
+      )
+        .bind(value.operation_sync_error, value.document.id)
+        .run()
+        .catch(() => {});
+    }
+  }
   return ok(c, value);
 }
 route.post("/", (c) => proxy(c, ""));

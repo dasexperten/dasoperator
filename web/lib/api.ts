@@ -1157,6 +1157,7 @@ export async function getProductPriceForContract(productId: string, contractId: 
 
 export interface Operation {
   id: string;
+  vn_einvoice_document_id?: string | null;
   contract_id: string | null;
   contract_no?: string | null;
   partner_id: string | null;
@@ -1195,7 +1196,7 @@ export interface Operation {
   incoterms: string | null;
   shipment_details?: string | null;
   packing_details?: string | null;
-  vat_rate: 0 | 5 | 20;
+  vat_rate: 0 | 5 | 8 | 10 | 20;
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';

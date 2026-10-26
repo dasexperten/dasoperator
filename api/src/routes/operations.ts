@@ -7,6 +7,22 @@ import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
 import { getRatesFor } from '../lib/fx-store';
 
 const operations = new Hono<{ Bindings: Env }>();
+operations.use('*',async(c,next)=>{
+  const path=new URL(c.req.url).pathname;
+  const fiscalEdit=c.req.method==='PATCH' && path.endsWith('/document-settings') ||
+    ['POST','PATCH','DELETE'].includes(c.req.method) && path.includes('/line-items');
+  const deletion=c.req.method==='DELETE' && !path.includes('/line-items');
+  if (fiscalEdit || deletion) {
+    const segments=path.split('/').filter(Boolean);
+    const lineIndex=segments.indexOf('line-items');
+    const operationId=lineIndex>=0 && segments[lineIndex+1]
+      ? (await c.env.DB.prepare('SELECT operation_id FROM line_items WHERE id=?').bind(segments[lineIndex+1]).first<{operation_id:string}>())?.operation_id
+      : segments[segments.length-(deletion?1:2)];
+    const linked=operationId && await c.env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=? AND workflow='manual'").bind(operationId).first();
+    if(linked) return fail(c,409,[{code:'vn_invoice_managed',message:'Товары и суммы связаны с EasyInvoice. Изменение требует исправления инвойса.'}]);
+  }
+  return next();
+});
 
 // =============================================================================
 // Payment state — overlay color for any operation (Phase 4.3 follow-up)
@@ -749,6 +765,7 @@ operations.get('/', async (c) => {
   let sql = `
     SELECT
       ${columns},
+      (SELECT v.id FROM vn_einvoice_documents v WHERE v.operation_id=o.id AND v.workflow='manual') AS vn_einvoice_document_id,
       COALESCE(vps.paid_total, 0) AS paid_amount,
       vps.payment_status,
       p.acceptance_required AS partner_acceptance_required,
@@ -802,7 +819,7 @@ operations.get('/', async (c) => {
     const paid = Number(row.paid_amount) || 0;
     return {
       ...row,
-      payment_state: derivePaymentState(total, paid, String(row.status), row.partner_id as string | null, row.reference as string | null),
+      payment_state: row.vn_einvoice_document_id && paid === 0 ? 'neutral' : derivePaymentState(total, paid, String(row.status), row.partner_id as string | null, row.reference as string | null),
       partner_acceptance_required: row.partner_acceptance_required as 0 | 1 | null,
       has_acceptance_attachment: Number(row.has_acceptance_attachment) > 0,
       has_invoice_attachment: Number(row.has_invoice_attachment) > 0,
@@ -988,11 +1005,13 @@ operations.get('/:id', async (c) => {
   const hasAcceptance = Number(attachmentCounts?.acceptance_n ?? 0) > 0;
   const hasInvoice    = Number(attachmentCounts?.invoice_n ?? 0) > 0;
 
+  const vnInvoiceId=(await c.env.DB.prepare("SELECT id FROM vn_einvoice_documents WHERE operation_id=? AND workflow='manual'").bind(opId).first<{id:string}>())?.id ?? null;
   return ok(c, {
     operation: {
       ...op,
+      vn_einvoice_document_id: vnInvoiceId,
       paid_amount: paid,
-      payment_state: derivePaymentState(total, paid, String(op.status), op.partner_id as string | null, op.reference as string | null),
+      payment_state: vnInvoiceId && paid === 0 ? 'neutral' : derivePaymentState(total, paid, String(op.status), op.partner_id as string | null, op.reference as string | null),
       // Service-track chip signals (read by ServiceStatusBar)
       has_acceptance_attachment: hasAcceptance,
       has_invoice_attachment: hasInvoice,

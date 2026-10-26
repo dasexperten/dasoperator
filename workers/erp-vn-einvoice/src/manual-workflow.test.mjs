@@ -710,3 +710,10 @@ test('persisted explicit request resumes after draft-upsert transport failure wi
   assert.equal(f.sql.prepare("SELECT count(*) n FROM vn_einvoice_attempts WHERE outcome='explicit_release_requested'").get().n,1);
   assert.equal(JSON.parse(f.objects.get(f.row().request_r2_key)).release_request.invoice_date,'2026-10-21');
 });
+
+test('operation sync failure never turns an accepted fiscal result into a failed issue',async()=>{
+ const f=fixture({invoice:{...draft,InvoiceStatus:1,No:'12',TCTCheckStatus:'Hợp lệ',TaxAuthorityCode:'AUTH'}});
+ f.sql.exec("ALTER TABLE vn_einvoice_documents ADD COLUMN operation_id TEXT; ALTER TABLE vn_einvoice_documents ADD COLUMN operation_sync_error TEXT; UPDATE vn_einvoice_documents SET operation_id='linked';");
+ const old=console.error;console.error=()=>{};
+ try {const response=await processManual(f.env,'doc');assert.equal(response.state,'issued');assert.equal(response.provider_phase,'tax_accepted');assert.ok(response.operation_sync_error);assert.equal(f.calls.filter(x=>x.endpoint==='issueInvoices').length,0);}finally{console.error=old;}
+});

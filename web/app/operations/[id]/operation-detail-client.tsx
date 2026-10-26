@@ -28,6 +28,7 @@ import {
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 import DocumentActionBar from '@/components/operations/document-action-bar';
+import VietnamInvoicePanel from '@/components/operations/vietnam-invoice-panel';
 
 // =============================================================================
 // Helpers
@@ -248,14 +249,18 @@ export default function OperationDetailClient({
   const totalAfterDiscount = lineItems.reduce((sum, li) => sum + li.line_amount, 0);
   const discount = subtotal - totalAfterDiscount;
   const discountPct = subtotal > 0 ? Math.round((discount / subtotal) * 1000) / 10 : 0;
-  const vatAmount = Math.round(totalAfterDiscount * operation.vat_rate) / 100;
+  const managedVietnamInvoice = Boolean(operation.vn_einvoice_document_id);
+  // Linked fiscal records carry the provider total, including per-line VND rounding.
+  const vatAmount = managedVietnamInvoice
+    ? operation.total_amount - totalAfterDiscount
+    : Math.round(totalAfterDiscount * operation.vat_rate) / 100;
   // grandTotal: compute from line_items when present, else fall back to
   // operation.total_amount. Service/vendor-invoice operations created from
   // invoice_inbox have no line_items but carry a total_amount from the
   // extracted invoice header (e.g. accounting subscriptions, rent, hosting).
   // Without this fallback, header amount renders as 0.00 for those rows.
   const computedTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
-  const grandTotal = lineItems.length === 0 && (operation as { total_amount?: number | null }).total_amount
+  const grandTotal = managedVietnamInvoice ? operation.total_amount : lineItems.length === 0 && (operation as { total_amount?: number | null }).total_amount
     ? Number((operation as { total_amount?: number | null }).total_amount)
     : computedTotal;
   const showVat = operation.vat_rate > 0;
@@ -411,7 +416,7 @@ export default function OperationDetailClient({
       <div className="dx-ribbon-rule" />
 
       {/* QUICK ACTIONS ============================================ */}
-      <DocumentActionBar
+      {!managedVietnamInvoice && <DocumentActionBar
         operationId={operationId}
         operationStatus={operation.status}
         operationType={operation.operation_type}
@@ -466,7 +471,7 @@ export default function OperationDetailClient({
             setStockMovements(movesRes.result.movements);
           }
         }}
-      />
+      />}
 
       {/* REFERENCE STRIP ============================================ */}
       <div
@@ -521,7 +526,7 @@ export default function OperationDetailClient({
         style={{ borderBottom: '1px solid var(--border-hairline)' }}
       >
         {([
-          { id: 'documents', label: 'Documents',       count: documents.length + attachments.filter((a:any)=>a.parsed_from!=='invoicer').length },
+          { id: 'documents', label: 'Documents',       count: managedVietnamInvoice ? 1 : documents.length + attachments.filter((a:any)=>a.parsed_from!=='invoicer').length },
           { id: 'payments',  label: 'Payments',        count: payments.length },
           { id: 'items',     label: 'Line items',      count: lineItems.length },
           { id: 'status',    label: 'Status',          count: null },
@@ -557,6 +562,7 @@ export default function OperationDetailClient({
       {/* TAB CONTENT ================================================ */}
       {activeTab === 'items' && (
         <ItemsTab
+          readOnly={managedVietnamInvoice}
           operationId={operationId}
           operationStatus={operation.status}
           lineItems={lineItems}
@@ -608,7 +614,9 @@ export default function OperationDetailClient({
         <StockMovementsTab movements={stockMovements} />
       )}
 
-      {activeTab === 'documents' && (
+      {activeTab === 'documents' && (operation.vn_einvoice_document_id ? (
+        <VietnamInvoicePanel documentId={operation.vn_einvoice_document_id} />
+      ) : (
         <DocumentsTab
           operationId={operationId}
           initialDocs={documents}
@@ -616,10 +624,11 @@ export default function OperationDetailClient({
           attachments={attachments}
           onAttachmentsChange={setAttachments}
         />
-      )}
+      ))}
 
       {activeTab === 'payments' && (
         <PaymentsTab
+          marketplaceSettlement={managedVietnamInvoice}
           partnerId={operation.partner_id}
           operationId={operationId}
           payments={payments}
@@ -637,6 +646,7 @@ export default function OperationDetailClient({
 // Items tab — Phase 4.5: editable composition
 // =============================================================================
 function ItemsTab({
+  readOnly = false,
   operationId,
   operationStatus,
   lineItems,
@@ -651,6 +661,7 @@ function ItemsTab({
   grandTotal,
   showVat,
 }: {
+  readOnly?: boolean;
   operationId: string;
   operationStatus: string;
   lineItems: OperationLineItem[];
@@ -666,7 +677,7 @@ function ItemsTab({
   showVat: boolean;
 }) {
   const showDiscount = discount > 0;
-  const locked = operationStatus === 'cancelled' || operationStatus === 'delivered';
+  const locked = readOnly || operationStatus === 'cancelled' || operationStatus === 'delivered';
   const issuedOrLater = operationStatus !== 'draft' && !locked;
 
   const [editMode, setEditMode] = useState(false);
@@ -1533,6 +1544,7 @@ function DocumentsTab({
 // Payments tab
 // =============================================================================
 function PaymentsTab({
+  marketplaceSettlement = false,
   partnerId,
   operationId,
   payments,
@@ -1541,6 +1553,7 @@ function PaymentsTab({
   paidAmount,
   outstanding,
 }: {
+  marketplaceSettlement?: boolean;
   partnerId: string | null;
   operationId: string;
   payments: Payment[];
@@ -1641,22 +1654,22 @@ function PaymentsTab({
           </p>
         </div>
         <div>
-          <p style={{ fontSize: '14px' }}>Paid</p>
+          <p style={{ fontSize: '14px' }}>{marketplaceSettlement ? 'Поступления в ERP' : 'Paid'}</p>
           <p className="mt-1" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--status-success)', fontWeight: 600 }}>
             {formatMoney(paidAmount, currency)}
           </p>
         </div>
         <div>
-          <p style={{ fontSize: '14px' }}>Outstanding</p>
+          <p style={{ fontSize: '14px' }}>{marketplaceSettlement ? 'Сверка выплаты маркетплейса' : 'Outstanding'}</p>
           <p
             className="mt-1"
             style={{
               fontSize: 'var(--fs-body-md)',
-              color: outstanding > 0 ? 'var(--brand-rot)' : 'var(--fg-3)',
+              color: !marketplaceSettlement && outstanding > 0 ? 'var(--brand-rot)' : 'var(--fg-3)',
               fontWeight: 600,
             }}
           >
-            {formatMoney(outstanding, currency)}
+            {marketplaceSettlement ? 'Отдельно по отчёту маркетплейса' : formatMoney(outstanding, currency)}
           </p>
         </div>
       </div>

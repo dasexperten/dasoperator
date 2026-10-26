@@ -7,6 +7,19 @@
  */
 const SITE_ORDER_SYNC = "https://dasexperten.ru/api/order/track.php";
 
+// A successful polling request is not a successful delivery retry. Keep failed
+// orders visible to the existing cron journal and persistent-failure monitor.
+export function deliveryRetryOutcome(body) {
+  if (!body || body.ok !== true) return body;
+  const failed = (Array.isArray(body.retry_results) ? body.retry_results : [])
+    .filter(result => result?.ok === false);
+  if (!failed.length) return body;
+  const reasons = [...new Set(failed.map(result =>
+    /^[A-Za-z_0-9-]{1,80}$/.test(String(result.reason)) ? String(result.reason) : 'unknown'
+  ))];
+  return { ...body, ok: false, error: `Delivery retries unresolved: ${failed.length}; ${reasons.join(', ')}` };
+}
+
 export async function syncOzonOrdersOnSite(env) {
   const token = String(env.SITE_SYNC_TOKEN || "").trim();
   if (!token) return { ok: false, error: "SITE_SYNC_TOKEN не задан на сиденье" };
@@ -25,7 +38,7 @@ export async function syncOzonOrdersOnSite(env) {
     if (!resp.ok || !body.ok) {
       return { ok: false, error: `site HTTP ${resp.status}: ${JSON.stringify(body).slice(0, 500)}` };
     }
-    return body;
+    return deliveryRetryOutcome(body);
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
   }

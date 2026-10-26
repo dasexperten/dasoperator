@@ -13,6 +13,7 @@
 // =============================================================================
 import * as XLSX from 'xlsx';
 import PostalMime from 'postal-mime';
+import { z } from 'zod';
 import { archiveEmail } from './inbox-archive';
 import type { Env } from '../types';
 import { callPro } from './deepseek';
@@ -85,11 +86,23 @@ function letterText(l: InventoryLetter): { text: string; skipped: string[] } {
   return { text: parts.join('\n\n').slice(0, MAX_CHARS), skipped };
 }
 
-function parseJson(raw: string): ModelOut {
+const inventoryReadingSchema = z.object({
+  warehouse_id: z.string().nullable(),
+  warehouse_certain: z.boolean(),
+  counted_on: z.string().nullable().optional(),
+  rows: z.array(z.object({
+    source: z.string(),
+    product_id: z.string().nullable(),
+    qty_pieces: z.number().int().nonnegative().safe().nullable(),
+    note: z.string().optional(),
+  })),
+});
+
+export function parseInventoryJson(raw: string): ModelOut {
   const s = raw.replace(/^[\s\S]*?```(?:json)?/i, '').replace(/```[\s\S]*$/, '').trim() || raw;
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
-  return JSON.parse(s.slice(start, end + 1)) as ModelOut;
+  return inventoryReadingSchema.parse(JSON.parse(s.slice(start, end + 1)));
 }
 
 async function call<T>(env: Env, path: string, method: string, body?: unknown): Promise<T> {
@@ -131,11 +144,21 @@ export async function readInventoryLetter(
   const user = `СКЛАДЫ:\n${JSON.stringify(warehouses.results)}\n\nТОВАРЫ:\n${JSON.stringify(products.results)}\n\nОТ: ${l.from}\nТЕМА: ${l.subject}\n\n${text}`;
 
   // Strongest DeepSeek model (Owner: "the best model for identification"); a letter a week, so cost is no issue.
-  const r = await callPro(
-    [{ role: 'system', content: system }, { role: 'user', content: user }],
-    { apiKey: env.DEEPSEEK_API_KEY as string, maxTokens: 16000, temperature: 0 },
-  );
-  return { out: parseJson(r.text), skipped };
+  // JSON mode prevents free-form output; schema validation prevents strings such
+  // as "false" from authorizing a stock commit. Retry malformed output once,
+  // against the original letter, before any session or stock mutation.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await callPro(
+      [{ role: 'system', content: system }, { role: 'user', content: user }],
+      { apiKey: env.DEEPSEEK_API_KEY as string, maxTokens: 16000, temperature: 0, jsonMode: true },
+    );
+    try {
+      return { out: parseInventoryJson(r.text), skipped };
+    } catch {
+      if (attempt === 1) throw new Error('Inventory JSON invalid after two readings; no stock written');
+    }
+  }
+  throw new Error('Inventory reading unavailable');
 }
 
 export async function processInventoryLetter(
@@ -163,7 +186,7 @@ export async function processInventoryLetter(
 
   let reading: InventoryReading;
   if (given?.out) {
-    reading = given;
+      reading = { out: inventoryReadingSchema.parse(given.out), skipped: given.skipped };
   } else {
     let r: Awaited<ReturnType<typeof readInventoryLetter>>;
     try {

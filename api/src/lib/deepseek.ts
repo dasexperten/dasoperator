@@ -47,6 +47,8 @@ interface CallOptions {
   maxTokens?: number;
   /** Sampling temperature. Default 0.3 (deterministic for docs). */
   temperature?: number;
+  /** Structured readers opt in; ordinary prose callers are unchanged. */
+  jsonMode?: boolean;
 }
 
 async function callDeepSeek(
@@ -59,6 +61,7 @@ async function callDeepSeek(
     messages,
     max_tokens: opts.maxTokens ?? 16000,
     temperature: opts.temperature ?? 0.3,
+    ...(opts.jsonMode ? { response_format: { type: 'json_object' } } : {}),
   };
 
   const res = await fetch(DEEPSEEK_BASE_URL, {

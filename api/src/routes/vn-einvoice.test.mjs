@@ -141,3 +141,32 @@ test('missing or malformed old source metadata keeps saved order usable and date
     assert.equal(document.fiscal_totals.gross,298000);assert.equal(document.transfer_at,null);assert.equal(f.forwarded.length,0);
   }
 });
+
+function providerFixture(invoice, options={}) {
+  const row={...savedRow,pattern:'1C26MAA',serial:'',ikey:'swh-530124445322445',response_r2_key:'private/provider-receipt.json',provider_checked_at:1793023866,
+    source_document_json:JSON.stringify({id:'dex_lazada_530124445322445',status:'pending_review',reviewed_at:null,target_id:null}),...options.row};
+  const f=fixture('read',{},[row]);
+  f.env.DOCS.get=async key=>{f.archiveReads.push(key);return options.missing?null:{text:async()=>options.invalid?'not-json':JSON.stringify({httpStatus:200,body:{Status:2,ErrorCode:0,Data:{Invoices:[{Pattern:'1C26MAA',Serial:'',...invoice}]}}})};};
+  return f;
+}
+test('successful read of an unsigned draft exposes unsent tax status and actual receipt time, not acceptance',async()=>{
+  const f=providerFixture({Ikey:'swh-530124445322445',InvoiceStatus:0,No:'0',TCTCheckStatus:'Chưa gửi thuế',TaxAuthorityCode:null});
+  const doc=(await(await request(f.env)).json()).result.documents[0];
+  assert.deepEqual(doc.provider_check,{available:true,invoice_status:0,invoice_no:'0',tax_status_raw:'Chưa gửi thuế',tax_error:null,tax_authority_code:null,checked_at:1793023866});
+  assert.deepEqual(doc.accounting_document,{id:'dex_lazada_530124445322445',status:'pending_review',reviewed_at:null,target_id:null});
+  assert.equal(f.forwarded.length,0);assert.equal(doc.transfer_at,null);
+});
+test('actual tax acceptance and issued number come from matching receipt, independently of saved draft metadata',async()=>{
+  const f=providerFixture({Ikey:'swh-530124445322445',InvoiceStatus:1,No:'12',TCTCheckStatus:'Hợp lệ',TaxAuthorityCode:'CQT-test'});
+  const doc=(await(await request(f.env)).json()).result.documents[0];
+  assert.equal(doc.provider_check.invoice_status,1);assert.equal(doc.provider_check.invoice_no,'12');
+  assert.equal(doc.provider_check.tax_status_raw,'Hợp lệ');assert.equal(doc.provider_check.tax_authority_code,'CQT-test');assert.equal(f.forwarded.length,0);
+});
+test('missing, malformed or mismatched receipts never inherit stored invoice or template claims',async()=>{
+  for(const options of [{missing:true},{invalid:true},{mismatch:true},{seriesMismatch:true}]){
+    const f=providerFixture({Ikey:options.mismatch?'other-invoice':'swh-530124445322445',Pattern:options.seriesMismatch?'other-series':'1C26MAA',InvoiceStatus:1,No:'12',TCTCheckStatus:1,TaxAuthorityCode:'CQT-test'},options);
+    const doc=(await(await request(f.env)).json()).result.documents[0];
+    assert.deepEqual(doc.provider_check,{available:false,invoice_status:null,invoice_no:null,tax_status_raw:null,tax_error:null,tax_authority_code:null,checked_at:null});
+    assert.equal(f.forwarded.length,0);
+  }
+});

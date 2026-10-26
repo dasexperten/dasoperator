@@ -254,9 +254,13 @@ Saving creates an unsigned draft, or adopts a verified `document_extractions` so
 with the same Ikey. Adoption does not create another provider invoice. Verified drafts
 without transfer remain unsigned, including when issuance is enabled.
 
-Recording actual buyer transfer requires a timezone-aware timestamp and evidence;
-payment, payout and carrier pickup are not substitutes. Before first issue, the same
-unsigned draft is restored from canonical saved lines and the Vietnam transfer date.
+Recording the transfer of ownership or use requires a timezone-aware timestamp
+and evidence under the applicable order contract. A confirmed full-payment event
+can establish that moment when the contract explicitly transfers title on full
+payment; a Delivered status is not a universal prerequisite. Record the contractual
+basis and verified event instead of assuming that any payment, payout or carrier
+scan establishes title transfer. Before first issue, the same unsigned draft is
+restored from canonical saved lines and the Vietnam transfer date.
 Provider Ikey, buyer, totals and series must match. The worker then uses the documented
 HSM `issueInvoices` endpoint. A persisted phase and lease prevent concurrent writes;
 uncertain issue results are queried, never blindly resubmitted.

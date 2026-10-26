@@ -10,11 +10,83 @@ import {
 import {
   fiscalLines,
   fiscalTotals,
+  matchedInvoice,
+  seriesMatches,
   type ManualOrder,
 } from "../../../workers/erp-vn-einvoice/src/manual-order";
 
-function withOrderFacts(row: ManualRow) {
-  const { source_snapshot_json, ...record } = row;
+import { isProviderSuccess } from "../../../workers/erp-vn-einvoice/src/easyinvoice";
+
+async function withOrderFacts(env: Env, row: ManualRow) {
+  const {
+    source_snapshot_json,
+    source_document_json,
+    provider_checked_at,
+    ...record
+  } = row;
+  let sourceDocument: {
+    id: string;
+    status: string;
+    reviewed_at: number | null;
+    target_id: string | null;
+  } | null = null;
+  try {
+    const parsed = JSON.parse(source_document_json || "null");
+    if (parsed?.id && parsed?.status) sourceDocument = parsed;
+  } catch {
+    /* Missing source metadata stays unknown. */
+  }
+  let providerCheck: {
+    available: boolean;
+    invoice_status: number | null;
+    invoice_no: string | null;
+    tax_status_raw: string | null;
+    tax_error: string | null;
+    tax_authority_code: string | null;
+    checked_at: number | null;
+  } = {
+    available: false,
+    invoice_status: null,
+    invoice_no: null,
+    tax_status_raw: null,
+    tax_error: null,
+    tax_authority_code: null,
+    checked_at: null,
+  };
+  try {
+    const object = row.response_r2_key
+      ? await env.DOCS.get(row.response_r2_key)
+      : null;
+    if (object) {
+      const receipt = JSON.parse(await object.text());
+      const body = receipt.body;
+      const invoice =
+        body && isProviderSuccess(body) ? matchedInvoice(body, row.ikey) : null;
+      if (invoice && seriesMatches(invoice, row.pattern, row.serial)) {
+        const status = invoice.InvoiceStatus;
+        const validStatus =
+          typeof status === "number" ||
+          (typeof status === "string" && /^-?\d+$/.test(status.trim()));
+        providerCheck = {
+          available: true,
+          invoice_status: validStatus ? Number(status) : null,
+          invoice_no: invoice.No == null ? null : String(invoice.No),
+          tax_status_raw:
+            invoice.TCTCheckStatus == null
+              ? null
+              : String(invoice.TCTCheckStatus),
+          tax_error: invoice.TCTErrorMessage ?? null,
+          tax_authority_code: invoice.TaxAuthorityCode ?? null,
+          checked_at:
+            typeof provider_checked_at === "number"
+              ? provider_checked_at
+              : null,
+        };
+      }
+    }
+  } catch {
+    /* A missing or overwritten receipt never inherits a claimed provider outcome. */
+  }
   let source: Record<string, any> = {};
   try {
     const parsed = JSON.parse(source_snapshot_json || "{}");
@@ -29,6 +101,8 @@ function withOrderFacts(row: ManualRow) {
   const order = document.order as ManualOrder;
   return {
     ...document,
+    provider_check: providerCheck,
+    accounting_document: sourceDocument,
     fiscal_lines: fiscalLines(order),
     fiscal_totals: fiscalTotals(order),
     source_facts: {
@@ -67,7 +141,16 @@ route.get("/", async (c) => {
        (SELECT d.raw_extract_json FROM document_extractions d
          WHERE d.deleted_at IS NULL AND json_valid(d.raw_extract_json)
            AND json_extract(d.raw_extract_json,'$.provider_draft.Ikey')=v.ikey
-         ORDER BY d.created_at DESC LIMIT 1) AS source_snapshot_json
+         ORDER BY d.created_at DESC LIMIT 1) AS source_snapshot_json,
+       (SELECT json_object('id',d.id,'status',d.status,'reviewed_at',d.reviewed_at,'target_id',d.target_id)
+          FROM document_extractions d WHERE d.deleted_at IS NULL AND json_valid(d.raw_extract_json)
+            AND json_extract(d.raw_extract_json,'$.provider_draft.Ikey')=v.ikey
+          ORDER BY d.created_at DESC LIMIT 1) AS source_document_json,
+       (SELECT a.finished_at FROM vn_einvoice_attempts a
+          WHERE a.document_id=v.id AND a.response_r2_key=v.response_r2_key
+            AND a.phase='verify' AND a.outcome='invoice-readback'
+            AND (a.provider_status=2 OR a.provider_error_code='0')
+          ORDER BY a.id DESC LIMIT 1) AS provider_checked_at
        FROM vn_einvoice_documents v WHERE v.workflow='manual'
        ORDER BY v.created_at DESC LIMIT 100`,
   ).all<ManualRow>();
@@ -78,7 +161,9 @@ route.get("/", async (c) => {
     ORDER BY d.created_at DESC LIMIT 20`,
   ).all();
   return ok(c, {
-    documents: (rows.results ?? []).map(withOrderFacts),
+    documents: await Promise.all(
+      (rows.results ?? []).map((row) => withOrderFacts(c.env, row)),
+    ),
     saved_drafts: candidates.results ?? [],
   });
 });

@@ -84,6 +84,21 @@ type Doc = {
   provider_message: string | null;
   transfer_at: string | null;
   transfer_evidence: string | null;
+  provider_check: {
+    available: boolean;
+    invoice_status: number | null;
+    invoice_no: string | null;
+    tax_status_raw: string | null;
+    tax_error: string | null;
+    tax_authority_code: string | null;
+    checked_at: number | null;
+  };
+  accounting_document: {
+    id: string;
+    status: string;
+    reviewed_at: number | null;
+    target_id: string | null;
+  } | null;
   order: Order;
   fiscal_lines: Array<
     Order["items"][number] & { net_amount: number; vat_amount: number }
@@ -96,6 +111,40 @@ type Doc = {
     tracking_number: string | null;
   };
 };
+function providerInvoiceLabel(status: number | null | undefined) {
+  return (
+    (
+      {
+        "-1": "Ожидает подписи",
+        "0": "Черновик, не выпущен",
+        "1": "Выпущен",
+        "2": "Выпущен, задекларирован",
+        "3": "Заменён",
+        "4": "Скорректирован",
+        "5": "Аннулирован",
+        "6": "Одобрен для подписи",
+      } as Record<string, string>
+    )[String(status)] ?? "Нет подтверждённых данных"
+  );
+}
+function providerTaxLabel(check: Doc["provider_check"]) {
+  if (!check?.available) return "Нет подтверждённых данных";
+  if (check.tax_error) return `Ошибка: ${check.tax_error}`;
+  const status = check.tax_status_raw;
+  if (["-2", "Không hợp lệ"].includes(status ?? ""))
+    return "Отклонено налоговой";
+  if (["1", "Hợp lệ"].includes(status ?? ""))
+    return check.tax_authority_code
+      ? "Принято налоговой"
+      : "Проверка успешна; код налоговой не подтверждён";
+  if (["-1", "Đang kiểm tra"].includes(status ?? ""))
+    return "Проверяется налоговой";
+  if (["0", "Chưa xử lý"].includes(status ?? "")) return "Ещё не обработано";
+  if (status === "Chưa gửi thuế") return "Не отправлено в налоговую";
+  return status
+    ? `Статус EasyInvoice: ${status}`
+    : "Статус отправки не подтверждён";
+}
 function Field({
   label,
   children,
@@ -637,19 +686,27 @@ export default function VietnamInvoices() {
             <strong
               style={{
                 color:
-                  d.display_status === "tax_accepted_archived"
+                  d.provider_check?.available &&
+                  !d.provider_check.tax_error &&
+                  ["1", "Hợp lệ"].includes(
+                    d.provider_check.tax_status_raw ?? "",
+                  ) &&
+                  d.provider_check.tax_authority_code
                     ? "#267348"
                     : "#986b12",
               }}
             >
-              {statusLabels[d.display_status] ?? d.display_status}
+              {providerInvoiceLabel(d.provider_check?.invoice_status)}
             </strong>
           </div>
           <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
             Счёт:{" "}
-            {d.invoice_no && d.invoice_no !== "0"
-              ? d.invoice_no
-              : "номер не присвоен"}{" "}
+            {!d.provider_check?.available
+              ? "номер не подтверждён"
+              : d.provider_check.invoice_no &&
+                  d.provider_check.invoice_no !== "0"
+                ? d.provider_check.invoice_no
+                : "номер не присвоен"}{" "}
             · Код поиска: {d.lookup_code ?? "ожидается"}
             {d.transfer_at && (
               <>
@@ -662,6 +719,60 @@ export default function VietnamInvoices() {
               </>
             )}
           </div>
+          <section
+            aria-label="Статусы выпуска, налоговой и бухгалтерии"
+            style={{
+              padding: 16,
+              border: "1px solid var(--line-1)",
+              borderRadius: 8,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div>
+              <strong>Выпуск:</strong>{" "}
+              {providerInvoiceLabel(d.provider_check?.invoice_status)}
+              {d.provider_check?.invoice_no &&
+              d.provider_check.invoice_no !== "0"
+                ? ` · № ${d.provider_check.invoice_no}`
+                : ""}
+            </div>
+            <div>
+              <strong>Налоговая:</strong> {providerTaxLabel(d.provider_check)}
+              {d.provider_check?.tax_authority_code && (
+                <span> · Код: {d.provider_check.tax_authority_code}</span>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--fg-2)" }}>
+              Последняя подтверждённая сверка с EasyInvoice:{" "}
+              {d.provider_check?.checked_at
+                ? new Date(d.provider_check.checked_at * 1000).toLocaleString(
+                    "ru-RU",
+                    { timeZone: "Asia/Yerevan" },
+                  ) + " (Ереван)"
+                : "нет доступного подтверждения"}
+              . Отображён сохранённый результат сверки.
+            </p>
+            <div>
+              <strong>Учёт / бухгалтерия:</strong>{" "}
+              {d.accounting_document?.status === "pending_review" &&
+              !d.accounting_document.reviewed_at &&
+              !d.accounting_document.target_id
+                ? "Документ ERP ожидает проверки; подтверждение передачи бухгалтеру в этой записи не зарегистрировано."
+                : "Подтверждённый статус передачи бухгалтеру в этой записи отсутствует."}
+              {d.accounting_document && (
+                <>
+                  {" "}
+                  <Link
+                    href={`/inbox/documents/${encodeURIComponent(d.accounting_document.id)}`}
+                    style={{ textDecoration: "underline" }}
+                  >
+                    Открыть документ ERP
+                  </Link>
+                </>
+              )}
+            </div>
+          </section>
           <section
             aria-label="Данные из заказа и черновика"
             style={{ display: "grid", gap: 12 }}
@@ -845,11 +956,12 @@ export default function VietnamInvoices() {
               }}
             >
               <p>
-                Укажите фактическую передачу покупателю права собственности или
-                пользования товаром. Упаковка, получение перевозчиком и оплата
-                сами по себе не подтверждают это событие.
+                Основание выпуска — подтверждённый переход права собственности
+                или пользования по условиям заказа. Если договор связывает его с
+                полной оплатой, используйте подтверждённую дату оплаты. Ожидать
+                статус «Доставлен» в таком случае не требуется.
               </p>
-              <Field label="Дата и время передачи · Вьетнам (UTC+7)">
+              <Field label="Момент перехода права · Вьетнам (UTC+7)">
                 <input
                   type="datetime-local"
                   style={inputStyle}
@@ -857,13 +969,13 @@ export default function VietnamInvoices() {
                   onChange={(e) => setTransferAt(e.target.value)}
                 />
               </Field>
-              <Field label="Подтверждение доставки / приёмки">
+              <Field label="Основание перехода собственности / передачи товара">
                 <textarea
                   rows={2}
                   style={inputStyle}
                   value={evidence}
                   onChange={(e) => setEvidence(e.target.value)}
-                  placeholder="Подтверждение доставки, приёмка покупателем или ссылка на документ"
+                  placeholder="Подтверждение оплаты, условие договора, акт или ссылка на источник"
                 />
               </Field>
               <div style={{ display: "flex", gap: 10 }}>
@@ -874,7 +986,7 @@ export default function VietnamInvoices() {
                 >
                   {busy
                     ? "Обработка…"
-                    : "Зафиксировать передачу и выпустить счёт"}
+                    : "Подтвердить основание и выпустить счёт"}
                 </button>
                 <button
                   style={buttonStyle}

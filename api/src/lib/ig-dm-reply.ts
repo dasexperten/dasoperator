@@ -216,7 +216,9 @@ export async function holdOpenPayouts(env: Env, creatorId: string, why: string):
   return open.length;
 }
 
-export async function igDmReply(env: Env): Promise<{ replied: number; escalated: number; errors: number }> {
+export async function igDmReply(env: Env, options: { batchClock?: () => number } = {}): Promise<{ replied: number; escalated: number; errors: number; deferred: number }> {
+  const batchClock = options.batchClock ?? Date.now;
+  const batchStarted = batchClock();
   const now = Date.now();
   // runAdaptiveLane owns renewal across reading, replying, and final scheduling.
   const waiting = (await env.DB.prepare(
@@ -234,7 +236,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         AND NOT EXISTS (SELECT 1 FROM crm_sync_state done WHERE done.key='ig_reply:'||m.conversation_id AND done.value=m.created_at)
       ORDER BY m.created_at ASC LIMIT 100`
   ).bind(new Date(now - 7 * 86_400_000).toISOString(), new Date(now - SETTLE_MS).toISOString(), now).all<{ cid: string; t: string; h: string }>()).results ?? [];
-  let replied = 0, escalated = 0, errors = 0, attempted = 0;
+  let replied = 0, escalated = 0, errors = 0, attempted = 0, deferred = 0;
   const finishDelivery = async (delivery: IgDeliveryResult) => {
     if (delivery.status === 'busy' || delivery.status === 'superseded') return;
     let browser = delivery.status === 'browser';
@@ -294,8 +296,13 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const amounts = ((await env.DB.prepare(`SELECT amount_minor m FROM ugc_payouts WHERE upper(trim(product)) = 'TERMO' AND amount_minor BETWEEN 20000 AND 99900 AND created_at > ?1 ORDER BY amount_minor`).bind(now - 30 * 86_400_000).all<{ m: number }>()).results ?? []).map((r) => Number(r.m));
     if (amounts.length >= 5) { const mid = amounts[Math.floor(amounts.length / 2)]!; termoBand = { low: Math.round(mid * 0.85), high: Math.round(mid * 1.15), mid }; }
   } catch { /* no band: the article is asked */ }
-  for (const w of waiting) {
-    if (attempted >= MAX_PER_RUN) break;
+  for (const [index, w] of waiting.entries()) {
+    // Cloudflare Cron has a15-minute wall limit. Stop starting new conversations
+    // after7minutes, leaving an8-minute reserve for the current multi-call item.
+    // Unstarted messages remain unhandled and keep the adaptive lane active.
+    if (attempted >= MAX_PER_RUN || batchClock() - batchStarted >= 7 * 60_000) {
+      deferred = waiting.length - index; break;
+    }
     const at = Date.parse(w.t);
     if (existingDeliveries.has(igDeliveryKey(w.cid, w.t))) continue;
     if (!Number.isFinite(at) || now - at < SETTLE_MS || now - at > 7 * 86_400_000) continue;
@@ -661,5 +668,5 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       parts, cards: out.sendCards ? SCENARIO_CARDS : [], ...(completion ? { completion } : {}), humanAgent: now - at > 23.5 * 3_600_000 }, sendIgDirect);
     await finishDelivery(delivery);
   }
-  return { replied, escalated, errors };
+  return { replied, escalated, errors, deferred };
 }

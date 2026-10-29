@@ -172,7 +172,7 @@ test('rama closing acknowledgement is handled before generation even when the wr
   f.raw=JSON.stringify({reply:'Ждём ролик!',escalate:false});
   const result=await igDmReply(f.env);
   assert.equal(handled(f),f.t);assert.equal(f.systems.length,0);assert.equal(f.contextReady,undefined);
-  assert.equal(f.sent.length,0);assert.deepEqual(result,{replied:0,escalated:0,errors:0});
+  assert.equal(f.sent.length,0);assert.deepEqual(result,{replied:0,escalated:0,errors:0,deferred:0});
   await igDmReply(f.env);assert.equal(f.sent.length,0);
  }
 });
@@ -599,3 +599,5 @@ test('scenario review recovery does not reopen a manual decision or an ambiguous
 });
 
 test('subscription image transport outage stays pending without a blind reply',async()=>{const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture',label:'current'}];f.jevImageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'diana_subscription_vision_pending');assert.equal(incident(f).status,'retry');assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);});
+
+test('host batch budget leaves unstarted work unhandled and the next pass completes it',async()=>{const f=fixture();const ticks=[0,7*60000];const result=await igDmReply(f.env,{batchClock:()=>ticks.shift()??7*60000});assert.equal(result.deferred,1);assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);});

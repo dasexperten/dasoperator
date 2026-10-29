@@ -82,3 +82,5 @@ test('promo refill errors are failures even when other rules succeeded', async t
   const g = fixture(t, { refill: { rules_checked: 36, refills_triggered: 0, errors: [] } });
   assert.equal(JSON.parse(await STEPS['erp-promo-refill'](g.env)).rules_checked, 36);
 });
+
+test('host-budget deferred Direct work keeps the next adaptive tick in3minutes',async t=>{const f=fixture(t,{reply:{replied:0,escalated:0,errors:0,deferred:2}});const result=await STEPS['erp-ugc-direct'](f.env);assert.match(result,/deferred/);const state=JSON.parse(f.state);assert.equal(state.delay_min,3);});

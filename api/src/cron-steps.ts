@@ -68,11 +68,12 @@ export const STEPS: Record<string, Step> = {
       const waiting = await e.DB.prepare(
         `SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'ig_reply_escalated:%' AND json_extract(value,'$.status')='retry' AND updated_at > ?1`
       ).bind(Date.now() - 2 * 3_600_000).first<{ n: number }>().catch((err) => { throw new Error(ugcStepError('waiting replies', err)); });
-      const waitingOnUs = Number(waiting?.n ?? 0);
+      const deferred = 'deferred' in answered ? Number(answered.deferred) : 0;
+      const waitingOnUs = Math.max(Number(waiting?.n ?? 0), deferred);
       // Put the diagnostic first: the run journal keeps only the first 1000 characters.
       return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
         activity: read.activity || answered.replied > 0 || waitingOnUs > 0,
-        stored: read.stored, incoming: read.incoming, replied: answered.replied, escalated: answered.escalated, errors: answered.errors, waitingOnUs };
+        stored: read.stored, incoming: read.incoming, replied: answered.replied, escalated: answered.escalated, errors: answered.errors, waitingOnUs, deferred };
     }, Date.now(), igDmHasNew);
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.

@@ -45,3 +45,5 @@ Actual container image3103c7b1… reached rollout `completed`, healthy1, before 
 Native cloud Luna returned structured JSON successfully in8.8s. Full source-pinned context preparation completed in40.8s using4Luna requests, loading6whole skills,19entries and2references. Source revisions: organizacia `b12eb21cf2bbc30fac17f135f79c2c4427ec8107`; skills `c444313ca328cd78a1990b14814d240c882c1eaa`.
 
 The real order fixture then used Luna12s → Terra9s. Both recognized the programme product and429RUB; the missing seller remained unknown, with overall check unknown. No personal fields are included in this report. These smoke requests did not send any creator message or initiate a payment.
+
+The existing scheduled path awaits the ERP service response and renews its lane lease. Because Cloudflare Cron has a15-minute wall limit, the reply batch stops admitting new conversations after7minutes, preserving an8-minute reserve. Deferred items remain unhandled, are counted as waiting work, and resume on the3-minute adaptive tick. This is a batch admission bound, not a claim that any arbitrary single inference can never time out.

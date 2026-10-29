@@ -1,4 +1,3 @@
-import { subscriptionInfer } from '../lib/diana-subscription.mjs';
 // =============================================================================
 // POST /internal/cron/:worker — an erp-* timer worker starts its one ERP job.
 //
@@ -66,6 +65,7 @@ route.post('/:worker', async (c) => {
     try {
       const { incomingScreenshots } = await import('../lib/ig-dm-attachments');
       const { prepareDianaContext } = await import('../lib/diana-context.mjs');
+      const { subscriptionInfer } = await import('../lib/diana-subscription.mjs');
       const { checkSubscriptionImages } = await import('../lib/diana-subscription-vision.mjs');
       const screenshots = await incomingScreenshots(c.env,messages,messages[0]!.created_at);
       if (!screenshots.images.length) return c.json({ok:false,error:'attachment_download_failed',unreadable:screenshots.unreadable},503);
@@ -87,6 +87,7 @@ route.post('/:worker', async (c) => {
   if (worker === 'diana-context-check') {
     try {
       const { prepareDianaContext } = await import('../lib/diana-context.mjs');
+      const { subscriptionInfer } = await import('../lib/diana-subscription.mjs');
       const result = await prepareDianaContext({ task: 'Readiness check only: an Instagram creator asks how the current TERMO barter programme works. Load Diana and the relevant skills. No real creator, no reply, no payment.',
         githubToken: (c.env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '', infer: subscriptionInfer(c.env,'context') });
       const { checkSubscriptionImages } = await import('../lib/diana-subscription-vision.mjs');

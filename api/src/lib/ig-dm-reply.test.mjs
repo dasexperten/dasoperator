@@ -12,11 +12,11 @@ const dir = mkdtempSync(join(tmpdir(), 'ugc-reply-'));
 const outfile = join(dir, 'reply.mjs');
 await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', outfile,
   plugins: [{ name: 'no-external-effects', setup(b) {
-    b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments|diana-context\.mjs|diana-image-check\.mjs)$/}, a => ({path:a.path, namespace:'mock'}));
+    b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments|diana-context\.mjs|diana-subscription-vision\.mjs)$/}, a => ({path:a.path, namespace:'mock'}));
     b.onLoad({filter:/.*/,namespace:'mock'}, a => ({contents: a.path==='./llm'
-      ? 'export const callFlash=async(messages)=>{globalThis.__ugcTest.voiceCalls=(globalThis.__ugcTest.voiceCalls??0)+1;if(globalThis.__ugcTest.voiceError)throw Error("voice");return {text:globalThis.__ugcTest.voiceVerdicts?.length?globalThis.__ugcTest.voiceVerdicts.shift():\'{"ok":true,"why":""}\'}}; export const callPro=(messages)=>globalThis.__ugcTest.generate(messages); export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
+      ? 'export const callFlash=async(messages)=>{globalThis.__ugcTest.voiceCalls=(globalThis.__ugcTest.voiceCalls??0)+1;if(globalThis.__ugcTest.voiceError)throw Error("voice");return {text:globalThis.__ugcTest.voiceVerdicts?.length?globalThis.__ugcTest.voiceVerdicts.shift():\'{"ok":true,"why":""}\'}}; export const callPro=(messages)=>{globalThis.__ugcTest.replyMessages=messages;return globalThis.__ugcTest.generate(messages)}; export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
       : a.path==='./diana-context.mjs' ? 'export const prepareDianaContext=async()=>{if(globalThis.__ugcTest.contextError)throw Error("context");globalThis.__ugcTest.contextReady=true;return {system:"Full Diana JEV context",imagePolicy:{},receipt:{method:"jev"}}};'
-      : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
+      : a.path==='./diana-subscription-vision.mjs' ? 'export const checkSubscriptionImages=async(args)=>{globalThis.__ugcTest.subscriptionImages=args.images;return (async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}})();};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
       : 'export const IG_UNSUPPORTED="unsupported"; export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
@@ -297,9 +297,9 @@ test('creator registration failure stays pending without any acknowledgement',as
  const f=fixture();f.newCreator=true;f.failBatch=true;await igDmReply(f.env);assert.equal(incident(f).reason,'creator_registration_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);
 });
 
-test('screenshots are passed as images to vision, not just attachment text',async()=>{
+test('screenshots go to subscription vision; reply generation receives no image bytes',async()=>{
  const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture',label:'Скриншот 1'}];
- await igDmReply(f.env);assert.equal(f.visionCalled,true);assert.equal(f.sent.length,1);
+ await igDmReply(f.env);assert.deepEqual(f.subscriptionImages,f.screenshots);assert.ok(f.replyMessages.every(m=>!m.images));assert.equal(f.visionCalled,undefined);assert.equal(f.sent.length,1);
 });
 test('an unavailable screenshot stays open and sends no blind acknowledgement',async()=>{
  const f=fixture();f.imageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'current_image_unavailable');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);
@@ -597,3 +597,5 @@ test('scenario review recovery does not reopen a manual decision or an ambiguous
  assert.equal(ambiguous.sent.length,2);assert.equal(ambiguous.states.get(key),intent);
  assert.equal(ambiguous.creator.lifecycle_stage,'ordered');assert.equal(incident(ambiguous).status,'needs_review');
 });
+
+test('subscription image transport outage stays pending without a blind reply',async()=>{const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture',label:'current'}];f.jevImageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'diana_subscription_vision_pending');assert.equal(incident(f).status,'retry');assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);});

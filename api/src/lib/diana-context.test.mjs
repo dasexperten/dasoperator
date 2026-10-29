@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareDianaContext, selectWithJev } from './diana-context.mjs';
+import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaImages, summarizeImageChecks } from './diana-image-check.mjs';
 import { normalizeJevImage } from './diana-image-normalize.mjs';
 import { encode as encodePng } from 'fast-png';
@@ -25,23 +25,22 @@ function fixture() {
     }
     throw Error('Unexpected request');
   };
-  return { requests, fetchImpl, options: { task: 'current task', githubToken: 'test', jevKey: 'test', fetchImpl },
+  return { requests, fetchImpl, options: { task: 'current task', githubToken: 'test', infer: async messages => { if(rejectJev) throw Error('subscription unavailable'); const {candidates}=JSON.parse(messages[1].content); return {text:JSON.stringify({scores:candidates.map(c=>({id:c.id,score:.8}))})}; }, fetchImpl },
     failSkill: () => { rejectSkill = true; }, failJev: () => { rejectJev = true; } };
 }
-test('Diana gets JEV-selected full skills and knowledge pinned to source commits', async () => {
+test('Diana gets subscription-selected full skills and knowledge pinned to source commits', async () => {
   const f = fixture();
   const result = await prepareDianaContext(f.options);
-  assert.equal(result.receipt.method, 'jev');
+  assert.equal(result.receipt.method, 'subscription');
   assert.deepEqual(result.receipt.skills, names);
   assert.equal(result.system.match(/END OF SKILL/g).length, 5);
   assert.equal(result.system.match(/Complete original entry/g).length, 6);
   assert.ok(f.requests.filter(r => r.url.includes('/contents/')).every(r => r.url.endsWith('?ref=' + 'a'.repeat(40))));
 });
-test('JEV, credentials or skill failure blocks preparation; no lexical or embedded fallback', async () => {
-  const a = fixture(); a.failJev(); await assert.rejects(prepareDianaContext(a.options), /JEV HTTP/);
+test('Subscription, credentials or skill failure blocks preparation; no lexical or embedded fallback', async () => {
+  const a = fixture(); a.failJev(); await assert.rejects(prepareDianaContext(a.options), /subscription unavailable/);
   const b = fixture(); b.failSkill(); await assert.rejects(prepareDianaContext(b.options), /GitHub 503/);
   await assert.rejects(prepareDianaContext({ ...fixture().options, githubToken: '' }), /credentials/);
-  await assert.rejects(selectWithJev('task', [{ key: 'a' }], { apiKey: 'test', fetchImpl: async () => Response.json({ answers: {} }) }), /invalid JEV/);
 });
 test('the image request actually sends bytes to JEV; seller unknown on a basket is fine (Owner 2026-10-18)', async () => {
   let request;

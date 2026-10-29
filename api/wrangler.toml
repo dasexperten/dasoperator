@@ -321,3 +321,9 @@ service = "erp-ozon-sales"
 [[services]]
 binding = "VN_EINVOICE"
 service = "erp-vn-einvoice"
+
+# Owner2026-10-29: native subscription inference, no OpenRouter fallback.
+[[services]]
+binding = "DIANA_SUBSCRIPTION"
+service = "diana-subscription-runner"
+entrypoint = "InferenceService"

@@ -1,3 +1,4 @@
+import { subscriptionInfer } from './diana-subscription.mjs';
 // Owner 2026-10-18: «Мне не нужны никакие автоматические сообщения ни к какому из блогеров.
 // ERP только проверяет, читает, анализирует… любой текст, любой месседж пишет Диана своим голосом.»
 // The ERP hands Diana a brief (facts and intent, never the words); Diana writes the message from
@@ -20,7 +21,7 @@ export async function dianaCompose(env: Env, handle: string, brief: string): Pro
   const task = `Блогер: @${handle}\n\nПереписка (последние сообщения):\n${lines || '(нет)'}\n\nПОРУЧЕНИЕ ERP (это факты и смысл, а не готовый текст — пиши своими словами, голосом Дианы):\n${brief}`;
   const prepared = await prepareDianaContext({ task,
     githubToken: (env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '',
-    jevKey: env.OPENROUTER_ERP ?? '' });
+    infer: subscriptionInfer(env, 'context') });
   // Owner 2026-10-18: «через JEV подгружает под каждую задачу нужную информацию». No JEV picks — no message.
   const receipt = (prepared as { receipt?: { entries?: unknown[]; skills?: unknown[]; method?: string } }).receipt ?? {};
   if (!Array.isArray(receipt.entries) || !receipt.entries.length) return null;

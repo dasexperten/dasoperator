@@ -23,3 +23,5 @@ test('three refusals by the check for the same reason go to /ugc with the draft 
   const other = nextReplyFailure(nextReplyFailure(null, { at, handle: 'h', reason: 'off voice', now }), { at, handle: 'h', reason: 'refusal tone', now });
   assert.equal(other.status, 'retry');
 });
+
+test('subscription vision outage stays technical after repeated retries',()=>{const now=Date.parse('2026-10-29T12:00:00Z');let s=null;for(let i=0;i<5;i++)s=nextReplyFailure(s,{at:new Date(now-60000).toISOString(),handle:'h',reason:'diana_subscription_vision_pending',now});assert.equal(s.status,'retry');assert.equal(s.kind,'technical');});

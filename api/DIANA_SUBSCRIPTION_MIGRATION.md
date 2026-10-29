@@ -1,35 +1,47 @@
-# Diana subscription migration — preparation, not activation
+# Diana native subscription inference
 
-Owner requested subscription inference for context selection and image checking.
-Production is unchanged until a native subscription service passes Cloudflare smoke tests.
-Do not treat the existing raw Anthropic OAuth Messages bridge as a native CLI service.
+Owner decision2026-10-29: image checks use `gpt-6-luna`, then `gpt-6.1-terra` on transport/schema failure or unresolved required facts. No invented confidence threshold. Context selection uses native Luna with structured scores for every candidate. Neither operation has an OpenRouter fallback.
 
-Prepared modules (not imported by production):
-- `diana-subscription-selection.mjs`: scores every candidate in batches of128; validates complete, unique IDs and numeric0..1 scores; never truncates input; no provider fallback.
-- `diana-subscription-transport.mjs`: service binding contract, forwards complete messages/images, checks matching operation/request/model receipt; never calls OpenRouter.
+## Runtime
 
-The receipt is a contract with the trusted service, not cryptographic proof of billing.
-The native runner must enforce subscription authentication and exclude API-key and gateway fallback itself.
+`api/subscription-runner` runs unmodified Codex CLI0.165.0 in a Cloudflare Container, using a separately authorized ChatGPT login. One Durable Object serializes all requests and native credential refresh. Auth is encrypted using AES-256-GCM in durable storage; decrypted auth reaches only the private container and is removed from caller responses. API keys, shell, apps, plugins and web search are disabled for extraction. Native request files are deleted after each run. Matching request IDs reuse successful results; mismatched bodies reject. Timeout escalates SIGTERM to SIGKILL, leaving caller work pending.
 
-## Verified2026-10-29
+The main API uses the named `InferenceService` binding. Public bootstrap/smoke endpoints require ADMIN_KEY; missing keys deny. ADMIN_KEY, AUTH_KEY and scoped CI deployment credentials are recorded and read back in both private vaults. Native rotating credentials are exclusive to the encrypted singleton store.
 
-Native Claude Code2.1.312 reports first-party claude.ai Max authentication. A restricted tools-disabled, no-session-persistence vision invocation with alias `sonnet` used `claude-sonnet-5-5`.
-One real Ozon order screenshot correctly yielded TERMO39°,429 RUB, paid, assembling/delivery tomorrow; separated the other142 RUB item, returned unknown seller, and did not infer company reimbursement.
-This is one image/order type, not a comparison against Terra or Luna and not a production cloud smoke.
-CLI list-price equivalent usage metadata must not be represented as an actual separate subscription charge.
+Model receipts identify the explicit native CLI model argument; the JSONL protocol does not independently return a server model ID. Local and Linux native probes confirmed both requested model access and Luna inference. This is not a claim about token billing per call.
 
-Cloudflare Containers applications API returned200 with an officially provisioned short-lived Containers Read token; applications list was empty. Token immediately revoked successfully. Earlier403 responses from deployment tokens indicated missing scope, not absence of Containers support.
+## Evidence semantics
 
-## Remaining before activation
+- Brand or logo never establishes the marketplace seller. Unknown explicit seller stays unknown.
+- Ozon basket seller exemption remains unchanged.
+- Definite product/seller mismatch and an understood unrelated image do not trigger Terra.
+- Missing required fields, invalid output, unknown kind and service failures trigger Terra; reasons are recorded.
+- Both service calls failing means retryable infrastructure pending, not “photo unreadable”.
+- Remaining uncertainty stays unknown. Earlier images cannot supply missing facts for the latest image.
+- Source-labelled internal extraction retains programme product, price, currency, marketplace payment/delivery wording and exact visible text/requisites for text generation. These sensitive fields must not be printed in reports or diagnostic logs. A marketplace payment badge never proves our reimbursement.
+- Reply generation receives the extracted evidence, not image bytes. Existing order milestones, Owner payout approval, delivery windows and card policies remain unchanged.
 
-1. Official `claude setup-token` provisioning for native headless use; do not transplant cached login credentials or imitate Claude Code HTTP headers.
-2. Deploy native CLI runner in Cloudflare Sandbox/Containers, secure service binding, bounded lifecycle, isolated requests, image input and structured output, no API billing fallback.
-3. Verify native subscription auth and model in Cloudflare with read-only fixtures, preserve image receipt semantics, source SHAs and every selection candidate.
-4. Integrate both ERP paths, update tests, publish verified main, deploy identical main, read-only production smoke. No creator messages.
+Source commit SHAs and whole selected skill/entry bodies remain in context receipts. Candidate descriptions are no longer cut to400characters.
+
+## Validation and rollout
+
+Unit tests cover all-candidate completeness, schema rejection, fallback semantics, brand versus seller, latest-image evidence, unchanged image bytes, private subscription receipts, native auth refresh and ignored SIGTERM cleanup. Integration tests cover pending outages and exclusion of image bytes from reply generation.
+
+Native Mac probe on one real order screenshot: Luna got prices429/142 and paid/assembly right, but missed kind and inferred brand as seller. Terra on the same image correctly returned order and seller unknown. One example is not a comparative benchmark.
+
+Rollout is staged: deploy and smoke-test the runner, then activate the API binding and audited context/image paths from verified main. No creator messages are sent by smoke tests.
 
 References:
-- https://code.claude.com/docs/en/authentication
-- https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan
-- https://developers.cloudflare.com/sandbox/coding-agents/claude-code/
+- https://learn.chatgpt.com/docs/auth
+- https://learn.chatgpt.com/docs/auth/ci-cd-auth
+- https://developers.cloudflare.com/containers/get-started/
+- https://developers.openai.com/api/docs/models/gpt-6-luna
+- https://developers.openai.com/api/docs/models/gpt-6.1-terra
 
-The Cloudflare guide's AI Gateway authentication is separately billed API access; it supplies container lifecycle guidance only, not subscription authorization.
+### Verified cloud smoke2026-10-29
+
+Actual container image3103c7b1… reached rollout `completed`, healthy1, before verification. A previous Worker-success result had preceded image readiness and produced503; the deployment workflow now waits for image rollout completion.
+
+Native cloud Luna returned structured JSON successfully in8.8s. Full source-pinned context preparation completed in40.8s using4Luna requests, loading6whole skills,19entries and2references. Source revisions: organizacia `b12eb21cf2bbc30fac17f135f79c2c4427ec8107`; skills `c444313ca328cd78a1990b14814d240c882c1eaa`.
+
+The real order fixture then used Luna12s → Terra9s. Both recognized the programme product and429RUB; the missing seller remained unknown, with overall check unknown. No personal fields are included in this report. These smoke requests did not send any creator message or initiate a payment.

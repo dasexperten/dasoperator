@@ -1,0 +1,1 @@
+{"name":"diana-subscription-runner","private":true,"type":"module","scripts":{"test":"node --test *.test.mjs"},"dependencies":{"@cloudflare/containers":"^0.3.7","wrangler":"^4.155.0"}}

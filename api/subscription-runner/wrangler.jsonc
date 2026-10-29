@@ -1,0 +1,8 @@
+{
+ "name":"diana-subscription-runner", "main":"worker.mjs",
+ "account_id":"081ddb85cb399ad62a70210328d744fc", "compatibility_date":"2026-10-29",
+ "compatibility_flags":["nodejs_compat"], "workers_dev":true,
+ "containers":[{"class_name":"CodexRunner","image":"./Dockerfile","max_instances":1,"instance_type":"basic"}],
+ "durable_objects":{"bindings":[{"name":"RUNNER","class_name":"CodexRunner"}]},
+ "migrations":[{"tag":"v1","new_sqlite_classes":["CodexRunner"]}]
+}

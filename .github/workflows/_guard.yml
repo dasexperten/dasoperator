@@ -83,7 +83,7 @@ jobs:
         run: |
           npm ci --workspace web --ignore-scripts --no-audit --no-fund
           node --test web/lib/money.test.mjs
-          python3 -m unittest discover -s scripts -p 'test_vietinbank_vnd_scale.py'
+          python3 -m unittest discover -s scripts -p 'test_vietinbank_*.py'
 
       - name: Test mail images guard (broken picture removed, never an empty frame)
         run: node --test api/src/lib/mail-images.test.mjs

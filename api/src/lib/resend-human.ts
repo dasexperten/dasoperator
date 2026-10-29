@@ -197,8 +197,9 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   const ccList = stripPersonalGmail(asList(params.cc));
   // Владелец 17.09.2026: «please send support@ correspondence to me as bcc».
   // Всё, что уходит с ящика заботы, получает его Gmail скрытой копией — это
-  // единственное исключение из правила 21.07 о личном Gmail в брендовых письмах.
-  const bccList = fromAddr === OWNER_BCC_FROM
+  // автоматическое исключение. Явно запрошенная скрытая копия Владельцу также
+  // сохраняется по §6.0d; To/CC по-прежнему не раскрывают его адрес.
+  const bccList = fromAddr === OWNER_BCC_FROM || asList(params.bcc).some((a) => extractEmailAddr(a) === OWNER_GMAIL)
     ? [...(stripPersonalGmail(asList(params.bcc)) || []), OWNER_GMAIL]
     : stripPersonalGmail(asList(params.bcc));
 

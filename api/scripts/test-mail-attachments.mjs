@@ -109,5 +109,30 @@ try {
   receipts.get('MailSendRequests/concurrent.json').data=JSON.stringify(old);
   assert.equal((await withMailSendReceipt(receiptEnv,'concurrent',{text:'body'},deliver)).success,false);
   assert.equal(dispatches,2);
+  // Owner BCC must reach both provider and archive, without leaking into To/CC.
+  for (const [sender, requestedBcc, expectedBcc] of [
+    ['partnerships@dasexperten.com', ['Owner <DASEXPERTEN@gmail.com>', 'dasexperten@gmail.com', 'private@example.com'], ['private@example.com', 'dasexperten@gmail.com']],
+    ['asean@dasexperten.com', 'dasexperten@gmail.com', ['dasexperten@gmail.com']],
+    ['support@dasexperten.com', undefined, ['dasexperten@gmail.com']],
+    ['sales@dasexperten.com', undefined, undefined],
+  ]) {
+    providerId = `fixture-bcc-${sender}`;
+    result = await sendHumanResend(env, {...input, from: sender,
+      to: ['customer@example.com', 'Owner <dasexperten@gmail.com>'],
+      cc: ['team@example.com', 'dasexperten@gmail.com'], bcc: requestedBcc});
+    assert.equal(result.success, true); assert.equal(result.archived, true);
+    const sent = posts.at(-1).payload;
+    assert.deepEqual(sent.to, ['customer@example.com']);
+    assert.deepEqual(sent.cc, ['team@example.com']);
+    assert.deepEqual(sent.bcc, expectedBcc);
+    const archived = [...objects.values()].map(bytes => {
+      try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { return null; }
+    }).find(value => value?.messageId === providerId && value?.subject === input.subject);
+    assert(archived, 'Provider receipt must have an archived message');
+    assert.deepEqual(archived.bcc, expectedBcc || []);
+  }
+  const beforeRejected = posts.length;
+  result = await sendHumanResend(env, {...input, to: 'dasexperten@gmail.com'});
+  assert.equal(result.success, false); assert.equal(posts.length, beforeRejected);
   console.log('Mail attachments: exact bytes, empty files, durable pre-send copy, truthful archive status, retry deduplication, BCC/thread headers, protected downloads and size limits passed.');
 } finally { globalThis.fetch=nativeFetch; sqlite.close(); await rm(dir,{recursive:true,force:true}); }

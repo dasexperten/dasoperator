@@ -97,6 +97,9 @@ jobs:
       - name: Install API dependencies for internal route integration tests
         run: npm ci --workspace api --ignore-scripts --no-audit --no-fund
 
+      - name: Test mail delivery, Owner BCC, archive and idempotency
+        run: node api/scripts/test-mail-attachments.mjs
+
       - name: Test durable cron journal and truthful recovery
         run: node --test api/src/routes/cron-runs.test.mjs workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs workers/_shared/run-slot.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs
 

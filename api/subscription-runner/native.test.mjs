@@ -20,3 +20,10 @@ test('images remain bytes, not an external URL fetch',()=>{
  const p=prepareInput([{role:'user',content:[{type:'image_url',image_url:{url:'data:image/png;base64,QUJD'}}]}]);assert.equal(p.images[0].data,'QUJD');
  assert.throws(()=>prepareInput([{role:'user',content:[{type:'image_url',image_url:{url:'https://example.com/image'}}]}]),/inline_image/);
 });
+test('an ignored SIGTERM escalates to SIGKILL and releases the native request',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ let ready;const started=new Promise(r=>{ready=r});const signals=[];
+ const spawnImpl=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdin=new PassThrough();child.kill=signal=>{signals.push(signal);if(signal==='SIGKILL')child.emit('close',null);};ready();return child;};
+ const pending=nativeInfer({model:'gpt-6-luna',operation:'context',requestId:'timeout',messages:[]},{auth,spawnImpl});
+ await started;t.mock.timers.tick(180000);assert.deepEqual(signals,['SIGTERM']);t.mock.timers.tick(5000);assert.deepEqual(signals,['SIGTERM','SIGKILL']);assert.equal((await pending).error,'native_inference_failed');t.mock.timers.reset();
+});

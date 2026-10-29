@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { useEffect, useState, useCallback } from 'react';
+import { formatMinor } from '@/lib/money';
 import {
   AlertCircle, ArrowRight, Check, ChevronLeft, Loader2, Plus, Search,
   Sparkles, X,
@@ -35,7 +36,7 @@ const API_BASE =
 export interface AssignWizardItem {
   id: string;
   direction: 'incoming' | 'outgoing';
-  amount: number; // minor units (kopeks)
+  amount: number; // minor units; VND/JPY/KRW are whole units
   currency: string;
   executed_at: number;
   contragent_name: string;
@@ -86,14 +87,6 @@ const PARTNER_KIND_OPTIONS = [
 ];
 
 // ----- formatters -----
-
-function formatMoney(minor: number, currency: string): string {
-  const major = minor / 100;
-  return `${major.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`;
-}
 
 function formatMoneyMajor(major: number, currency: string): string {
   return `${major.toLocaleString('en-US', {
@@ -307,7 +300,7 @@ export default function AssignWizard({
   const topSuggestion = autoMatch && autoMatch.length > 0 ? autoMatch[0] : null;
 
   const amountSign = item.direction === 'incoming' ? '+' : '-';
-  const txSummary = `${amountSign}${formatMoney(item.amount, item.currency)} · ${formatDate(item.executed_at)}${item.contragent_inn ? ` · ИНН ${item.contragent_inn}` : ''}`;
+  const txSummary = `${amountSign}${formatMinor(item.amount, item.currency)} · ${formatDate(item.executed_at)}${item.contragent_inn ? ` · ИНН ${item.contragent_inn}` : ''}`;
 
   // ----- render -----
 

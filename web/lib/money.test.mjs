@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,6 +36,10 @@ test('the real assignment component renders the same VND scale as the finance li
   const dir = mkdtempSync(join(tmpdir(), 'vnd-assignment-'));
   const outfile = join(dir, 'render.mjs');
   try {
+    // Next preserves JSX for its compiler; this standalone Node render must lower it.
+    const tsconfig = join(dir, 'tsconfig.json');
+    writeFileSync(tsconfig, JSON.stringify({ compilerOptions: { jsx: 'react-jsx',
+      baseUrl: fileURLToPath(new URL('..', import.meta.url)), paths: { '@/*': ['./*'] } } }));
     await build({
       stdin: {
         contents: `import React from 'react';
@@ -45,7 +49,7 @@ test('the real assignment component renders the same VND scale as the finance li
         resolveDir: fileURLToPath(new URL('.', import.meta.url)),
       },
       bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', outfile,
-      tsconfig: fileURLToPath(new URL('../tsconfig.json', import.meta.url)),
+      tsconfig,
       banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(${JSON.stringify(new URL('../../workers/package.json', import.meta.url).href)});` },
     });
     const { render } = await import(pathToFileURL(outfile));

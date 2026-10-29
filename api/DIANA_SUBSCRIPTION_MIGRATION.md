@@ -47,3 +47,7 @@ Native cloud Luna returned structured JSON successfully in8.8s. Full source-pinn
 The real order fixture then used Luna12s → Terra9s. Both recognized the programme product and429RUB; the missing seller remained unknown, with overall check unknown. No personal fields are included in this report. These smoke requests did not send any creator message or initiate a payment.
 
 The existing scheduled path awaits the ERP service response and renews its lane lease. Because Cloudflare Cron has a15-minute wall limit, the reply batch stops admitting new conversations after7minutes, preserving an8-minute reserve. Deferred items remain unhandled, are counted as waiting work, and resume on the3-minute adaptive tick. This is a batch admission bound, not a claim that any arbitrary single inference can never time out.
+
+### Production integration verified
+
+API main `6077f6779927e03c00f951db332b4b17e990ede2` deployed through successful CI40932434261. The protected read-only ERP `diana-context-check` returned HTTP200, ok=true in58.99s: subscription context loaded5whole skills,14entries and3references; org revision `58e17c51a000cea867f08933d390fed1a20295f5`, skills revision `c444313ca328cd78a1990b14814d240c882c1eaa`. Its image fixture was correctly classified as other by native subscription Luna, with no unnecessary Terra escalation. This verifies the production service binding, not just an isolated runner. No creator message or payment was initiated. GitHub Contents API verified25changed files byte-for-byte at the deployed source revision.

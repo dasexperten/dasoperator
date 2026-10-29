@@ -26,6 +26,7 @@ import {
   type ProductListItem,
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
+import { operationTotals, operationSettlement } from '@/lib/operation-finance';
 import Breadcrumb from '@/components/layout/breadcrumb';
 import DocumentActionBar from '@/components/operations/document-action-bar';
 import VietnamInvoicePanel from '@/components/operations/vietnam-invoice-panel';
@@ -245,32 +246,12 @@ export default function OperationDetailClient({
   // We surface a simple Subtotal / Discount / Total trio when VAT = 0,
   // and add intermediate Net / VAT rows when VAT > 0.
   // ---------------------------------------------------------------------------
-  const subtotal = lineItems.reduce((sum, li) => sum + li.qty * li.unit_price, 0);
-  const totalAfterDiscount = lineItems.reduce((sum, li) => sum + li.line_amount, 0);
-  const discount = subtotal - totalAfterDiscount;
-  const discountPct = subtotal > 0 ? Math.round((discount / subtotal) * 1000) / 10 : 0;
   const managedVietnamInvoice = Boolean(operation.vn_einvoice_document_id);
-  // Linked fiscal records carry the provider total, including per-line VND rounding.
-  const vatAmount = managedVietnamInvoice
-    ? operation.total_amount - totalAfterDiscount
-    : Math.round(totalAfterDiscount * operation.vat_rate) / 100;
-  // grandTotal: compute from line_items when present, else fall back to
-  // operation.total_amount. Service/vendor-invoice operations created from
-  // invoice_inbox have no line_items but carry a total_amount from the
-  // extracted invoice header (e.g. accounting subscriptions, rent, hosting).
-  // Without this fallback, header amount renders as 0.00 for those rows.
-  const computedTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
-  const grandTotal = managedVietnamInvoice ? operation.total_amount : lineItems.length === 0 && (operation as { total_amount?: number | null }).total_amount
-    ? Number((operation as { total_amount?: number | null }).total_amount)
-    : computedTotal;
-  const showVat = operation.vat_rate > 0;
-
-  // Payments aggregation — incoming reduces outstanding, outgoing increases it.
-  const paidAmount = payments.reduce(
-    (sum, p) => sum + (p.direction === 'incoming' ? p.amount : -p.amount),
-    0
+  const { subtotal, totalAfterDiscount, discount, discountPct, vatAmount, grandTotal,
+    showVat, showVatSummary, vatSummaryLabel } = operationTotals(operation, lineItems);
+  const { paidAmount, outstanding } = operationSettlement(
+    operation, payments, grandTotal, partner?.partner_type,
   );
-  const outstanding = Math.round((grandTotal - paidAmount) * 100) / 100;
 
   // Counterparty display: partner if operation has partner_id, else manufacturer
   // (purchase from factory). One of these is always present from the API JOIN.
@@ -284,6 +265,7 @@ export default function OperationDetailClient({
   const counterpartyHref = operation.partner_id
     ? `/partners/${operation.partner_id}`
     : null;
+
 
   return (
     <div className="space-y-6">
@@ -506,8 +488,8 @@ export default function OperationDetailClient({
             {operation.currency}
           </p>
         </div>
-        <div>
-          <p style={{ fontSize: '14px' }}>VAT</p>
+        {showVatSummary && <div>
+          <p style={{ fontSize: '14px' }}>{vatSummaryLabel}</p>
           <p
             className="mt-1"
             style={{
@@ -517,7 +499,7 @@ export default function OperationDetailClient({
           >
             {showVat ? `${operation.vat_rate}%` : 'None'}
           </p>
-        </div>
+        </div>}
       </div>
 
       {/* TABS ======================================================= */}

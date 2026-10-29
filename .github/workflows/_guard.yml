@@ -82,7 +82,7 @@ jobs:
       - name: Test VND bank amounts and evidence-bound scale repair
         run: |
           npm ci --workspace web --ignore-scripts --no-audit --no-fund
-          node --test web/lib/money.test.mjs
+          node --test web/lib/money.test.mjs web/lib/operation-finance.test.mjs
           python3 -m unittest discover -s scripts -p 'test_vietinbank_*.py'
 
       - name: Test mail images guard (broken picture removed, never an empty frame)

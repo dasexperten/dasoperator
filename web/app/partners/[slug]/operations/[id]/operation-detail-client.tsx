@@ -31,6 +31,7 @@ const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; lab
   neutral: { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', dot: 'var(--fg-muted)', label: '' },
 };
 import { formatMoney } from '@/lib/money';
+import { operationTotals, operationSettlement } from '@/lib/operation-finance';
 import Breadcrumb from '@/components/layout/breadcrumb';
 import DocumentActionBar from '@/components/operations/document-action-bar';
 
@@ -606,20 +607,11 @@ export default function OperationDetailClient({
   // We surface a simple Subtotal / Discount / Total trio when VAT = 0,
   // and add intermediate Net / VAT rows when VAT > 0.
   // ---------------------------------------------------------------------------
-  const subtotal = lineItems.reduce((sum, li) => sum + li.qty * li.unit_price, 0);
-  const totalAfterDiscount = lineItems.reduce((sum, li) => sum + li.line_amount, 0);
-  const discount = subtotal - totalAfterDiscount;
-  const discountPct = subtotal > 0 ? Math.round((discount / subtotal) * 1000) / 10 : 0;
-  const vatAmount = Math.round(totalAfterDiscount * operation.vat_rate) / 100;
-  const grandTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
-  const showVat = operation.vat_rate > 0;
-
-  // Payments aggregation — incoming reduces outstanding, outgoing increases it.
-  const paidAmount = payments.reduce(
-    (sum, p) => sum + (p.direction === 'incoming' ? p.amount : -p.amount),
-    0
+  const { subtotal, totalAfterDiscount, discount, discountPct, vatAmount, grandTotal,
+    showVat, showVatSummary, vatSummaryLabel } = operationTotals(operation, lineItems);
+  const { paidAmount, outstanding } = operationSettlement(
+    operation, payments, grandTotal, partner?.partner_type,
   );
-  const outstanding = Math.round((grandTotal - paidAmount) * 100) / 100;
 
   return (
     <div className="space-y-6">
@@ -931,8 +923,8 @@ export default function OperationDetailClient({
               : '—'}
           </p>
         </div>
-        <div>
-          <p style={{ fontSize: '14px' }}>VAT</p>
+        {showVatSummary && <div>
+          <p style={{ fontSize: '14px' }}>{vatSummaryLabel}</p>
           <p
             className="mt-1"
             style={{
@@ -942,7 +934,7 @@ export default function OperationDetailClient({
           >
             {showVat ? `${operation.vat_rate}%` : 'None'}
           </p>
-        </div>
+        </div>}
       </div>
 
       {/* BANKING ROUTE ============================================== */}

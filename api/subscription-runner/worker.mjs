@@ -21,7 +21,7 @@ export class CodexRunner extends Container {
   // Persist native refresh before returning. Never expose the credential to callers.
   if(result.auth)await this.ctx.storage.put('auth',await seal(result.auth,this.env.AUTH_KEY));
   delete result.auth;
-  if(result.error)return Response.json({error:result.error},{status:503});
+  if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
   await this.ctx.storage.put(cacheKey,{fingerprint,result,at:Date.now()});
   const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
   return Response.json(result);

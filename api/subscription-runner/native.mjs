@@ -34,17 +34,17 @@ export async function nativeInfer(body,{auth,spawnImpl=spawn}={}) {
   args.push('--','-');
   const result=await new Promise((resolve,reject)=>{
    const child=spawnImpl('codex',args,{env:{PATH:process.env.PATH,SSL_CERT_FILE:process.env.SSL_CERT_FILE,HOME:dir,CODEX_HOME:home},stdio:['pipe','pipe','pipe']});
-   let stdout='',oversize=false,killTimer;const terminate=()=>{child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),5000);};const timer=setTimeout(terminate,180000);
+   let stdout='',stderr='',oversize=false,killTimer;const diagnose=()=>{const s=stderr+'\n'+stdout;return {network:/Connection failed|error sending request|connection reset/i.test(s),tls:/certificate|UnknownIssuer|tls handshake/i.test(s),http_status:(s.match(/(?:status|HTTP|status code)[: ]+(401|403|429|5\d\d)/i)||[])[1]??null,auth:/unauthorized|authentication|token.*expired/i.test(s),model_unavailable:/model.*not.*(?:available|support)|unknown model/i.test(s),sandbox:/sandbox.*(?:fail|error|not.*supported)/i.test(s),error_events:s.includes('turn.failed')};};const fail=message=>reject(Object.assign(Error(message),{diagnostic:diagnose()}));const terminate=()=>{child.kill('SIGTERM');killTimer=setTimeout(()=>child.kill('SIGKILL'),5000);};const timer=setTimeout(terminate,180000);
    child.stdout.on('data',d=>{stdout+=d;if(stdout.length>16000000){oversize=true;terminate();}});
-   child.stderr.resume();child.on('error',error=>{clearTimeout(timer);clearTimeout(killTimer);reject(error);});child.on('close',code=>{clearTimeout(timer);clearTimeout(killTimer);if(code!==0||oversize)return reject(Error('native_inference_failed'));
+   child.stderr.on('data',d=>{stderr=(stderr+d).slice(-16000);});child.on('error',error=>{clearTimeout(timer);clearTimeout(killTimer);reject(error);});child.on('close',code=>{clearTimeout(timer);clearTimeout(killTimer);if(code!==0||oversize)return fail('native_inference_failed');
     const events=stdout.trim().split('\n').map(s=>{try{return JSON.parse(s)}catch{return null}});
-    if(!events.some(e=>e?.type==='turn.completed')||events.some(e=>e?.type==='turn.failed'))return reject(Error('native_turn_incomplete'));
+    if(!events.some(e=>e?.type==='turn.completed')||events.some(e=>e?.type==='turn.failed'))return fail('native_turn_incomplete');
     const text=events.filter(e=>e?.type==='item.completed'&&e.item?.type==='agent_message').at(-1)?.item?.text;
-    if(!text)return reject(Error('native_answer_missing'));resolve({text});
+    if(!text)return fail('native_answer_missing');resolve({text});
    });child.stdin.end(prompt);
   });
   refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));
   return {...result,auth:refreshed,receipt:{transport:'codex-native',auth:'subscription',model:body.model,model_source:'explicit_native_cli_argument',requestId:body.requestId,operation:body.operation}};
- }catch(error){try{refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));}catch{}return {error:error.message,auth:refreshed};}
+ }catch(error){try{refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));}catch{}return {error:error.message,diagnostic:error.diagnostic,auth:refreshed};}
  finally{await rm(dir,{recursive:true,force:true});}
 }

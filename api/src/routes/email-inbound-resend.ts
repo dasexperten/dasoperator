@@ -109,7 +109,8 @@ function pickOurMailbox(to: unknown): string {
     const raw = String(entry);
     const m = /<([^>]+)>/.exec(raw);
     const addr = (m?.[1] ?? raw).trim().toLowerCase();
-    if (addr.endsWith('@dasexperten.ru')) return addr;
+    // Владелец 31.10.2026: ящик Евы Грековой на домене отеля принимается так же.
+    if (addr.endsWith('@dasexperten.ru') || addr.endsWith('@olympia-yerevan.com')) return addr;
   }
   const first = list[0] ? String(list[0]) : '';
   const m = /<([^>]+)>/.exec(first);

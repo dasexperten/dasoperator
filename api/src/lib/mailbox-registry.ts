@@ -60,6 +60,8 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   // kept sending (see HUMAN_SENDERS in resend-human.ts - that set reads
   // m.address only, never aliases, so a demoted address loses From rights
   // unless it is listed explicitly).
+  // Owner 2026-10-31: Hotel Olympia seat. Received through Resend, like dasexperten.ru.
+  { address: 'yeva@olympia-yerevan.com', kind: 'agent', slug: 'yeva-grekova', label: 'Yeva Grekova', role: 'Hotel Olympia Marketing', showInUi: true, inbound: 'worker' },
   { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker', aliases: ['mina@dasexperten.com', 'admin@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', showInUi: true, inbound: 'worker', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', showInUi: true, inbound: 'worker', aliases: ['tech@dasexperten.com'] },

@@ -36,6 +36,7 @@ export const AGENT_MAILBOXES: UiMailbox[] = [
   { address: 'geo@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', aliases: ['partnerships@dasexperten.com', 'julian@dasexperten.com'] },
   { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', aliases: ['lena@dasexperten.com'] },
   { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', aliases: ['alexandra@dasexperten.com'] },
+  { address: 'yeva@olympia-yerevan.com', kind: 'agent', slug: 'yeva-grekova', label: 'Yeva Grekova', role: 'Hotel Olympia Marketing' },
   { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', aliases: ['mina@dasexperten.com', 'admin@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', aliases: ['tech@dasexperten.com'] },
@@ -120,7 +121,7 @@ function extractEmail(raw?: string): string {
 export function isHouseAddress(raw?: string): boolean {
   const a = extractEmail(raw);
   if (!a || !a.includes('@')) return false;
-  return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com') || a.endsWith('@dasexperten.ru');
+  return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com') || a.endsWith('@dasexperten.ru') || a.endsWith('@olympia-yerevan.com');
 }
 
 /** Agents/departments writing only to each other — hidden in Emailer.

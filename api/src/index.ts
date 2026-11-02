@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
+import { mailArchiveEnv } from './lib/mail-archive-recovery';
 import { errorHandler } from './middleware/error';
 import { requestLogger } from './middleware/logger';
 import { corsMiddleware } from './middleware/cors';
@@ -348,9 +349,9 @@ app.route('/api/knowledge', knowledgeRoutes);  // graph over the organizacia cor
 app.route('/api/ugc', ugcRoutes);
 
 export default {
-  fetch: app.fetch,
-  scheduled: handleScheduled,
-  email: (message, env: Env) => handleInboundEmail(message, env),
+  fetch: (request, env, ctx) => app.fetch(request, mailArchiveEnv(env), ctx),
+  scheduled: (event, env, ctx) => handleScheduled(event, mailArchiveEnv(env), ctx),
+  email: (message, env: Env) => handleInboundEmail(message, mailArchiveEnv(env)),
 } satisfies ExportedHandler<Env>;
 
 // Private service entrypoint: no public proxy URL.

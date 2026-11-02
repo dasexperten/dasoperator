@@ -227,6 +227,7 @@ crons = ["0 0 * * *", "*/15 * * * *", "* * * * *"]
 # Token is RETAIL_CRM_TOKEN, set as Worker secret separately.
 # -----------------------------------------------------------------------------
 [vars]
+MAIL_ARCHIVE_RECOVERY = "old"
 # Owner 2026-10-10: manually reconciled ERP stock wins over unposted F4 outbound.
 INTERNAL_STOCK_WAREHOUSES = "lbr"
 # Staged Workspace ingress; owner copy retained. Main MX stays on Cloudflare.

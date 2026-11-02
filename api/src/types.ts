@@ -17,6 +17,7 @@ export interface Env {
   GOOGLE_WORKSPACE_CLIENT_SECRET?: string;
   GOOGLE_WORKSPACE_ACCOUNTS?: string; // JSON [{email, refreshToken}], never returned to clients
   ARCHIVE: R2Bucket;
+  MAIL_ARCHIVE_RECOVERY?: 'old'; // Explicit incident overlay; keep until controlled reconciliation/cutover
   ARCHIVE_OLD?: R2Bucket;   // das-operator-data — email archive harvest
 
   // R2 Bucket — document storage (Phase 1.3)

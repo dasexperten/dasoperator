@@ -13,8 +13,31 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
 import { sendHumanResend, extractEmailAddr } from '../lib/resend-human';
+import { reconcileMailRecovery } from '../lib/mail-archive-recovery';
 
 const route = new Hono<{ Bindings: Env }>();
+
+// Protected maintenance, never sends mail. Recovery objects are retained:
+// reconciliation is not permission to turn the overlay off while writers run.
+route.post('/archive-recovery/reconcile', async (c) => {
+  if (!c.env.EMAILER_SERVICE_SECRET || c.req.header('X-Emailer-Service-Secret') !== c.env.EMAILER_SERVICE_SECRET) return c.json({ success: false }, 401);
+  const body = await c.req.json<{ cursor?: string }>().catch(() => ({} as { cursor?: string }));
+  return c.json({ success: true, ...await reconcileMailRecovery(c.env, body.cursor) });
+});
+
+route.post('/archive-recovery/probe', async (c) => {
+  if (!c.env.EMAILER_SERVICE_SECRET || c.req.header('X-Emailer-Service-Secret') !== c.env.EMAILER_SERVICE_SECRET) return c.json({ success: false }, 401);
+  const key = `MailOutbox/diagnostic-recovery-${crypto.randomUUID()}.json`;
+  const body = JSON.stringify({ purpose: 'archive recovery probe; no email', text: 'Проверка архива' });
+  const first = await c.env.ARCHIVE.put(key, body, { onlyIf: { etagDoesNotMatch: '*' } });
+  const read = await c.env.ARCHIVE.get(key);
+  if (!first || !read || await read.text() !== body) throw new Error('Recovery probe readback failed');
+  const stale = await c.env.ARCHIVE.put(key, 'must not write', { onlyIf: { etagDoesNotMatch: '*' } });
+  if (stale !== null) throw new Error('Recovery probe conditional claim failed');
+  await c.env.ARCHIVE.delete(key);
+  if (await c.env.ARCHIVE.get(key)) throw new Error('Recovery probe delete failed');
+  return c.json({ success: true, archive: c.env.MAIL_ARCHIVE_RECOVERY === 'old' ? 'recovery' : 'canonical', utf8: true, conditionalClaim: true, deleted: true, key });
+});
 
 function bearer(c: import('hono').Context): string | null {
   const h = c.req.header('Authorization');

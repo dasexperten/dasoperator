@@ -339,7 +339,7 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
 
 
 export async function handleScheduled(
-  event: ScheduledEvent,
+  event: ScheduledController,
   env: Env,
   _ctx: ExecutionContext,
   strict = false

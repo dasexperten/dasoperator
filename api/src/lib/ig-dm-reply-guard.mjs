@@ -15,7 +15,7 @@ export const SCENARIO_RULES = `Текущее решение Владельца 
 
 export const DIANA_RULES_BODY = `Ты — Диана, менеджер блогеров бренда Das Experten (зубные пасты и щётки). Пишешь в Instagram Direct от имени @dasexperten.
 
-Программа (бартер, Владелец 17.10.2026): только паста TERMO 39°, щёток больше не даём. Блогер кладёт в корзину на Ozon одну пасту TERMO, присылает скрин корзины; мы переводим сумму корзины по СБП до заказа; блогер заказывает, снимает честный ролик и оставляет отзыв. Найти пасту: поиск на Ozon «зубная паста с ферментами», оранжевая TERMO. Картинку-инструкцию не обещай и не отправляй сама — её отправляет человек. Сначала предлагай Ozon; если блогер принципиально не хочет Ozon — можно Wildberries, та же паста TERMO. Щётку не предлагать; если блогер спросит про щётку или положил её в корзину — «щётку брать не нужно, только пасту». Исключение (Владелец 17.10.2026): если в данных сказано «старая корзина», блогер собрал корзину со щёткой до новых правил — щётку оставляем, ничего убирать не просим. Лимит — 999 ₽ на блогера.
+Программа (бартер, Владелец 17.10.2026): только паста TERMO 39°, щёток больше не даём. Блогер кладёт в корзину на Ozon одну пасту TERMO, присылает скрин корзины; мы переводим сумму корзины по СБП до заказа; блогер заказывает, снимает честный ролик и оставляет отзыв. Найти пасту: поиск на Ozon по ключевику, по которому TERMO больше всего заказывают (сейчас «энзимная зубная паста»), оранжевая TERMO. Фото пасты (Владелец 02.11.2026): если блогер в своём последнем сообщении просит фото или картинку пасты, спрашивает, как она выглядит или как найти её на Ozon — поставь send_ozon_photo=true, и сервер сразу после твоего текста отправит главное фото нашей карточки Ozon. Текст тогда короткий, без обещаний «сейчас пришлём»: например «Вот она) Наберите на Ozon: энзимная зубная паста.» Без такой просьбы send_ozon_photo=false — картинками не бомбить. Других картинок (инструкцию) не обещай. Сначала предлагай Ozon; если блогер принципиально не хочет Ozon — можно Wildberries, та же паста TERMO. Щётку не предлагать; если блогер спросит про щётку или положил её в корзину — «щётку брать не нужно, только пасту». Исключение (Владелец 17.10.2026): если в данных сказано «старая корзина», блогер собрал корзину со щёткой до новых правил — щётку оставляем, ничего убирать не просим. Лимит — 999 ₽ на блогера.
 
 Ход разговора (скрипт Дианы, Роберты и Дениса, 17.10.2026). Сначала интерес к пасте, потом честное ожидание. Слова о товаре — только эти (гейт Майи 15.10.2026):
 - Интерес: «Это TERMO 39°, паста с ферментами. Многие при чистке чувствуют мягкое тепло вместо привычного мятного холода. Хотите проверить на себе и снять честный ролик?»
@@ -69,7 +69,7 @@ ${SCENARIO_RULES}
 // The answer format is the code's, never the profile's: the guard below parses it.
 // Owner 2026-10-18 (mashaa_ugc: refused at 15:47, paid at 21:21): a clear refusal holds every open payout.
 export const REFUSAL = /(не\s+рассматриваю|передумала|передумал|отказываюсь|откажусь|не\s+буду\s+участвовать|не\s+хочу\s+участвовать|не\s+интересно|не\s+хочу\s+брать)/i;
-export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», «могу выложить», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "send_ozon_photo": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», «могу выложить», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
 const BANKS = [
@@ -115,6 +115,8 @@ export function requisitesSupportedByText(r, text) {
 
 // Owner 2026-10-17: exactly four cards; the mint comparison is replaced.
 const CARD_BASE = 'https://pub-1d1b12958f2d4ea380276bd8d0a1ff02.r2.dev/ugc';
+// Owner 2026-11-02: «если спрашивает как найти — только тогда отправляешь первое фото» — main photo of our Ozon card.
+export const OZON_CARD_PHOTO = 'https://erp.dasexperten.com/ugc/TERMO39_ozon_card_main.jpg';
 export const SCENARIO_CARDS = [
   `${CARD_BASE}/scenario-thermo-261017e/card1.png`,
   `${CARD_BASE}/scenario-thermo-261017e/card2.png`,
@@ -180,6 +182,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   const escalate = parsed.escalate === true;
   const reason = String(parsed.reason ?? '').slice(0, 200);
   const sendCards = parsed.send_cards === true;
+  const sendOzonPhoto = parsed.send_ozon_photo === true;
   const agreed = parsed.agreed === true;
   const refused = parsed.refused === true;
   const requisites = cleanRequisites(parsed.requisites);
@@ -222,7 +225,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — offers unboxing or closed packaging
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-18: «если пишут что заказала, можно поверить» — the word is enough, no screenshot is demanded.
-  return { reply, parts, escalate: false, reason, sendCards, requisites, agreed, refused };
+  return { reply, parts, escalate: false, reason, sendCards, sendOzonPhoto, requisites, agreed, refused };
 }
 
 /** Built-in rules: the fallback when Diana's profile cannot be read from GitHub. */

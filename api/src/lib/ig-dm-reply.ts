@@ -9,7 +9,7 @@ import { callPro, type ChatMessage } from './llm';
 import { incomingScreenshots } from './ig-dm-attachments';
 import { failedSide } from './ugc-payout-execute.mjs';
 const VOICE_VETO = false;
-import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, requisitesSupportedByText, type CleanRequisites, REFUSAL } from './ig-dm-reply-guard.mjs';
+import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, OZON_CARD_PHOTO, guardReply, requisitesSupportedByText, type CleanRequisites, REFUSAL } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkSubscriptionImages } from './diana-subscription-vision.mjs';
 import { checkDianaVoice } from './diana-voice-check';
@@ -667,8 +667,20 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
         completion = { creatorId: creator.id, expectedStage: afterStage.lifecycle_stage, expectedUpdatedAt: afterStage.updated_at };
       }
     }
+    // Owner 2026-11-02: the Ozon card photo goes only when the blogger asked how it looks or how to find it,
+    // and once per blogger («не бомби картинками»).
+    let ozonPhoto: string[] = [];
+    if (!out.sendCards && out.sendOzonPhoto) {
+      const key = `ozon_photo_sent:${w.h.toLowerCase()}`;
+      const seen = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key).first<{ value: string }>().catch(() => null);
+      if (!seen) {
+        ozonPhoto = [OZON_CARD_PHOTO];
+        await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+          .bind(key, new Date().toISOString(), Date.now()).run().catch(() => undefined);
+      }
+    }
     const delivery = await deliverIgReply(env, { conversationId: w.cid, incomingAt: w.t, handle: w.h,
-      parts, cards: out.sendCards ? SCENARIO_CARDS : [], ...(completion ? { completion } : {}), humanAgent: now - at > 23.5 * 3_600_000 }, sendIgDirect);
+      parts, cards: out.sendCards ? SCENARIO_CARDS : ozonPhoto, ...(completion ? { completion } : {}), humanAgent: now - at > 23.5 * 3_600_000 }, sendIgDirect);
     await finishDelivery(delivery);
   }
   return { replied, escalated, errors, deferred };

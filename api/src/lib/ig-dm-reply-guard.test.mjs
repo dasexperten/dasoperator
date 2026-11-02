@@ -187,3 +187,11 @@ test('a health question before buying is answered, a real reaction still goes to
   assert.match(DIANA_RULES, /Блогер назвал аллерген — покупку не подтверждай: reply=null, escalate=true/);
   assert.doesNotMatch(DIANA_RULES, /разные ощущения/);
 });
+
+test('Ozon card photo is sent only when Diana flags a how-to-find request (Owner 2026-11-02)', async () => {
+  const { guardReply, OZON_CARD_PHOTO, DIANA_RULES_BODY } = await import('./ig-dm-reply-guard.mjs');
+  assert.match(OZON_CARD_PHOTO, /^https:\/\/erp\.dasexperten\.com\/ugc\/.+\.jpg$/);
+  assert.equal(guardReply(JSON.stringify({reply:'Вот она) Наберите на Ozon: энзимная зубная паста.',escalate:false,send_ozon_photo:true})).sendOzonPhoto,true);
+  assert.equal(guardReply(JSON.stringify({reply:'Наберите на Ozon: энзимная зубная паста.',escalate:false})).sendOzonPhoto,false);
+  assert.doesNotMatch(DIANA_RULES_BODY, /отправляет человек/);
+});

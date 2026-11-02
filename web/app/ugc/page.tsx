@@ -326,8 +326,8 @@ function CreatorStatus({ creator }: { creator: Creator }) {
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {
   const href = instagramChatHref(creator.profiles);
-  // Owner 2026-10-18: no status (old new/sent) shows as a plain dash, not a word.
-  if (!creator.lifecycle_stage || creator.lifecycle_stage === 'new' || creator.lifecycle_stage === 'sent') return <span className="ugc-stage ugc-stage-none" title="Без статуса">—</span>;
+  // Owner 2026-10-18: no status, or a word outside the list, shows as a plain dash.
+  if (!STAGES.includes(creator.lifecycle_stage)) return <span className="ugc-stage ugc-stage-none" title="Без статуса">—</span>;
   // Chrome translation must not replace the status word: it overflows the badge and freezes the old value.
   return href
     ? <a translate="no" href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>

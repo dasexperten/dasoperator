@@ -8,7 +8,7 @@ import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecen
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
-import { followPayoutStage } from '../lib/ugc-payout-stage.mjs';
+import { followPayoutStage, shownStage } from '../lib/ugc-payout-stage.mjs';
 import { cooldownLeft, fireText, isTarget, queueItems } from '../lib/browser-queue.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
@@ -416,7 +416,7 @@ ugc.get('/', async (c) => {
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,
-      lifecycle_stage: row.lifecycle_stage,
+      lifecycle_stage: shownStage(row.lifecycle_stage, creatorPayouts),
       origin: row.origin ?? null,
       priority: row.priority,
       owner: row.owner,

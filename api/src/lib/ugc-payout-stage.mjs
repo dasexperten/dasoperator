@@ -1,11 +1,26 @@
 // DH-LAW-261018-10 and -12: the creator's status follows her payout, forward only.
 // Every write of a payout status calls this, so no path can leave the status behind.
 // Silent moves on a fresh payout event; the other side statuses are a person's decision.
+// DH-LAW-261018-11: these words are retired and mean "no status". Old rows and the
+// scouting write can still carry them, so every reader treats them as empty.
+const RETIRED = ['new', 'sent', 'found', 'qualified', 'invited'];
 const FROM = {
-  cart: ['', 'new', 'sent', 'replied', 'agreed', 'silent'],
-  paid: ['', 'new', 'sent', 'replied', 'agreed', 'cart', 'failed', 'silent'],
-  failed: ['', 'new', 'sent', 'replied', 'agreed', 'cart', 'silent'],
+  cart: ['', ...RETIRED, 'replied', 'agreed', 'silent'],
+  paid: ['', ...RETIRED, 'replied', 'agreed', 'cart', 'failed', 'silent'],
+  failed: ['', ...RETIRED, 'replied', 'agreed', 'cart', 'silent'],
 };
+
+export function isRetiredStage(stage) {
+  return RETIRED.includes(stage);
+}
+
+/** What a retired status shows: the payout facts decide, nothing is written. */
+export function shownStage(stage, payouts = []) {
+  if (!isRetiredStage(stage)) return stage;
+  if (payouts.some((p) => p.status === 'paid' && p.konsol_payment_id)) return 'paid';
+  if (payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) return 'cart';
+  return payouts.some((p) => p.status === 'failed') ? 'failed' : '';
+}
 
 export function stageForPayoutStatus(status) {
   if (status === 'paid' || status === 'failed') return status;

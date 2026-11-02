@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { followPayoutStage, stageForPayoutStatus } from './ugc-payout-stage.mjs';
+import { followPayoutStage, shownStage, stageForPayoutStatus } from './ugc-payout-stage.mjs';
 
 function fakeDb(stage, { fail = false } = {}) {
   const row = { stage, updated_at: 1 };
@@ -31,6 +31,25 @@ test('the status moves forward from every earlier step and from silent', async (
     await followPayoutStage(db, 'c1', 'paid', 5);
     assert.equal(db.row.stage, 'paid');
   }
+});
+
+test('a retired status moves like no status', async () => {
+  for (const stage of ['found', 'new', 'sent', 'qualified', 'invited']) {
+    const db = fakeDb(stage);
+    await followPayoutStage(db, 'c1', 'paid', 5);
+    assert.equal(db.row.stage, 'paid');
+  }
+});
+
+test('a retired status shows what the payout proves, a live one stays as written', () => {
+  const paid = { status: 'paid', konsol_payment_id: 'k1' };
+  assert.equal(shownStage('found', [paid]), 'paid');
+  assert.equal(shownStage('found', [{ status: 'paid', konsol_payment_id: null }]), '');
+  assert.equal(shownStage('found', [{ status: 'approved' }]), 'cart');
+  assert.equal(shownStage('found', [{ status: 'failed' }]), 'failed');
+  assert.equal(shownStage('found', [{ status: 'failed' }, paid]), 'paid');
+  assert.equal(shownStage('found', []), '');
+  for (const stage of ['', 'replied', 'refused', 'silent', 'gold']) assert.equal(shownStage(stage, [paid]), stage);
 });
 
 test('it never moves back and never overrides a side decision', async () => {

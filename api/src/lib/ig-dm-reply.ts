@@ -20,7 +20,7 @@ import { scenarioEvidence, completeScenario, orderEvidence, saidOrdered, type Sc
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
 import { IG_UNSUPPORTED, lastWordIsBlogger, refreshIgAttachments, sendIgDirect } from './ig-dm-watch';
-import { followPayoutStage } from './ugc-payout-stage.mjs';
+import { followPayoutStage, isRetiredStage } from './ugc-payout-stage.mjs';
 
 import { deliverIgReply, resumeIgDeliveries, acknowledgeIgDelivery, queueIgDeliveryTexts, igDeliveryKey, type IgDeliveryResult } from './ig-dm-delivery';
 
@@ -155,7 +155,7 @@ export function surnameWritten(letter: string, text: string, firstName: string):
 // The ERP moves a creator forward on the main path only, never back and never off a side status.
 const MAIN_PATH = ['', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold'];
 export function nextStage(current: string | null, target: string): string | null {
-  const from = MAIN_PATH.indexOf(current ?? '');
+  const from = MAIN_PATH.indexOf(isRetiredStage(current) ? '' : current ?? '');
   const to = MAIN_PATH.indexOf(target);
   if (to < 0 || (current && from < 0)) return null;
   return to > from ? target : null;
@@ -609,7 +609,7 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       const creationAt = verifiedOrderAt ? Math.max(deliveredScenarioAt, ownIdeaAt > verifiedOrderAt ? ownIdeaAt : 0) : 0;
       const target = out?.refused ? 'refused' : postedAt ? 'posted' : creationAt ? 'creation' : verifiedOrderAt ? 'ordered' : paidAt ? 'paid' : open.length ? 'cart' : out?.agreed ? 'agreed' : null;
       const evidenceAt = target === 'posted' ? postedAt : target === 'creation' ? creationAt : target === 'ordered' ? verifiedOrderAt : target === 'paid' ? paidAt : target === 'cart' ? cartAt : 0;
-      const current = creator.lifecycle_stage ?? '';
+      const current = isRetiredStage(creator.lifecycle_stage) ? '' : creator.lifecycle_stage ?? '';
       const refusalAllowed = ['', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'silent'].includes(current);
       const stage = target === 'refused' ? (refusalAllowed ? 'refused' : null)
         : target && current === 'silent' ? (evidenceAt > Number(creator.updated_at ?? 0) ? target : null)

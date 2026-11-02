@@ -21,7 +21,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./inventory-mail.ts', import.
       export default {request(){throw Error('unexpected stock write')}};
     ` }));
   } }] });
-const { parseInventoryJson, readInventoryLetter } = await import(pathToFileURL(outfile));
+const { parseInventoryJson, readInventoryLetter, readStockSheet, normalizeSku, compareWithBook } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive: true });
 const valid = { warehouse_id: 'fixture-warehouse', warehouse_certain: true,
   rows: [{ source: 'fixture 0', product_id: 'fixture', qty_pieces: 0 }] };
@@ -52,4 +52,22 @@ test('repeated malformed output fails closed after exactly two calls', async () 
   const env = { DB: { prepare() { return { async all() { return { results: [] }; } }; } } };
   await assert.rejects(readInventoryLetter(env, { text: 'fixture', from: 'fixture', subject: 'fixture' }), /no stock written/);
   assert.equal(calls, 2);
+});
+
+const sheet = [[], [], ['', '', '', 'шт', '', 'шт'],
+  ['', 'DE120', 'NANO 1шт', 96, 14, 110], ['', 'DE120A4', 'NANO 4шт', 72, 25, 97], ['', 'DE119 AA', 'GROSSE', 5, '', 5],
+  ['', 'DE107A4', 'MITTEL', 2, '', 2], ['', 'DE107AAAA', 'MITTEL', 3, '', 3], ['', '', 'Поднос', 10, '', 10]];
+test('Mery sheet is read by the total column, with her spellings normalized', () => {
+  const rows = readStockSheet(sheet);
+  assert.deepEqual(rows.map((r) => [r.product_id, r.qty_pieces]),
+    [['de120', 110], ['de120aaaa', 97], ['de119aa', 5], ['de107aaaa', 2], ['de107aaaa', 3], [null, 10]]);
+  assert.equal(normalizeSku('DE117 A4'), 'de117aaaa');
+});
+test('an unknown sheet shape goes to the model', () => {
+  assert.equal(readStockSheet([['товар', 'кол-во'], ['нить', 3]]), null);
+});
+test('a product missing from the letter is a gap, a counted match is not', () => {
+  const gaps = compareWithBook(new Map([['a', 5], ['b', 3]]),
+    [{ product_id: 'a', on_hand: 5 }, { product_id: 'b', on_hand: 10 }, { product_id: 'c', on_hand: 100 }]);
+  assert.deepEqual(gaps, [{ product_id: 'c', counted: 0, book: 100, gap: -100 }, { product_id: 'b', counted: 3, book: 10, gap: -7 }]);
 });

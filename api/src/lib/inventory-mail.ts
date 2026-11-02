@@ -4,12 +4,11 @@
 // A warehouse without an API (Saransk) sends its stock list by mail every one or two
 // weeks. The letter arrives at worker erp-inventory, which archives it and hands it here.
 // DeepSeek V4 Pro reads the list (machine reader, §3j; the Owner asked for the best model) and names the warehouse and, per line,
-// the product and the quantity in pieces. The counts become an inventory session through
-// the same routes a person uses, so stock moves only by the normal commit.
+// the product and the quantity in pieces. Mery's fixed spreadsheet is read without the model.
 //
-// Commit only when the warehouse is certain and EVERY line is tied to a product.
-// Otherwise the session stays open with what was matched, and the Owner gets the lines
-// that were not — a wrong count committed silently is worse than a count held for a look.
+// Owner 2026-11-02: every letter starts a match against the ERP at once. A letter never moves
+// stock: it may cover only part of a warehouse, and committing it would erase real goods.
+// The Owner gets the gaps, a person explains them, and only a person commits a count.
 // =============================================================================
 import * as XLSX from 'xlsx';
 import PostalMime from 'postal-mime';
@@ -18,7 +17,6 @@ import { archiveEmail } from './inbox-archive';
 import type { Env } from '../types';
 import { callPro } from './deepseek';
 import { sendOwnerTelegram } from './owner-telegram';
-import inventorySessions from '../routes/inventory-sessions';
 
 export interface InventoryLetter {
   from: string;
@@ -44,6 +42,10 @@ interface ModelOut {
 }
 
 const MAX_CHARS = 60_000;
+/** This mailbox exists for Saransk (HARD_RULES mail table); its letters name no warehouse. */
+const DEFAULT_WAREHOUSE = 'srn';
+const MAX_GAPS_IN_MESSAGE = 15;
+const MIN_SHEET_LINES = 5;
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -105,15 +107,54 @@ export function parseInventoryJson(raw: string): ModelOut {
   return inventoryReadingSchema.parse(JSON.parse(s.slice(start, end + 1)));
 }
 
-async function call<T>(env: Env, path: string, method: string, body?: unknown): Promise<T> {
-  const res = await inventorySessions.request(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }, env);
-  const j = (await res.json()) as { success?: boolean; result?: T; errors?: Array<{ message?: string }> };
-  if (!res.ok || j.success === false) throw new Error(`${method} ${path}: ${j.errors?.[0]?.message ?? res.status}`);
-  return j.result as T;
+/** DE107A4 and "DE119 AA" are Mery's spellings of de107aaaa and de119aa. */
+export function normalizeSku(raw: string): string {
+  return raw.replace(/\s/g, '').toLowerCase().replace(/a4$/, 'aaaa').replace(/a2$/, 'aa');
+}
+
+/**
+ * Mery's sheet: an article column, a name column and the total under the last "шт" header.
+ * Returns null for any other shape, and the model reads that letter instead.
+ */
+export function readStockSheet(grid: unknown[][]): ModelRow[] | null {
+  const cell = (row: unknown[] | undefined, i: number) => String(row?.[i] ?? '').trim();
+  const width = Math.max(0, ...grid.map((r) => r.length));
+  let totalCol = -1;
+  for (const row of grid.slice(0, 5)) {
+    for (let i = 0; i < width; i++) if (cell(row, i).toLowerCase() === 'шт') totalCol = Math.max(totalCol, i);
+  }
+  const isSku = (v: string) => /^DE\s*\d{3}/i.test(v);
+  let skuCol = -1;
+  let hits = 0;
+  for (let i = 0; i < width; i++) {
+    const n = grid.filter((r) => isSku(cell(r, i))).length;
+    if (n > hits) { hits = n; skuCol = i; }
+  }
+  if (totalCol < 0 || hits < MIN_SHEET_LINES) return null;
+  const rows: ModelRow[] = [];
+  for (const row of grid) {
+    const sku = cell(row, skuCol);
+    const text = row.slice(skuCol + 1, totalCol).map((v) => String(v ?? '').trim()).find((v) => /[а-яa-z]{3}/i.test(v)) ?? '';
+    const qty = Number(cell(row, totalCol));
+    if (!cell(row, totalCol) || !Number.isSafeInteger(qty) || qty < 0) continue;
+    if (!sku && !text) continue;
+    rows.push({ source: `${sku} ${text}`.trim(), product_id: sku ? normalizeSku(sku) : null, qty_pieces: qty,
+      ...(sku ? {} : { note: 'нет артикула' }) });
+  }
+  return rows;
+}
+
+function sheetReading(l: InventoryLetter): InventoryReading | null {
+  for (const a of l.attachments ?? []) {
+    if (!/\.(xlsx|xls)$/i.test(a.filename || '')) continue;
+    const wb = XLSX.read(b64ToBytes(a.base64), { type: 'array' });
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      const rows = ws ? readStockSheet(XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })) : null;
+      if (rows) return { out: { warehouse_id: DEFAULT_WAREHOUSE, warehouse_certain: false, rows }, skipped: [] };
+    }
+  }
+  return null;
 }
 
 /** The model step: DeepSeek reads the letter against the live product and warehouse lists. */
@@ -122,6 +163,8 @@ export async function readInventoryLetter(
   env: { DB: D1Database; DEEPSEEK_API_KEY?: string },
   l: InventoryLetter,
 ): Promise<InventoryReading | { empty: true; skipped: string[] }> {
+  const sheet = sheetReading(l);
+  if (sheet) return sheet;
   const { text, skipped } = letterText(l);
   if (!text) return { empty: true, skipped };
   const [products, warehouses] = await Promise.all([
@@ -213,7 +256,7 @@ export async function processInventoryLetter(
 
   const productIds = new Set((products.results as Array<{ id: string }>).map((p) => p.id));
   const warehouseIds = new Map((warehouses.results as Array<{ id: string; name: string }>).map((w) => [w.id, w.name]));
-  const warehouseId = out.warehouse_id && warehouseIds.has(out.warehouse_id) ? out.warehouse_id : null;
+  const warehouseId = out.warehouse_id && warehouseIds.has(out.warehouse_id) ? out.warehouse_id : DEFAULT_WAREHOUSE;
 
   // Sum repeats of one product (a list split across sheets); lines without product or qty are unmatched.
   const counts = new Map<string, number>();
@@ -225,43 +268,41 @@ export async function processInventoryLetter(
   }
   const rowsTotal = (out.rows ?? []).length;
 
-  if (!warehouseId || counts.size === 0) {
-    const reason = !warehouseId ? 'склад не определён' : 'ни одна строка не привязана к товару';
-    await log({ warehouse_id: warehouseId, status: 'held', rows_total: rowsTotal, rows_matched: counts.size,
+  if (counts.size === 0) {
+    const reason = 'ни одна строка не привязана к товару';
+    await log({ warehouse_id: warehouseId, status: 'held', rows_total: rowsTotal, rows_matched: 0,
       unmatched: JSON.stringify(unmatched.slice(0, 50)), reason });
-    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» — ${reason}. Ничего не проведено.`);
+    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» — ${reason}. Сверки нет.`);
     return { status: 'held', note: reason };
   }
 
+  const book = await env.DB.prepare(
+    `SELECT product_id, on_hand FROM stocks WHERE warehouse_id = ? AND stock_state = 'on_hand'`,
+  ).bind(warehouseId).all();
+  const gaps = compareWithBook(counts, book.results as Array<{ product_id: string; on_hand: number }>);
   const whName = warehouseIds.get(warehouseId);
-  const session = await call<{ id: string; reference: string }>(env, '/', 'POST', {
-    warehouse_id: warehouseId,
-    scope: 'partial',
-    started_by: 'erp-inventory',
-    notes: `По письму на inventory@ от ${l.from}: «${l.subject}»${out.counted_on ? `, пересчёт на ${out.counted_on}` : ''}. Разбор: DeepSeek.`,
-  });
-  for (const [productId, qty] of counts) {
-    const line = await call<{ id: string }>(env, `/${session.id}/lines`, 'POST', { product_id: productId });
-    await call(env, `/${session.id}/lines/${line.id}`, 'PATCH', { counted_qty: qty, counted_by: 'erp-inventory' });
-  }
+  const reason = `расхождений ${gaps.length}, строк без товара ${unmatched.length}`;
+  await log({ warehouse_id: warehouseId, status: 'compared', rows_total: rowsTotal, rows_matched: counts.size,
+    unmatched: unmatched.length ? JSON.stringify(unmatched.slice(0, 50)) : null, reason });
+  const lines = gaps.slice(0, MAX_GAPS_IN_MESSAGE)
+    .map((g) => `${g.product_id}: письмо ${g.counted}, учёт ${g.book}, разница ${g.gap > 0 ? '+' : ''}${g.gap}`);
+  const more = gaps.length > lines.length ? `\nЕщё расхождений: ${gaps.length - lines.length}.` : '';
+  await sendOwnerTelegram(env, `${whName}: письмо «${l.subject}» сверено с учётом, ${reason}. В учёте ничего не менялось.${lines.length ? `\n${lines.join('\n')}` : ''}${more}`);
+  return { status: 'compared', note: `${warehouseId}: ${reason}` };
+}
 
-  const commit = Boolean(out.warehouse_certain) && unmatched.length === 0;
-  let discrepancies = 0;
-  if (commit) {
-    const c = await call<{ discrepancies?: number }>(env, `/${session.id}/commit`, 'POST', { committed_by: 'erp-inventory' });
-    discrepancies = c.discrepancies ?? 0;
-  }
-  const status = commit ? 'committed' : 'held';
-  await log({ warehouse_id: warehouseId, session_id: session.id, reference: session.reference, status,
-    rows_total: rowsTotal, rows_matched: counts.size, unmatched: unmatched.length ? JSON.stringify(unmatched.slice(0, 50)) : null,
-    reason: commit ? null : (!out.warehouse_certain ? 'склад назван не прямо' : `${unmatched.length} строк без товара`) });
+export interface StockGap { product_id: string; counted: number; book: number; gap: number }
 
-  const total = [...counts.values()].reduce((a, b) => a + b, 0);
-  const msg = commit
-    ? `${whName}: инвентаризация ${session.reference} проведена по письму. Позиций ${counts.size}, всего ${total} шт, расхождений с учётом ${discrepancies}.`
-    : `${whName}: инвентаризация ${session.reference} заведена по письму, но НЕ проведена — ${!out.warehouse_certain ? 'склад назван не прямо' : `${unmatched.length} строк не привязаны к товару`}. Привязано ${counts.size}. Проверить в ERP → Склады → Инвентаризации.`;
-  await sendOwnerTelegram(env, msg);
-  return { status, note: `${session.reference} ${status}: ${counts.size} products, ${total} pcs, unmatched ${unmatched.length}` };
+/** Every product where the letter and the ERP differ, largest gap first. */
+export function compareWithBook(counts: Map<string, number>, book: Array<{ product_id: string; on_hand: number }>): StockGap[] {
+  const held = new Map(book.map((r) => [r.product_id, r.on_hand]));
+  const gaps: StockGap[] = [];
+  for (const id of new Set([...counts.keys(), ...held.keys()])) {
+    const counted = counts.get(id) ?? 0;
+    const onHand = held.get(id) ?? 0;
+    if (counted !== onHand) gaps.push({ product_id: id, counted, book: onHand, gap: counted - onHand });
+  }
+  return gaps.sort((x, y) => Math.abs(y.gap) - Math.abs(x.gap));
 }
 
 export function bytesToB64(buf: ArrayBuffer | Uint8Array | string): string {

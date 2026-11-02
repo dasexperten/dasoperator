@@ -176,3 +176,10 @@ test('Owner decision on /ugc lifts the «Owner decides» stops for that message 
   assert.equal(guardReply(j, { lastIn }).reason, 'return or money back, Owner decides');
   assert.equal(guardReply(j, { lastIn, ownerDecided: true }).reply, 'Хорошо, оформите возврат, мы не против.');
 });
+
+test('a health question before buying is answered, a real reaction still goes to a person', async () => {
+  const { DIANA_RULES } = await import('./ig-dm-reply-guard.mjs');
+  assert.match(DIANA_RULES, /Вопрос до покупки об аллергии, жжении, дёснах или составе — не жалоба и не повод молчать: escalate=false/);
+  assert.match(DIANA_RULES, /Реакция уже случилась или это срочный случай — reply=null, escalate=true/);
+  assert.match(DIANA_RULES, /отвечай на слова/);
+});

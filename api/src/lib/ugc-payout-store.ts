@@ -9,10 +9,12 @@ import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
 import { alertMina } from './mina-alert';
+import { followPayoutStage } from './ugc-payout-stage.mjs';
 
 export function payoutStore(env: Env) {
   const db = env.DB;
   const touch = () => Date.now();
+  const payoutCreator = async (id: string) => (await db.prepare(`SELECT creator_id FROM ugc_payouts WHERE id=?1`).bind(id).first<{ creator_id: string }>())?.creator_id;
   // DH-LAW-261016-01: dates do not reserve budget for waiting payouts.
   const committed = `status <> 'failed' AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)`;
   const sendDay = `date(COALESCE(sent_at, execute_claimed_at, paid_at, payout_date || 'T12:00:00Z'), '+4 hours')`;
@@ -66,18 +68,14 @@ export function payoutStore(env: Env) {
       const r = await db.prepare(
         `UPDATE ugc_payouts SET status='paid', paid_at=?2, konsol_status=?3, updated_at=?4 WHERE id=?1`
       ).bind(id, s.paidAt, s.konsolStatus, touch()).run();
-      // Owner 2026-10-18: the status follows the facts — money out moves the creator to «paid», forward only.
-      await db.prepare(`UPDATE ugc_creators SET lifecycle_stage='paid', updated_at=?2 WHERE id=(SELECT creator_id FROM ugc_payouts WHERE id=?1)
-        AND COALESCE(lifecycle_stage,'') IN ('','new','sent','replied','agreed','cart','failed')`).bind(id, Date.now()).run().catch(() => undefined);
+      await followPayoutStage(db, await payoutCreator(id), 'paid');
       return r;
     },
     markFailed: async (id: string, s: { failedAt: string; konsolStatus: string; error: string }) => {
       const r = await db.prepare(
         `UPDATE ugc_payouts SET status='failed', failed_at=?2, konsol_status=?3, konsol_error=?4, updated_at=?5 WHERE id=?1`
       ).bind(id, s.failedAt, s.konsolStatus, s.error.slice(0, 500), touch()).run();
-      // Owner 2026-10-18: failed = the bank declined our transfer; a later paid moves her on.
-      await db.prepare(`UPDATE ugc_creators SET lifecycle_stage='failed', updated_at=?2 WHERE id=(SELECT creator_id FROM ugc_payouts WHERE id=?1)
-        AND COALESCE(lifecycle_stage,'') IN ('','new','sent','replied','agreed','cart')`).bind(id, Date.now()).run().catch(() => undefined);
+      await followPayoutStage(db, await payoutCreator(id), 'failed');
       return r;
     },
     setKonsolStatus: (id: string, status: string) => db.prepare(
@@ -205,7 +203,7 @@ export async function handleKonsolCallback(env: Env, body: any) {
 export async function linkRegistryPayouts(env: Env): Promise<string> {
   const placeholders = REGISTRY_LINK_IDS.map((_, i) => `?${i + 1}`).join(',');
   const rows = (await env.DB.prepare(
-    `SELECT id, amount_minor, payout_date FROM ugc_payouts WHERE id IN (${placeholders}) AND konsol_payment_id IS NULL`
+    `SELECT id, creator_id, amount_minor, payout_date FROM ugc_payouts WHERE id IN (${placeholders}) AND konsol_payment_id IS NULL`
   ).bind(...REGISTRY_LINK_IDS).all<Record<string, any>>()).results ?? [];
   if (!rows.length) return 'registry: nothing to link';
   const konsol = konsolClient(env);
@@ -231,6 +229,7 @@ export async function linkRegistryPayouts(env: Env): Promise<string> {
          status='paid', paid_at=?5, paid_notice_at=COALESCE(paid_notice_at, ?6), updated_at=?7
        WHERE id=?1 AND konsol_payment_id IS NULL`
     ).bind(row.id, String(p.id), p.contractor_id != null ? String(p.contractor_id) : null, p.status, p.paid_at || p.created_at || now, now, Date.now()).run();
+    await followPayoutStage(env.DB, row.creator_id, 'paid');
     linked.add(String(p.id));
     notes.push(`${row.id}: linked`);
   }

@@ -20,6 +20,7 @@ import { scenarioEvidence, completeScenario, orderEvidence, saidOrdered, type Sc
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
 import { IG_UNSUPPORTED, lastWordIsBlogger, refreshIgAttachments, sendIgDirect } from './ig-dm-watch';
+import { followPayoutStage } from './ugc-payout-stage.mjs';
 
 import { deliverIgReply, resumeIgDeliveries, acknowledgeIgDelivery, queueIgDeliveryTexts, igDeliveryKey, type IgDeliveryResult } from './ig-dm-delivery';
 
@@ -105,6 +106,7 @@ async function registerPayout(env: Env, handle: string, r: CleanRequisites, doub
     env.DB.prepare(`INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`)
       .bind(id, r.phone, r.first_name, r.last_name, r.patronymic, now),
   ]);
+  await followPayoutStage(env.DB, cid, 'awaiting_approval', now);
   // Owner 2026-10-20: a new brown button is the moment to check that Konsol can pay the queue.
   await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
   return true;

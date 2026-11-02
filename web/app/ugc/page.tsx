@@ -328,9 +328,10 @@ function CreatorStatusBadge({ creator }: { creator: Creator }) {
   const href = instagramChatHref(creator.profiles);
   // Owner 2026-10-18: no status (old new/sent) shows as a plain dash, not a word.
   if (!creator.lifecycle_stage || creator.lifecycle_stage === 'new' || creator.lifecycle_stage === 'sent') return <span className="ugc-stage ugc-stage-none" title="Без статуса">—</span>;
+  // Chrome translation must not replace the status word: it overflows the badge and freezes the old value.
   return href
-    ? <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
-    : <span className="ugc-stage" data-stage={creator.lifecycle_stage} title="Instagram-аккаунт не указан">{creator.lifecycle_stage}</span>;
+    ? <a translate="no" href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
+    : <span translate="no" className="ugc-stage" data-stage={creator.lifecycle_stage} title="Instagram-аккаунт не указан">{creator.lifecycle_stage}</span>;
 }
 
 // The Owner reserved only whitespace for opening the card. Text selection,
@@ -980,7 +981,7 @@ export default function UgcPage() {
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />
           </label>
           <select className="ugc-network-select min-h-11 px-3" aria-label="Social network" value={platform} onChange={(event) => setPlatform(event.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{PLATFORM_TABS.map((key) => <option key={key} value={key}>{key === 'all' ? 'All social networks' : key.charAt(0).toUpperCase() + key.slice(1)}</option>)}</select>
-          <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option><option value="archived">Архив</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select translate="no" aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option><option value="archived">Архив</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{compactProductCode(item.sku)} · {item.content_count}</option>)}</select>
           <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="stage">Stage</option><option value="attention">Требуют проверки</option></select></label>
         </div>
@@ -1118,7 +1119,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <div className="ugc-card-actions"><button type="button" onClick={() => setEditing((value) => !value)} aria-expanded={editing}>{editing ? 'Скрыть поля' : 'Изменить данные'}</button>{leadHref ? <a href={leadHref} target="_blank" rel="noopener noreferrer">Открыть профиль <ExternalLink className="h-4 w-4" aria-hidden="true" /></a> : null}</div>
     {editing ? <div className="ugc-card-edit space-y-4">
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Field label="Статус"><select value={stage} onChange={(event) => setStage(event.target.value)}><option value="">— без статуса</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
+      <Field label="Статус"><select translate="no" value={stage} onChange={(event) => setStage(event.target.value)}><option value="">— без статуса</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
       <Field label="Откуда"><select value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">—</option>{ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
       <Field label="Ответственный"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>
       <Field label="Канал связи"><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Shopee, TikTok Shop, Zalo…" /></Field>

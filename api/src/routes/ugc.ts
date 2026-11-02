@@ -8,6 +8,7 @@ import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecen
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
+import { followPayoutStage } from '../lib/ugc-payout-stage.mjs';
 import { cooldownLeft, fireText, isTarget, queueItems } from '../lib/browser-queue.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
@@ -1009,6 +1010,7 @@ ugc.post('/payouts', async (c) => {
     stamp('approved_at'), stampColumn === 'approved_at' ? access.name ?? null : textValue(body.approved_by, 120),
     stamp('sent_at'), stamp('paid_at'), stamp('failed_at'), access.name ?? null, now,
   ).run();
+  await followPayoutStage(c.env.DB, creator.creatorId, status, now);
   return ok(c, { id, creator_id: creator.creatorId, amount_minor: amount.amount_minor, status, payout_date: day, updated_at: now });
 });
 
@@ -1058,7 +1060,7 @@ ugc.post('/payouts/:id/status', async (c) => {
   const status = textValue(body.status, 40);
   if (!status || !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'status must be awaiting_approval, approved, sent, paid or failed' }]);
   const id = c.req.param('id');
-  const current = await c.env.DB.prepare(`SELECT id FROM ugc_payouts WHERE id=?1`).bind(id).first();
+  const current = await c.env.DB.prepare(`SELECT id, creator_id FROM ugc_payouts WHERE id=?1`).bind(id).first<{ id: string; creator_id: string | null }>();
   if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
   const now = Date.now();
   const at = isoOrNull(body.at) ?? new Date(now).toISOString();
@@ -1071,6 +1073,7 @@ ugc.post('/payouts/:id/status', async (c) => {
        bank_ref=COALESCE(?3, bank_ref), note=COALESCE(?4, note)${stampSql}${approvedBySql}
      WHERE id=?7`
   ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id).run();
+  await followPayoutStage(c.env.DB, current.creator_id, status, now);
   return ok(c, { id, status, at, updated_at: now });
 });
 

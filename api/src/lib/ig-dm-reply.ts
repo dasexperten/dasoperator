@@ -20,7 +20,7 @@ import { scenarioEvidence, completeScenario, orderEvidence, saidOrdered, type Sc
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
 import { IG_UNSUPPORTED, lastWordIsBlogger, refreshIgAttachments, sendIgDirect } from './ig-dm-watch';
-import { followPayoutStage, isRetiredStage } from './ugc-payout-stage.mjs';
+import { askedWhereToPost, followPayoutStage, isRetiredStage } from './ugc-payout-stage.mjs';
 
 import { deliverIgReply, resumeIgDeliveries, acknowledgeIgDelivery, queueIgDeliveryTexts, igDeliveryKey, type IgDeliveryResult } from './ig-dm-delivery';
 
@@ -606,7 +606,8 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       const paidAt = Math.max(0, ...payouts.filter((p) => p.status === 'paid' && p.konsol_payment_id && p.paid_at).map((p) => Date.parse(p.paid_at!)).filter(Number.isFinite));
       const open = payouts.filter((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status));
       const cartAt = Math.max(0, ...open.map((p) => Number(p.created_at ?? 0)).filter(Number.isFinite));
-      const creationAt = verifiedOrderAt ? Math.max(deliveredScenarioAt, ownIdeaAt > verifiedOrderAt ? ownIdeaAt : 0) : 0;
+      const readyToPostAt = Math.max(0, ...history.filter((m) => m.direction === 'in' && moneyAt && Date.parse(m.created_at) > moneyAt && askedWhereToPost(m.text)).map((m) => Date.parse(m.created_at)));
+      const creationAt = Math.max(verifiedOrderAt ? Math.max(deliveredScenarioAt, ownIdeaAt > verifiedOrderAt ? ownIdeaAt : 0) : 0, readyToPostAt);
       const target = out?.refused ? 'refused' : postedAt ? 'posted' : creationAt ? 'creation' : verifiedOrderAt ? 'ordered' : paidAt ? 'paid' : open.length ? 'cart' : out?.agreed ? 'agreed' : null;
       const evidenceAt = target === 'posted' ? postedAt : target === 'creation' ? creationAt : target === 'ordered' ? verifiedOrderAt : target === 'paid' ? paidAt : target === 'cart' ? cartAt : 0;
       const current = isRetiredStage(creator.lifecycle_stage) ? '' : creator.lifecycle_stage ?? '';

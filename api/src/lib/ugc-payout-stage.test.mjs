@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { followPayoutStage, shownStage, stageForPayoutStatus } from './ugc-payout-stage.mjs';
+import { askedWhereToPost, followPayoutStage, shownStage, stageForPayoutStatus } from './ugc-payout-stage.mjs';
 
 function fakeDb(stage, { fail = false } = {}) {
   const row = { stage, updated_at: 1 };
@@ -50,6 +50,13 @@ test('a retired status shows what the payout proves, a live one stays as written
   assert.equal(shownStage('found', [{ status: 'failed' }, paid]), 'paid');
   assert.equal(shownStage('found', []), '');
   for (const stage of ['', 'replied', 'refused', 'silent', 'gold']) assert.equal(shownStage(stage, [paid]), stage);
+});
+
+test('asking where to post is read as a finished piece, a screenshot question is not', () => {
+  for (const text of ['Куда выложить?', 'А куда мне выкладывать?', 'куда можно залить ролик', 'Куда отправить видео?', 'Куда скинуть готовое видео'])
+    assert.equal(askedWhereToPost(text), true, text);
+  for (const text of ['Куда скинуть скрин?', 'Куда отправить реквизиты', 'могу выложить на основной', '', null])
+    assert.equal(askedWhereToPost(text), false, String(text));
 });
 
 test('it never moves back and never overrides a side decision', async () => {

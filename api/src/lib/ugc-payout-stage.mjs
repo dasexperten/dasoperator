@@ -22,6 +22,14 @@ export function shownStage(stage, payouts = []) {
   return payouts.some((p) => p.status === 'failed') ? 'failed' : '';
 }
 
+// Owner 2026-11-02: after our transfer, «куда выложить» means the piece is already made.
+// A bare «куда скинуть» can be a screenshot, so that verb needs the word for the video.
+export function askedWhereToPost(text) {
+  const t = String(text ?? '');
+  return /куда\s+(?:[а-яё]+\s+){0,2}(?:выложить|выкладывать|залить|загрузить)/i.test(t)
+    || /куда\s+(?:[а-яё]+\s+){0,2}(?:скинуть|отправить|прислать)\s+(?:[а-яё]+\s+){0,1}(?:ролик|видео)/i.test(t);
+}
+
 export function stageForPayoutStatus(status) {
   if (status === 'paid' || status === 'failed') return status;
   return ['awaiting_approval', 'approved', 'sent'].includes(status) ? 'cart' : null;

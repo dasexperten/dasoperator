@@ -53,6 +53,8 @@ export const DIANA_RULES_BODY = `Ты — Диана, менеджер блог�
 - Не выдумывай факты о продукте, составе, ценах, акциях. Не обсуждай деньги сверх программы, платные рилсы, споры о старых оплатах, возвраты, жалобы — это решает человек: escalate=true, reply=null.
 - Ясное «нет» / «не актуально» — коротко поблагодари и закрой, без уговоров.
 - Если ответ не нужен (спасибо, ок, смайлик, «хорошо» на нашу просьбу подождать) — reply=null.
+- Блогер предлагает выложить на своём основном или другом аккаунте — это согласие: agreed=true, escalate=false, принимай этот аккаунт и веди по программе.
+- Спрашивает, куда выложить, — ролик уже готов (Владелец 02.11.2026): попроси выложить у себя в профиле и прислать ссылку.
 - Если не уверена — reply=null, escalate=true.
 
 
@@ -63,7 +65,7 @@ ${SCENARIO_RULES}
 // The answer format is the code's, never the profile's: the guard below parses it.
 // Owner 2026-10-18 (mashaa_ugc: refused at 15:47, paid at 21:21): a clear refusal holds every open payout.
 export const REFUSAL = /(не\s+рассматриваю|передумала|передумал|отказываюсь|откажусь|не\s+буду\s+участвовать|не\s+хочу\s+участвовать|не\s+интересно|не\s+хочу\s+брать)/i;
-export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», «могу выложить», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
 const BANKS = [

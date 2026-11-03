@@ -137,7 +137,7 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
   }
   // Read the conversation when direct access to the saved message id fails.
   // Use sender + timestamp only when that match is unambiguous.
-  let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,is_unsupported,attachments{mime_type,file_url,image_data,video_data}}`;
+  let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,is_unsupported,shares{link},attachments{mime_type,file_url,image_data,video_data}}`;
   for (let n=0;n<4;n++) {
     const r=await graph(path,String(page.body.access_token)); if(!r.ok)return null;
     const data=r.body?.messages?.data ?? r.body?.data ?? [];
@@ -149,6 +149,9 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
       // nothing to read; '[]' records «confirmed empty» so the reply is not blocked on it.
       // Owner 2026-10-18 (noza_finds): a photo the blogger sent can come back is_unsupported — the
       // Owner sees it in the app, we never get it. That is NOT an empty item: Diana did not see it.
+      // Owner 2026-11-03 (ekaterina_r____): a reel the blogger shares (her own, a collab invite) comes as shares{link}.
+      const shared=found.shares?.data?.[0]?.link;
+      if(shared && !Array.isArray(found.attachments?.data)){await env.DB.prepare(`UPDATE ugc_ig_messages SET text=COALESCE(NULLIF(text,''),?2), attachments_json='[]' WHERE id=?1`).bind(messageId,String(shared)).run();return '[]';}
       if(!Array.isArray(found.attachments?.data)){await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json='[]' WHERE id=?1`).bind(messageId).run();return found.is_unsupported ? IG_UNSUPPORTED : '[]';}
       const json=JSON.stringify(found.attachments.data);
       await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId,json).run();
@@ -156,7 +159,7 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
     }
     const after=(r.body?.messages?.paging ?? r.body?.paging)?.cursors?.after;
     if(!after || !data.length)break;
-    path=`/${encodeURIComponent(stored.conversation_id)}/messages?fields=id,created_time,from,is_unsupported,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
+    path=`/${encodeURIComponent(stored.conversation_id)}/messages?fields=id,created_time,from,is_unsupported,shares{link},attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
   }
   return null;
 }

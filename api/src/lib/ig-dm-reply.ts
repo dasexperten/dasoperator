@@ -413,7 +413,7 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       try { const n = JSON.parse(row?.value ?? 'null'); if (n && n.at === w.t && String(n.text ?? '').trim()) ownerDecision = String(n.text).trim().slice(0, 500); } catch { /* no decision */ }
     }
     const lines = history.map((m) => {
-      const body = (m.text && m.text.trim()) || (m.unsupported ? (ownerNote ? `[фото; Владелец посмотрел его в приложении: ${ownerNote}]` : '[фото, которое не открылось у нас в программе: мы его НЕ видели]') : m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
+      const body = (m.text && m.text.trim()) || (m.unsupported ? (ownerNote ? `[фото; Владелец посмотрел его в приложении: ${ownerNote}]` : '[вложение, которое не открылось у нас в программе: фото, ролик или пост, мы его НЕ видели]') : m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
       return `${m.direction === 'in' ? 'Блогер' : 'Мы'} (${m.created_at.slice(5, 16)}): ${body}`;
     }).join('\n');
     // Owner 2026-10-17: a basket assembled before the paste-only rule keeps its brush.

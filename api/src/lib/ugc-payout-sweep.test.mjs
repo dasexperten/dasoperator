@@ -46,6 +46,7 @@ function fixture(t, options = {}) {
       if (sql.includes("SELECT * FROM ugc_payouts WHERE status='paid'")) return { results: f.paid.map(row) };
       if (sql.includes("SELECT * FROM ugc_payouts WHERE status='failed'")) return { results: f.failed.map(row) };
       if (sql.includes('SELECT p.id, p.handle')) { if (f.reminderError) throw f.reminderError; return { results: [] }; }
+      if (sql.includes('video_round_261103')) return { results: [] };
       throw Error('unexpected all ' + sql);
     },
     async first() {

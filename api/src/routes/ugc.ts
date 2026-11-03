@@ -797,6 +797,29 @@ ugc.post('/browser-queue/done', async (c) => {
   return ok(c, { recorded: true });
 });
 
+// Owner 2026-11-03: «then make that from jev browser». The agent browser on the Owner's PC reads the queue
+// texts and, after each blogger is sent, takes her off the queue. Admin only, through the Owner's session.
+ugc.get('/browser-queue/items', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
+  return ok(c, { items: queueItems(await browserQueueRows(c)) });
+});
+ugc.post('/browser-queue/sent', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
+  const body = await c.req.json<{ handle?: unknown }>().catch(() => ({} as { handle?: unknown }));
+  const handle = String(body.handle ?? '').toLowerCase().replace(/^@/, '').trim();
+  if (!handle) return fail(c, 422, [{ code: 'handle', message: 'handle is required' }]);
+  const q = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).first<{ value: string }>();
+  if (!q) return fail(c, 404, [{ code: 'not_queued', message: 'Not in the queue' }]);
+  const now = Date.now();
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_sent:${handle}:${new Date(now).toISOString()}`, q.value, now).run();
+  await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  return ok(c, { handle, removed: true });
+});
+
 // Owner 2026-10-18 (05_seferova_05): the Owner sees the photo in the app and tells Diana what is on it.
 ugc.post('/creators/:id/photo-note', async (c) => {
   const access = await requireAccess(c, true);

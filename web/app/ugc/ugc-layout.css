@@ -136,6 +136,8 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
 .ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }
 /* Fixed width (Owner 2026-10-16, Marika): «—» and «1461» take the same room, so the second publication and «+N» stand in one line down the column. Four digits fit; a longer figure widens its own cell only. */
+.ugc-pub-icon { display: inline-flex; flex-direction: column; align-items: center; flex: 0 0 48px; }
+.ugc-pub-date { font-size: 11px; line-height: 12px; font-style: italic; font-weight: 600; color: var(--fg-1); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 48px; min-width: 54px; }
 .ugc-pub-stats > span { display: flex; align-items: center; gap: 4px; height: 16px; font-size: 14px; line-height: 16px; font-weight: 800; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ugc-pub-stats svg { width: 15px; height: 15px; color: var(--fg-1); stroke-width: 2.5; }

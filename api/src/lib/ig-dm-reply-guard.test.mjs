@@ -183,6 +183,7 @@ test('a health question before buying is answered, a real reaction still goes to
   assert.match(DIANA_RULES, /Реакция уже случилась или это срочный случай — reply=null, escalate=true/);
   assert.match(DIANA_RULES, /отвечай на слова/);
   assert.match(DIANA_RULES, /по заключению Майи/);
+  assert.match(DIANA_RULES, /не пиши, что Ozon доставляет только по России/);
   assert.match(DIANA_RULES, /посоветуй показаться стоматологу/);
   assert.match(DIANA_RULES, /Блогер назвал аллерген — покупку не подтверждай: reply=null, escalate=true/);
   assert.doesNotMatch(DIANA_RULES, /разные ощущения/);

@@ -39,6 +39,11 @@ export function isKonsolPaid(payout) {
   return Boolean(payout && payout.status === 'paid' && payout.konsol_payment_id);
 }
 
+/** Paid outside the ERP, marked by the Owner (Owner 2026-11-03). */
+export function isPaidOutside(payout) {
+  return Boolean(payout && payout.status === 'paid' && payout.konsol_status === 'paid_outside');
+}
+
 /** «Отправлено» with no Konsol payment, older than 2 days. */
 export function isStaleSent(payout, now = Date.now()) {
   if (!payout || payout.status !== 'sent' || payout.konsol_payment_id) return false;
@@ -53,6 +58,8 @@ export function payoutCell(payout, now = Date.now()) {
   const out = (tone, reason) => ({ tone, text: amount, reason, title: [tone === 'green' ? 'Оплата сделана' : 'Не оплачено', tone === 'green' ? '' : reason].filter(Boolean).join(' · ') });
 
   if (isKonsolPaid(payout)) return out('green', 'оплата сделана');
+  // Owner 2026-11-03: paid outside the ERP on his word — green, never a pay button.
+  if (isPaidOutside(payout)) return out('green', 'оплачено вне ERP');
   // Owner 2026-10-15: right after the click — light green «передано в Консоль», not clickable.
   if (payout.status === 'sent' && payout.konsol_payment_id) return out('lightgreen', 'передано в Консоль');
   if (payout.status === 'failed') return out('red', payout.konsol_payment_id ? 'отказ' : 'не исполнено в Консоли');
@@ -71,7 +78,7 @@ export function payoutCell(payout, now = Date.now()) {
 // not yet handed to Konsol. Nothing here pays — the click goes to
 // POST /api/ugc/payouts/:id/execute after the Owner confirms.
 export function canPay(payout, now = Date.now()) {
-  if (!payout || payout.konsol_payment_id || payout.execute_claim) return false;
+  if (!payout || payout.konsol_payment_id || payout.execute_claim || isPaidOutside(payout)) return false;
   // Owner 2026-10-16: every ready payout is in one queue, regardless of its recorded date.
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
   return Boolean(payout.has_requisites) && !payout.over_limit;

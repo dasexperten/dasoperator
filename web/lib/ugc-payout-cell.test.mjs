@@ -105,3 +105,10 @@ test('missing creator data never blocks a ready payout (Owner follow-up 2026-10-
   assert.equal(canPay(p), true);
   assert.equal(canPay({ ...p, missing_info: [] }), true);
 });
+
+test('a payout the Owner paid outside the ERP is green and never a pay button (Owner 2026-11-03)', () => {
+  const p = { status: 'paid', konsol_status: 'paid_outside', konsol_payment_id: null, has_requisites: 1, amount_minor: 41000 };
+  assert.equal(payoutCell(p).tone, 'green');
+  assert.equal(canPay(p), false);
+  assert.equal(payoutCell({ ...p, konsol_status: null }).tone, 'brown');
+});

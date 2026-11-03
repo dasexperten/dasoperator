@@ -1116,6 +1116,41 @@ ugc.put('/payouts/:id/requisites', async (c) => {
   return ok(c, { id, phone_masked: maskPhoneWide(phone), fps_bank_member_id: bankId, updated_at: now });
 });
 
+// Owner 2026-11-03: «Все коричневые оплачены». He paid them outside the ERP, so Konsol
+// never confirms them and the brown badge stays a pay button. His one click marks
+// them paid: green, no second transfer, no «деньги пришли» message, and no automatic
+// order reminder (the blogger may have ordered already). paid_at keeps the payout's
+// own day so today's limit is not eaten.
+ugc.post('/payouts/paid-outside', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can mark payments' }]);
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => ({} as { ids?: unknown }));
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 120))].slice(0, 300) : [];
+  if (!ids.length) return fail(c, 422, [{ code: 'no_ids', message: 'ids must list the brown payouts' }]);
+  const now = Date.now();
+  const iso = new Date(now).toISOString();
+  const marked: string[] = [];
+  for (const id of ids) {
+    // Only a brown payout: requisites in, never handed to Konsol, not mid-send, not failed.
+    const r = await c.env.DB.prepare(
+      `UPDATE ugc_payouts SET status='paid', konsol_status='paid_outside',
+         paid_at=COALESCE(paid_at, sent_at, payout_date || 'T12:00:00Z', ?2), paid_notice_at=COALESCE(paid_notice_at, ?2),
+         note=TRIM(COALESCE(note,'') || ' Оплачено вне ERP, слово Владельца ' || ?3), updated_at=?4
+       WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL
+         AND status IN ('awaiting_approval','approved','sent','paid')
+         AND EXISTS (SELECT 1 FROM ugc_payout_requisites q WHERE q.payout_id = ugc_payouts.id)`
+    ).bind(id, iso, iso.slice(0, 10), now).run();
+    if (!(r.meta?.changes ?? 0)) continue;
+    marked.push(id);
+    await c.env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO NOTHING`)
+      .bind(`paid_reminder:${id}`, JSON.stringify({ via: 'held_paid_outside', at: iso }), now).run();
+    const row = await c.env.DB.prepare(`SELECT creator_id FROM ugc_payouts WHERE id=?1`).bind(id).first<{ creator_id: string | null }>();
+    await followPayoutStage(c.env.DB, row?.creator_id ?? null, 'paid', now);
+  }
+  return ok(c, { marked, skipped: ids.length - marked.length });
+});
+
 ugc.post('/payouts/:id/execute', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;

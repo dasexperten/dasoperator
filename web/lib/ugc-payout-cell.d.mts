@@ -5,12 +5,14 @@ export type PayoutCellInput = {
   status: string;
   amount_minor: number;
   konsol_payment_id?: string | null;
+  konsol_status?: string | null;
   has_requisites?: number | boolean;
   over_limit?: boolean;
   sent_at?: string | null;
   payout_date?: string | null;
 };
 export function isKonsolPaid(payout: PayoutCellInput | null | undefined): boolean;
+export function isPaidOutside(payout: PayoutCellInput | null | undefined): boolean;
 export function isStaleSent(payout: PayoutCellInput | null | undefined, now?: number): boolean;
 export function payoutCell(payout: PayoutCellInput | null | undefined, now?: number): { tone: 'green' | 'lightgreen' | 'brown' | 'grey' | 'red'; text: string; reason: string; title: string };
 export function canPay(payout: (PayoutCellInput & { status: string; execute_claim?: string | null }) | null | undefined, now?: number): boolean;

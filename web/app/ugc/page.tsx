@@ -903,6 +903,29 @@ export default function UgcPage() {
     }
   };
 
+  // Owner 2026-11-03: «Все коричневые оплачены» — one click marks every brown badge on screen paid
+  // outside the ERP. Green, no second transfer; the server re-checks each one.
+  const brownPayouts = useMemo(() => data.creators.map((creator) => creator.payout).filter((payout): payout is Payout => Boolean(payout && payoutCell(payout).tone === 'brown')), [data.creators]);
+  const [outsideBusy, setOutsideBusy] = useState(false);
+  const markBrownPaid = async () => {
+    if (!brownPayouts.length || outsideBusy) return;
+    const total = brownPayouts.reduce((sum, payout) => sum + payout.amount_minor, 0);
+    if (!window.confirm(`Отметить оплаченными ${brownPayouts.length} коричневых на ${formatRub(total)}?
+
+Деньги не уйдут. Суммы станут зелёными «оплачено вне ERP».`)) return;
+    setOutsideBusy(true);
+    try {
+      const r = await apiPost<{ marked: string[]; skipped: number }>('/api/ugc/payouts/paid-outside', { ids: brownPayouts.map((payout) => payout.id) });
+      if (!r.success || !r.result) setError(r.errors[0]?.message ?? 'Не отмечено');
+      else {
+        for (const id of r.result.marked) mergePayout(id, { status: 'paid' as PayoutStatus, konsol_status: 'paid_outside' });
+        if (r.result.skipped) setError(`Отмечено ${r.result.marked.length}, не отмечено ${r.result.skipped}: уже в Консоли или без реквизитов`);
+        void load();
+      }
+    } catch (reason) { setError(`Нет связи: ${reason instanceof Error ? reason.message : String(reason)}`); }
+    finally { setOutsideBusy(false); }
+  };
+
   const payApi: PayApi = {
     isAdmin,
     busy: payBusy,
@@ -954,6 +977,11 @@ export default function UgcPage() {
 
       {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
       <PaidCounter paid={data.payout_summary?.paid_konsol} own={data.payout_summary?.konsol_own_minor} need={data.payout_summary?.queue_need_minor} />
+      {isAdmin && brownPayouts.length ? <div className="flex items-center gap-3">
+        <button type="button" className="min-h-11 px-4 rounded-sm" style={{ border: '1px solid #7a4e25', color: '#7a4e25' }} disabled={outsideBusy} onClick={markBrownPaid}>
+          {outsideBusy ? <Loader2 className="h-4 w-4 animate-spin inline" aria-hidden="true" /> : null} Коричневые оплачены: {brownPayouts.length}
+        </button>
+      </div> : null}
       <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
         <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
         <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />

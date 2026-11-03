@@ -34,7 +34,10 @@ const STATE_KEY = (cid: string) => `ig_reply_escalated:${cid}`;
 export const PHOTO_NOTE_KEY = (cid: string) => `ig_photo_note:${cid}`;
 // Owner 2026-10-19: the Owner's decision on a business exclamation mark, written on /ugc, for the blogger's current message.
 export const DECISION_KEY = (cid: string) => `ig_owner_decision:${cid}`;
-const PHOTO_HOLD_MS = 30 * 60_000;
+const PHOTO_HOLD_MS = 30 * 60_000; // retired 2026-11-03: no timed resend request; kept for the rollback diff
+// Owner 2026-11-03: the alarm that wakes Diana's round for one conversation. The ERP carries only who and why.
+export const DIANA_ALARM = 'diana_alarm';
+export const DIANA_ALARM_KEY = (cid: string) => `diana_round_alarm:${cid}`;
 
 type Msg = { id?: string; direction: string; text: string | null; attachments_json: string | null; created_at: string; unsupported?: boolean };
 
@@ -400,9 +403,14 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       const noteRow = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(PHOTO_NOTE_KEY(w.cid)).first<{ value: string }>();
       try { const n = JSON.parse(noteRow?.value ?? 'null'); if (n && n.at === w.t && String(n.text ?? '').trim()) ownerNote = String(n.text).trim().slice(0, 500); } catch { /* no note */ }
       const photoAt = Math.max(...history.slice(lastOutIndex+1).filter((m) => m.unsupported).map((m) => Date.parse(m.created_at)).filter(Number.isFinite));
-      if (!ownerNote && Number.isFinite(photoAt) && now - photoAt < PHOTO_HOLD_MS) {
-        state = { handle: w.h, at: w.t, reason: 'photo_for_owner', kind: 'business', attempts: 0, status: 'retry', next_retry_at: photoAt + PHOTO_HOLD_MS, notified_at: null };
+      // Owner 2026-11-03 (DH-LAW-261103-02, ekaterina_r____): the ERP is an alarm, not a postman.
+      // What Meta handed over empty is never answered from here and never asked again: the ERP only
+      // rings Diana, who opens the chat herself — Meta, then Jev on the Mac, then the cloud Jev browser.
+      if (!ownerNote && Number.isFinite(photoAt)) {
+        state = { handle: w.h, at: w.t, reason: DIANA_ALARM, kind: 'business', attempts: 0, status: 'needs_review', next_retry_at: null, notified_at: null };
         await saveState(state);
+        await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+          .bind(DIANA_ALARM_KEY(w.cid), JSON.stringify({ handle: w.h, cid: w.cid, at: w.t, reason: 'meta_empty', rang_at: new Date(now).toISOString() }), now).run();
         continue;
       }
     }

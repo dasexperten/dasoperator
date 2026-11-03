@@ -41,6 +41,9 @@ export function nextReplyFailure(previous, { at, handle, reason, now = Date.now(
 export function replyAttention(state) {
   if (state.kind === 'stuck') return { at: state.at, status: 'needs_review', kind: 'technical', code: 'stuck',
     label: 'Ответ не проходит проверку', reason: `Диана 3 раза написала ответ, проверка отклонила: ${state.reason}.${state.draft ? ` Последний черновик: ${state.draft}` : ''} Ответьте блогеру сами или скажите Диане, что исправить.` };
+  // Owner 2026-11-03: Meta handed over an empty item — the ERP rang Diana; she opens the chat herself.
+  if (state.reason === 'diana_alarm') return { at: state.at, status: 'needs_review', kind: 'business', code: 'diana_alarm',
+    label: 'Диана проверяет', reason: 'Meta отдала пустое вложение. ERP разбудил Диану: она сама открывает переписку — Meta, затем Jev на Mac, затем облачный Jev. Блогера заново не просим.' };
   // Owner 2026-10-18: a photo programs cannot open is shown to the Owner first.
   if (state.reason === 'photo_for_owner') return { at: state.at, status: 'retry', kind: 'business', code: 'photo_for_owner',
     label: 'Посмотрите фото', reason: 'Фото не открывается в ERP. Посмотрите его в переписке в приложении и напишите здесь, что на нём. Без вас через 30 минут Диана мягко попросит прислать его ещё раз.' };

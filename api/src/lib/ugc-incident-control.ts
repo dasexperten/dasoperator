@@ -27,6 +27,8 @@ export async function incidentControl(env: Env, now = Date.now()): Promise<strin
   for (const r of rows) {
     const st = readReplyState(r.value);
     if (!st || now - Date.parse(st.at) < HOUR) continue;
+    // Owner 2026-11-03: an alarm is Diana's to open; it reaches the Owner only if she has not closed it in 12 hours.
+    if (st.reason === 'diana_alarm' && now - Date.parse(st.at) < 12 * HOUR) continue;
     const technical = st.kind === 'technical' || st.kind === 'stuck' || st.status === 'retry';
     const id = `${r.cid}:${st.at}`;
     if (technical) {

@@ -33,6 +33,17 @@ test('missing current attachment metadata is repaired internally or stays pendin
  const e=fixture();e.history=[{direction:'in',text:'89511688874 озон Сотова Ксения',created_at:e.t},{id:'blank',direction:'in',text:null,attachments_json:null,created_at:e.t}];e.freshAttachments='[]';
  await igDmReply(e.env);assert.equal(e.sent.length,1);assert.equal(e.states.has('ig_reply_escalated:'+e.cid),false);
 });
+test('Meta handed over an empty item: the ERP rings Diana, sends nothing and never asks again (DH-LAW-261103-02, Owner 2026-11-03)',async()=>{
+ const h=fixture();h.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:h.t}];h.freshAttachments='unsupported';
+ h.raw=JSON.stringify({reply:'У меня почему-то не открывается картинка) Пришлёте её ещё раз?',escalate:false,reason:'ok'});
+ await igDmReply(h.env);assert.equal(h.sent.length,0,JSON.stringify(h.sent));
+ assert.equal(JSON.parse(h.states.get('ig_reply_escalated:'+h.cid)).reason,'diana_alarm');
+ const old=new Date(Date.now()-35*60_000).toISOString();
+ const u=fixture();u.t=old;u.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:old}];u.freshAttachments='unsupported';
+ u.raw=JSON.stringify({reply:'Пришлите, пожалуйста, ещё раз',escalate:false,reason:'ok'});
+ await igDmReply(u.env);assert.equal(u.sent.length,0,'35 minutes later still no resend request');
+ assert.equal(JSON.parse(u.states.get('ig_reply_escalated:'+u.cid)).reason,'diana_alarm');
+});
 test.skip('a photo programs cannot open goes to the Owner first, never «did not arrive» (Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  // Fresh photo: Diana waits for the Owner — nothing is sent, the card asks him to look.
  const h=fixture();h.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:h.t}];h.freshAttachments='unsupported';

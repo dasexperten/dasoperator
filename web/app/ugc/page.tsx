@@ -372,6 +372,30 @@ function CreatorModal({ creator, onClose, onSaved }: { creator: Creator; onClose
   return <dialog ref={ref} className="ugc-creator-modal" aria-labelledby="ugc-creator-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><CreatorPanel creator={creator} onClose={onClose} onSaved={onSaved} /></dialog>;
 }
 
+// Owner 2026-11-03: «then make that from jev browser». /ugc?queue=list shows the queue texts to Admin,
+// so the agent browser on the PC can send them; «Отправлено» takes the blogger off the queue.
+type QueueItem = { handle: string; texts: string[] };
+function BrowserQueueList() {
+  const [items, setItems] = useState<QueueItem[] | null>(null);
+  const [done, setDone] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('queue') || getUser()?.role !== 'admin') return;
+    void apiGet<{ items: QueueItem[] }>('/api/ugc/browser-queue/items').then((r) => setItems(r.success && r.result ? r.result.items : []));
+  }, []);
+  if (!items) return null;
+  return <section className="ugc-bq-list" aria-label="Очередь браузера" style={{ display: 'grid', gap: 12 }}>
+    <h2>Очередь браузера · {items.length}</h2>
+    {items.map((item) => <article key={item.handle} data-handle={item.handle} style={{ border: '1px solid var(--rule, #ccc)', padding: 12 }}>
+      <strong>@{item.handle}</strong>
+      {item.texts.map((text, i) => <p key={i} data-msg={i}>{text}</p>)}
+      <button type="button" className="min-h-11 px-4" disabled={Boolean(done[item.handle])} onClick={async () => {
+        const r = await apiPost<{ removed: boolean }>('/api/ugc/browser-queue/sent', { handle: item.handle });
+        setDone((prev) => ({ ...prev, [item.handle]: r.success ? 'снято с очереди' : (r.errors[0]?.message ?? 'ошибка') }));
+      }}>{done[item.handle] ?? `Отправлено @${item.handle}`}</button>
+    </article>)}
+  </section>;
+}
+
 // Owner 2026-10-19: «Очередь браузера · N». On a computer one button for this machine (PC or Mac);
 // on a phone two. A click starts sending at once in the Owner's own Chrome on that machine.
 type PayDays = { today: { n: number; minor: number }; yesterday: { n: number; minor: number } };
@@ -976,6 +1000,7 @@ export default function UgcPage() {
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
 
       {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
+      <BrowserQueueList />
       <PaidCounter paid={data.payout_summary?.paid_konsol} own={data.payout_summary?.konsol_own_minor} need={data.payout_summary?.queue_need_minor} />
       {isAdmin && brownPayouts.length ? <div className="flex items-center gap-3">
         <button type="button" className="min-h-11 px-4 rounded-sm" style={{ border: '1px solid #7a4e25', color: '#7a4e25' }} disabled={outsideBusy} onClick={markBrownPaid}>

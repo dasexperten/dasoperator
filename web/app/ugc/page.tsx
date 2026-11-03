@@ -665,6 +665,18 @@ const PRODUCT_PILLS = 6;
 const CONTENT_ICONS = 2;
 const DEAD_LINK: ReadonlySet<LinkStatus> = new Set<LinkStatus>(['missing', 'restricted', 'invalid']);
 
+// Owner 2026-11-03: posting date for the Content column. Instagram shortcodes encode the media id, whose top bits
+// are milliseconds since Instagram's epoch (1314220021721); checked against ERP import times before shipping.
+const IG_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function instagramPostedAt(url: string | null): Date | null {
+  const code = url?.match(/instagram\.com\/(?:[^/]+\/)?(?:reel|reels|p|tv)\/([A-Za-z0-9_-]{6,})/)?.[1]?.slice(0, 11);
+  if (!code) return null;
+  let id = BigInt(0);
+  for (const ch of code) { const v = IG_ALPHABET.indexOf(ch); if (v < 0) return null; id = id * BigInt(64) + BigInt(v); }
+  const ms = Number(id >> BigInt(23)) + 1314220021721;
+  return ms > 1314220021721 && ms < Date.now() + 86_400_000 ? new Date(ms) : null;
+}
+
 function Publication({ item, href, more }: { item: ContentObservation; href: string; more: number }) {
   const kind = mediaKind(item);
   const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена';
@@ -678,9 +690,11 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   const read = item.metrics_checked_at ? ` · ${new Date(item.metrics_checked_at).toLocaleDateString('ru-RU')}` : '';
   const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}${read}`;
   // Owner 2026-11-03: the posting date, tiny italic under the icon — day one of Diana's 10 days of watching.
-  const posted = (() => { if (!item.published_at) return ''; const d = new Date(item.published_at); return Number.isNaN(d.valueOf()) ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }); })();
+  // No stored date: an Instagram link carries its own posting time (shortcode -> media id -> ms since 2011-08-24).
+  const postedAt = item.published_at ? new Date(item.published_at) : instagramPostedAt(item.content_url);
+  const posted = postedAt && !Number.isNaN(postedAt.valueOf()) ? postedAt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', ...(postedAt.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) }) : '';
   return <span className="ugc-pub" data-state={state} data-net={net || undefined}>
-    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted ? <span className="ugc-pub-date" title={`Опубликовано ${new Date(item.published_at as string).toLocaleDateString('ru-RU')}`}>{posted}</span> : null}</span>
+    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}</span>
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>

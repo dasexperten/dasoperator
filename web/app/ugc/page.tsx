@@ -392,8 +392,8 @@ function BrowserQueueList() {
         const r = await apiPost<{ removed: boolean }>('/api/ugc/browser-queue/sent', { handle: item.handle });
         setDone((prev) => ({ ...prev, [item.handle]: r.success ? 'снято с очереди' : (r.errors[0]?.message ?? 'ошибка') }));
       }}>{done[item.handle] ?? `Отправлено @${item.handle}`}</button>
-    </article>)}
-  </section>;
+    </div>)}
+  </article>;
 }
 
 // Owner 2026-10-19: «Очередь браузера · N». On a computer one button for this machine (PC or Mac);

@@ -383,9 +383,9 @@ function BrowserQueueList() {
     void apiGet<{ items: QueueItem[] }>('/api/ugc/browser-queue/items').then((r) => setItems(r.success && r.result ? r.result.items : []));
   }, []);
   if (!items) return null;
-  return <section className="ugc-bq-list" aria-label="Очередь браузера" style={{ display: 'grid', gap: 12 }}>
+  return <article className="ugc-bq-list" aria-label="Очередь браузера" style={{ display: 'grid', gap: 12 }}>
     <h2>Очередь браузера · {items.length}</h2>
-    {items.map((item) => <article key={item.handle} data-handle={item.handle} style={{ border: '1px solid var(--rule, #ccc)', padding: 12 }}>
+    {items.map((item) => <div key={item.handle} data-handle={item.handle} style={{ border: '1px solid var(--rule, #ccc)', padding: 12 }}>
       <strong>@{item.handle}</strong>
       {item.texts.map((text, i) => <p key={i} data-msg={i}>{text}</p>)}
       <button type="button" className="min-h-11 px-4" disabled={Boolean(done[item.handle])} onClick={async () => {

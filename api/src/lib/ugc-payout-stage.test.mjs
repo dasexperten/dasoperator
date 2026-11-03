@@ -77,7 +77,7 @@ test('a database failure does not break the payout write', async () => {
 test('every path that writes a payout status follows it', () => {
   const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
   const count = (text) => (text.match(/followPayoutStage\(/g) ?? []).length;
-  assert.equal(count(read('../routes/ugc.ts')), 2, 'create payout and manual status');
+  assert.equal(count(read('../routes/ugc.ts')), 3, 'create payout, manual status, paid outside the ERP');
   assert.equal(count(read('./ugc-payout-store.ts')), 3, 'markPaid, markFailed, registry link');
   assert.equal(count(read('./ig-dm-reply.ts')), 1, 'payout registered from Direct');
 });

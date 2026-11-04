@@ -114,6 +114,47 @@ async function stableId(prefix: string, input: string): Promise<string> {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
+// Owner 2026-11-04: one old card of a renamed Instagram creator folds into the card that already carries the new name.
+// Everything that hangs on the old card moves to the live one (payments, content, collaborations, payout requisites),
+// the old account name goes into the history, and the old card is removed. One transaction: if anything still points
+// at the old card (for example the same payment row on both), nothing changes.
+ugc.post('/creators/merge', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ from_creator_id?: unknown; into_creator_id?: unknown }>().catch(() => null);
+  const from = typeof body?.from_creator_id === 'string' ? body.from_creator_id : '';
+  const into = typeof body?.into_creator_id === 'string' ? body.into_creator_id : '';
+  if (!from || !into || from === into) return fail(c, 422, [{ code: 'invalid_merge', message: 'from_creator_id and into_creator_id must be two different cards' }]);
+  const db = c.env.DB;
+  const profiles = (await db.prepare('SELECT id, creator_id, platform, normalized_handle FROM ugc_creator_platforms WHERE creator_id IN (?1, ?2)').bind(from, into).all<{ id: string; creator_id: string; platform: string; normalized_handle: string }>()).results ?? [];
+  const oldProfiles = profiles.filter((p) => p.creator_id === from);
+  const target = profiles.find((p) => p.creator_id === into && p.platform === 'instagram');
+  if (!oldProfiles.length || !target) return fail(c, 404, [{ code: 'not_found', message: 'Both cards need an Instagram profile' }]);
+  if (oldProfiles.some((p) => p.platform !== 'instagram')) return fail(c, 422, [{ code: 'other_platforms', message: 'The old card has non-Instagram profiles; merge by hand' }]);
+  const now = new Date().toISOString();
+  const moved: Record<string, number> = {};
+  for (const table of ['ugc_content', 'ugc_collaborations', 'ugc_source_records', 'ugc_payouts', 'ugc_payout_requisites'] as const) {
+    const row = await db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE creator_id=?`).bind(from).first<{ n: number }>();
+    moved[table] = row?.n ?? 0;
+  }
+  const oldIds = oldProfiles.map((p) => p.id);
+  const marks = oldIds.map((_, i) => `?${i + 2}`).join(',');
+  const statements = [
+    db.prepare('UPDATE ugc_content SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    db.prepare('UPDATE ugc_collaborations SET creator_id=?1 WHERE creator_id=?2').bind(into, from),
+    db.prepare('UPDATE ugc_source_records SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    db.prepare('UPDATE ugc_payouts SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    db.prepare('UPDATE ugc_payout_requisites SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    ...oldProfiles.map((p) => db.prepare('INSERT INTO ugc_handle_history (id, creator_platform_id, platform, old_handle, new_handle, evidence, changed_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(crypto.randomUUID(), target.id, 'instagram', p.normalized_handle, target.normalized_handle, 'склейка карточек по решению владельца 2026-11-04', now)),
+    db.prepare(`DELETE FROM ugc_creator_platforms WHERE creator_id=?1 AND id IN (${marks})`).bind(from, ...oldIds),
+    db.prepare('DELETE FROM ugc_creators WHERE id=?1').bind(from),
+  ];
+  try { await db.batch(statements); }
+  catch (e) { return fail(c, 409, [{ code: 'merge_blocked', message: `Nothing changed: ${e instanceof Error ? e.message : String(e)}` }]); }
+  return ok(c, { merged_into: into, profile: target.normalized_handle, old_handles: oldProfiles.map((p) => p.normalized_handle), moved });
+});
+
 // Owner 2026-11-04: check every greyed Instagram creator for a changed account name now.
 ugc.post('/profiles/rename-check', async (c) => {
   const access = await requireAccess(c, true);

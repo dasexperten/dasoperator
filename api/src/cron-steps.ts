@@ -62,7 +62,7 @@ export const STEPS: Record<string, Step> = {
     return runAdaptiveLane(env, 'ig_dm', async (e) => {
       const read = await igDmWatch(e).catch((err) => { throw new Error(ugcStepError('read', err)); });
       const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: ugcStepError('reply', err) }));
-      await (await import('./lib/ugc-decision-options')).warmDecisionOptions(e).catch(() => 0);
+      try { await (await import('./lib/ugc-decision-options')).warmDecisionOptions(e); } catch { /* warming is best effort */ }
       const failures: string[] = [];
       if (!read.ok) failures.push(ugcStepError('read', read.error ?? 'incomplete'));
       // Escalations are business review, not execution failures. A partial

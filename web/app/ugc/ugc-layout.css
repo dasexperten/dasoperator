@@ -463,3 +463,12 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-page .ugc-profile-tools .ugc-inactive-filter input { width: 15px; height: 15px; flex: none; }
   .ugc-page .ugc-profile-tools .ugc-profile-refresh > [role="status"] { position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; padding: 4px 8px; background: var(--paper, #fff); border: 1px solid var(--fg-1); border-radius: 6px; white-space: nowrap; }
 }
+
+/* Owner 2026-11-04: refused creators sit on a light red row. Refused beats the unavailable-Instagram grey; muted ink is lifted one step for contrast on the tint. */
+.ugc-creator-row[data-stage="refused"], .ugc-creator-row[data-stage="refused"] > td { background: #FCE4E4; }
+.ugc-table tbody tr.ugc-creator-row[data-stage="refused"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stage="refused"]:hover > td, .ugc-creator-row[data-stage="refused"]:hover { background: #F9D3D3; }
+.ugc-creator-row[data-stage="refused"].ugc-creator-row-unavailable { opacity: 1; filter: none; }
+.ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--stone-500); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"], :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"] > td { background: #3A1C1E; } :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); } }
+:root[data-theme="dark"] .ugc-creator-row[data-stage="refused"], :root[data-theme="dark"] .ugc-creator-row[data-stage="refused"] > td { background: #3A1C1E; }
+:root[data-theme="dark"] .ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); }

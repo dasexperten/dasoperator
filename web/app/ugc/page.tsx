@@ -286,17 +286,34 @@ function DecisionNote({ creatorId, onSaved }: { creatorId: string; onSaved: () =
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
-  if (done) return <p className="ugc-photo-note" role="status"><strong>Решение передано Диане.</strong> Она ответит блогеру в ближайшую минуту.</p>;
+  const [done, setDone] = useState('');
+  const [options, setOptions] = useState<Array<{ title: string; detail: string; decision: string }> | null>(null);
+  // Owner 2026-11-04: ready decisions written from the blogger's own message; the press hands the decision to Diana.
+  useEffect(() => {
+    let live = true;
+    apiGet<{ options: Array<{ title: string; detail: string; decision: string }> }>(`/api/ugc/creators/${creatorId}/decision-options`)
+      .then((r) => { if (live) setOptions(r.success && r.result?.options?.length ? r.result.options : []); }).catch(() => { if (live) setOptions([]); });
+    return () => { live = false; };
+  }, [creatorId]);
+  const send = async (decision: string, label: string) => {
+    setBusy(true); setError('');
+    const r = await apiPost(`/api/ugc/creators/${creatorId}/decision`, { text: decision.trim() });
+    setBusy(false);
+    if (r.success) { setText(''); setDone(label); onSaved(); window.dispatchEvent(new Event('ugc:reload')); } else setError(r.errors?.[0]?.message ?? 'Не сохранилось');
+  };
+  if (done) return <p className="ugc-photo-note" role="status"><strong>Решение передано Диане: {done}.</strong> Она ответит блогеру в ближайшую минуту.</p>;
   return <form className="ugc-photo-note" onSubmit={async (event) => {
     event.preventDefault();
     if (!text.trim()) { setError('Напишите решение'); return; }
-    setBusy(true); setError('');
-    const r = await apiPost(`/api/ugc/creators/${creatorId}/decision`, { text: text.trim() });
-    setBusy(false);
-    if (r.success) { setText(''); setDone(true); onSaved(); window.dispatchEvent(new Event('ugc:reload')); } else setError(r.errors?.[0]?.message ?? 'Не сохранилось');
+    await send(text, 'своё решение');
   }}>
-    <label htmlFor={`decision-${creatorId}`}>Ваше решение для Дианы</label>
+    <span className="ugc-decision-head">Выберите решение, Диана ответит блогеру по нему</span>
+    {options === null ? <span className="ugc-decision-wait"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Читаю сообщение блогера…</span> : null}
+    {options?.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" disabled={busy} onClick={() => send(option.decision, option.title)}>
+      <span className="ugc-decision-n">{index + 1}</span>
+      <span className="ugc-decision-body"><strong>{option.title}</strong><span>{option.detail}</span></span>
+    </button>)}
+    <label htmlFor={`decision-${creatorId}`}>Или напишите своё решение</label>
     <textarea id={`decision-${creatorId}`} value={text} onChange={(event) => { setText(event.target.value); if (error) setError(''); }} rows={2} placeholder="Например: ссылки нет, вежливо попроси ссылку на пост" />
     <button type="submit" disabled={busy}>{busy ? 'Передаю…' : 'Передать Диане'}</button>
     {error ? <span role="alert">{error}</span> : null}

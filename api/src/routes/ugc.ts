@@ -899,6 +899,16 @@ ugc.post('/creators/:id/photo-note', async (c) => {
 
 // Owner 2026-10-19: «окно решения» — on any business exclamation mark the Owner writes his decision;
 // Diana answers the blogger by it at the next minute and the mark is lifted.
+// Owner 2026-11-04: ready decision options for a business exclamation mark, written from the blogger's own message.
+ugc.get('/creators/:id/decision-options', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const { decisionOptions } = await import('../lib/ugc-decision-options');
+  const result = await decisionOptions(c.env, c.req.param('id'));
+  if ('error' in result) return fail(c, 404, [{ code: 'not_found', message: result.error }]);
+  return ok(c, result);
+});
+
 ugc.post('/creators/:id/decision', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;

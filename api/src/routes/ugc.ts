@@ -114,11 +114,24 @@ async function stableId(prefix: string, input: string): Promise<string> {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
+// Owner 2026-11-04: check every greyed Instagram creator for a changed account name now.
+ugc.post('/profiles/rename-check', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const { checkInstagramRenames } = await import('../lib/ugc-rename-check');
+  return ok(c, await checkInstagramRenames(c.env, undefined, 50));
+});
+
 ugc.post('/profiles/refresh', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
   const body = await c.req.json<{ profile_id?: string; avatar_only?: boolean; avatar_url?: string }>().catch(() => ({} as { profile_id?: string; avatar_only?: boolean; avatar_url?: string }));
   const { refreshBloggerProfiles } = await import('../lib/ugc-blogger-profiles');
+  // Owner 2026-11-04: a greyed Instagram creator is first checked for a changed account name.
+  if (body.profile_id && body.avatar_only !== true) {
+    const grey = await c.env.DB.prepare("SELECT 1 FROM ugc_creator_platforms WHERE id=? AND platform='instagram' AND availability_status='unavailable'").bind(body.profile_id).first();
+    if (grey) { const { checkInstagramRenames } = await import('../lib/ugc-rename-check'); await checkInstagramRenames(c.env, body.profile_id, 1).catch(() => null); }
+  }
   return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2, { avatarOnly: body.avatar_only === true, ...(body.profile_id && typeof body.avatar_url === 'string' ? { avatarUrl: body.avatar_url } : {}) }));
 });
 

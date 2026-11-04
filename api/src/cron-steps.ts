@@ -46,7 +46,11 @@ function storefrontEnv(env: Env): Record<string, unknown> {
 export const STEPS: Record<string, Step> = {
   'erp-blogger-id': async (env) => {
     const { refreshBloggerProfiles } = await import('./lib/ugc-blogger-profiles');
-    return JSON.stringify(await refreshBloggerProfiles(env));
+    const profiles = await refreshBloggerProfiles(env);
+    // Owner 2026-11-04: every hour the greyed Instagram creators are checked for a changed account name.
+    const { checkInstagramRenames } = await import('./lib/ugc-rename-check');
+    const renames = await checkInstagramRenames(env).then(({ results, ...counts }) => counts).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return JSON.stringify({ ...profiles, renames });
   },
   // Owner 2026-10-16: the UGC routines are ERP workers of their own («должно быть ERP-UGC worker»).
   // Each timer fires every minute; runAdaptiveLane keeps the 3 / 15 / 30-minute rule (DH-LAW-261015-01).

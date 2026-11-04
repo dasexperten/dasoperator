@@ -351,7 +351,7 @@ ugc.get('/', async (c) => {
       // Owner 2026-11-04: ER of a publication = (likes + comments) / followers of the account, in percent.
       engagement_rate: (() => {
         const followers = followersByProfile.get(String(row.creator_platform_id));
-        if (!followers || (row.likes == null && row.comments == null)) return null;
+        if (!followers || followers < 50 || (row.likes == null && row.comments == null)) return null; // under 50 followers the follower count is not reliable
         return Math.round(((Number(row.likes ?? 0) + Number(row.comments ?? 0)) / followers) * 1000) / 10;
       })(),
       product_codes: productCodes,

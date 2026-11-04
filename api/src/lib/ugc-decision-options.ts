@@ -4,9 +4,9 @@ import { callFlash } from './llm';
 // Owner 2026-11-04: on a business exclamation mark the Owner (or Diana's manager) picks a ready decision
 // instead of typing one. The options are written from the blogger's own message; the pick is saved as the
 // decision text and Diana answers by it through the existing delivery path (Jev included).
-export type DecisionOption = { title: string; detail: string; decision: string };
+export type DecisionOption = { title: string; detail: string; decision: string; action?: 'gold' };
 
-const KEY = (cid: string) => `ig_decision_options_v3:${cid}`;
+const KEY = (cid: string) => `ig_decision_options_v4:${cid}`;
 
 const FALLBACK: DecisionOption[] = [
   { title: 'Выяснить подробности', detail: 'Мягко спросить, что именно мешает', decision: 'Ничего не обещай и не закрывай. Мягко и с теплом спроси, что именно мешает выполнить условия, и предложи вместе найти вариант.' },
@@ -25,6 +25,7 @@ function parseOptions(raw: string): DecisionSet | null {
       title: String(o?.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 48),
       detail: String(o?.detail ?? '').replace(/\s+/g, ' ').trim().slice(0, 110),
       decision: String(o?.decision ?? '').replace(/\s+/g, ' ').trim().slice(0, 480),
+      ...(o?.action === 'gold' ? { action: 'gold' as const } : {}),
     })).filter((o) => o.title && o.decision);
     const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
     return out.length >= 3 ? { summary: clean(top.summary, 110), quote: clean(top.quote, 120), options: out.slice(0, 3) } : null;
@@ -41,14 +42,15 @@ export async function decisionOptions(env: Env, creatorId: string): Promise<(Dec
   const cached = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(KEY(conv.cid)).first<{ value: string }>();
   try { const c = JSON.parse(cached?.value ?? 'null'); if (c && c.at === lastAt && Array.isArray(c.options) && c.options.length === 3) return { summary: c.summary ?? '', quote: c.quote ?? '', options: c.options, source: 'cache' }; } catch { /* regenerate */ }
 
+  const stage = (await env.DB.prepare('SELECT lifecycle_stage s FROM ugc_creators WHERE id=?1').bind(creatorId).first<{ s: string }>())?.s ?? '';
   const payouts = ((await env.DB.prepare('SELECT status, amount_minor FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 3').bind(creatorId).all<{ status: string; amount_minor: number }>()).results ?? [])
     .map((p) => `${p.status} ${Math.round(p.amount_minor / 100)} ₽`).join('; ') || 'выплат нет';
   const dialog = msgs.map((m) => `${m.direction === 'in' ? 'Блогер' : 'Мы'}: ${String(m.text ?? '[вложение]').replace(/\s+/g, ' ').slice(0, 300)}`).join('\n');
   const system = `Ты помогаешь владельцу бренда ухода за зубами быстро принять решение по блогеру из бартерной программы в Instagram. Диана, наш менеджер, потом сама напишет блогеру по выбранному решению.
-Предложи РОВНО 3 РАЗНЫХ решения, которые ведут к разным исходам (например: сохранить сотрудничество с уступкой, перенести срок, принять отказ и закрыть). Опирайся только на сообщения блогера и факты ниже, ничего не выдумывай: ни сумм, ни сроков, которых там нет, ни реквизитов. Решение по возврату денег предлагай, только если блогер сам об этом пишет.
-Ответь ТОЛЬКО JSON-объектом без пояснений: {"summary":"до 12 слов: чего хочет блогер, например Блогер просит вернуть деньги, отказывается от ролика","quote":"самая суть её слов одной короткой фразой, её словами, до 12 слов","options":[{"title":"3-5 слов, что делаем; три названия примерно одной длины","detail":"до 14 слов, что это значит","decision":"готовое указание Диане одним-двумя предложениями: что ответить блогеру и чего не делать"}]}.
+Предложи РОВНО 3 РАЗНЫХ решения, которые ведут к разным исходам (например: сохранить сотрудничество с уступкой, перенести срок, принять отказ и закрыть). Опирайся только на сообщения блогера и факты ниже, ничего не выдумывай: ни сумм, ни сроков, которых там нет, ни реквизитов. Если стадия posted (ролик вышел, условия выполнены) и блогер только благодарит или ждёт следующего предложения, первым вариантом поставь Вручить Gold с полем action равным gold и decision: тепло поблагодарить, сказать, что ей присвоен статус Gold и мы напишем с новыми предложениями; больше ни у одного варианта action не ставь. Решение по возврату денег предлагай, только если блогер сам об этом пишет.
+Ответь ТОЛЬКО JSON-объектом без пояснений: {"summary":"до 12 слов: чего хочет блогер, например Блогер просит вернуть деньги, отказывается от ролика","quote":"самая суть её слов одной короткой фразой, её словами, до 12 слов","options":[{"title":"3-5 слов, что делаем; три названия примерно одной длины","detail":"до 14 слов, что это значит","action":"gold или не писать","decision":"готовое указание Диане одним-двумя предложениями: что ответить блогеру и чего не делать"}]}.
 Никогда не называй в решении реквизиты, номера счетов, телефоны или банки и не поручай Диане их писать: если речь о возврате денег, поручи сказать, что реквизиты для возврата пришлёт ответственный сотрудник отдельным сообщением. Пиши по-русски, спокойно и без лишних слов. Кавычки в тексте не используй.`;
-  const user = `Факты по выплате: ${payouts}\n\nПереписка:\n${dialog}`;
+  const user = `Стадия блогера в ERP: ${stage}. Факты по выплате: ${payouts}\n\nПереписка:\n${dialog}`;
   let options: DecisionSet | null = null;
   try {
     const r = await callFlash([{ role: 'system', content: system }, { role: 'user', content: user }], { env, maxTokens: 700, temperature: 0.3, prefer: 'anthropic' })
@@ -74,7 +76,7 @@ export async function warmDecisionOptions(env: Env, limit = 3): Promise<number> 
       JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
     WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
       AND json_extract(state.value,'$.kind')='business' AND json_extract(state.value,'$.status')='needs_review'
-      AND NOT EXISTS (SELECT 1 FROM crm_sync_state c WHERE c.key='${'ig_decision_options_v3:'}'||latest.conversation_id AND json_extract(c.value,'$.at')=latest.at)
+      AND NOT EXISTS (SELECT 1 FROM crm_sync_state c WHERE c.key='${'ig_decision_options_v4:'}'||latest.conversation_id AND json_extract(c.value,'$.at')=latest.at)
     LIMIT ?1`).bind(limit).all<{ creator_id: string | null }>().catch(() => ({ results: [] as Array<{ creator_id: string | null }> }))).results ?? [];
   let done = 0;
   for (const r of rows) { if (!r.creator_id) continue; const out = await decisionOptions(env, r.creator_id).catch(() => null); if (out && !('error' in out)) done++; }

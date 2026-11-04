@@ -287,12 +287,12 @@ function DecisionNote({ creatorId, onSaved, compact = false }: { creatorId: stri
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
-  const [options, setOptions] = useState<Array<{ title: string; detail: string; decision: string }> | null>(null);
+  const [options, setOptions] = useState<Array<{ title: string; detail: string; decision: string; action?: string }> | null>(null);
   const [gist, setGist] = useState<{ summary: string; quote: string }>({ summary: '', quote: '' });
   // Owner 2026-11-04: ready decisions written from the blogger's own message; the press hands the decision to Diana.
   useEffect(() => {
     let live = true;
-    apiGet<{ summary?: string; quote?: string; options: Array<{ title: string; detail: string; decision: string }> }>(`/api/ugc/creators/${creatorId}/decision-options`)
+    apiGet<{ summary?: string; quote?: string; options: Array<{ title: string; detail: string; decision: string; action?: string }> }>(`/api/ugc/creators/${creatorId}/decision-options`)
       .then((r) => { if (live) setGist({ summary: r.result?.summary ?? '', quote: r.result?.quote ?? '' }); if (live) setOptions(r.success && r.result?.options?.length ? r.result.options : []); }).catch(() => { if (live) setOptions([]); });
     return () => { live = false; };
   }, [creatorId]);
@@ -311,7 +311,7 @@ function DecisionNote({ creatorId, onSaved, compact = false }: { creatorId: stri
     <span className="ugc-decision-head">{gist.summary || 'Выберите решение, Диана ответит блогеру по нему'}</span>
     {gist.quote ? <span className="ugc-decision-quote">{gist.quote}</span> : null}
     {options === null ? <span className="ugc-decision-wait"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Читаю сообщение блогера…</span> : null}
-    {options?.length ? <span className="ugc-decision-grid">{options.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" title={option.detail} disabled={busy} onClick={() => send(option.decision, option.title)}>
+    {options?.length ? <span className="ugc-decision-grid">{options.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" title={option.detail} disabled={busy} onClick={async () => { if (option.action === 'gold') { const g = await apiPatch(`/api/ugc/creators/${creatorId}`, { lifecycle_stage: 'gold' }); if (!g.success) { setError(g.errors?.[0]?.message ?? 'Gold не присвоен'); return; } } await send(option.decision, option.title); }}>
       <span className="ugc-decision-body"><strong>{option.title}</strong></span>
     </button>)}</span> : null}
     {compact ? <span className="ugc-decision-more">Своё решение — нажмите на знак</span> : <>

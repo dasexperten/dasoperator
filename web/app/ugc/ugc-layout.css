@@ -486,14 +486,19 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 /* Owner 2026-11-04: ready decisions on a business exclamation mark. Heavy weight, zero tracking, solid ink on a solid plate. */
 .ugc-decision-head { display: block; font-size: 12px; font-weight: 700; color: #1A1519; margin: 0 0 4px; letter-spacing: 0; }
 .ugc-decision-wait { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #4A4238; margin: 0 0 8px; letter-spacing: 0; }
-.ugc-decision-opt { display: block; width: 100%; text-align: left; margin: 0 0 3px; padding: 4px 8px; border: 1px solid rgba(26,21,25,.25); border-radius: 6px; background: #fff; color: #1A1519; cursor: pointer; letter-spacing: 0; }
+.ugc-decision-grid { display: grid; grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: 3px; margin: 0 0 6px; }
+.ugc-decision-quote { display: block; font-size: 11px; font-weight: 400; color: #44403C; margin: 0 0 6px; letter-spacing: 0; }
+.ugc-decision-opt { display: flex; align-items: center; width: 100%; height: 100%; text-align: left; margin: 0; padding: 4px 8px; border: 1px solid rgba(26,21,25,.25); border-radius: 6px; background: #fff; color: #1A1519; cursor: pointer; letter-spacing: 0; }
 .ugc-decision-opt:hover:not(:disabled) { border-color: #7A4E25; background: #F1E4D3; }
 .ugc-decision-opt:disabled { opacity: 1; cursor: progress; background: #F3F0E8; }
 .ugc-decision-body { display: block; min-width: 0; }
 .ugc-decision-body strong { display: inline; font-size: 12px; font-weight: 800; color: #1A1519; }
-.ugc-decision-body span { display: inline; font-size: 11px; font-weight: 600; color: #4A4238; margin: 0 0 0 6px; }
+.ugc-decision-body span { display: none; font-size: 11px; font-weight: 600; color: #4A4238; margin: 0 0 0 6px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-decision-opt { background: #2A2420; color: #FBFAF6; border-color: rgba(251,250,246,.3); } :root:not([data-theme="light"]) .ugc-decision-opt:hover:not(:disabled) { background: #3A2E22; } :root:not([data-theme="light"]) .ugc-decision-head, :root:not([data-theme="light"]) .ugc-decision-body strong { color: #FBFAF6; } :root:not([data-theme="light"]) .ugc-decision-body span, :root:not([data-theme="light"]) .ugc-decision-wait { color: #E6DDCF; } }
 :root[data-theme="dark"] .ugc-decision-opt { background: #2A2420; color: #FBFAF6; border-color: rgba(251,250,246,.3); }
 :root[data-theme="dark"] .ugc-decision-opt:hover:not(:disabled) { background: #3A2E22; }
 :root[data-theme="dark"] .ugc-decision-head, :root[data-theme="dark"] .ugc-decision-body strong { color: #FBFAF6; }
 :root[data-theme="dark"] .ugc-decision-body span, :root[data-theme="dark"] .ugc-decision-wait { color: #E6DDCF; }
+
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-decision-quote { color: #E6DDCF; } }
+:root[data-theme="dark"] .ugc-decision-quote { color: #E6DDCF; }

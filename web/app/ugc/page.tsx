@@ -288,11 +288,12 @@ function DecisionNote({ creatorId, onSaved }: { creatorId: string; onSaved: () =
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
   const [options, setOptions] = useState<Array<{ title: string; detail: string; decision: string }> | null>(null);
+  const [gist, setGist] = useState<{ summary: string; quote: string }>({ summary: '', quote: '' });
   // Owner 2026-11-04: ready decisions written from the blogger's own message; the press hands the decision to Diana.
   useEffect(() => {
     let live = true;
-    apiGet<{ options: Array<{ title: string; detail: string; decision: string }> }>(`/api/ugc/creators/${creatorId}/decision-options`)
-      .then((r) => { if (live) setOptions(r.success && r.result?.options?.length ? r.result.options : []); }).catch(() => { if (live) setOptions([]); });
+    apiGet<{ summary?: string; quote?: string; options: Array<{ title: string; detail: string; decision: string }> }>(`/api/ugc/creators/${creatorId}/decision-options`)
+      .then((r) => { if (live) setGist({ summary: r.result?.summary ?? '', quote: r.result?.quote ?? '' }); if (live) setOptions(r.success && r.result?.options?.length ? r.result.options : []); }).catch(() => { if (live) setOptions([]); });
     return () => { live = false; };
   }, [creatorId]);
   const send = async (decision: string, label: string) => {
@@ -307,11 +308,12 @@ function DecisionNote({ creatorId, onSaved }: { creatorId: string; onSaved: () =
     if (!text.trim()) { setError('Напишите решение'); return; }
     await send(text, 'своё решение');
   }}>
-    <span className="ugc-decision-head">Выберите решение, Диана ответит блогеру по нему</span>
+    <span className="ugc-decision-head">{gist.summary || 'Выберите решение, Диана ответит блогеру по нему'}</span>
+    {gist.quote ? <span className="ugc-decision-quote">{gist.quote}</span> : null}
     {options === null ? <span className="ugc-decision-wait"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Читаю сообщение блогера…</span> : null}
-    {options?.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" disabled={busy} onClick={() => send(option.decision, option.title)}>
-      <span className="ugc-decision-body"><strong>{option.title}</strong><span>{option.detail}</span></span>
-    </button>)}
+    {options?.length ? <span className="ugc-decision-grid">{options.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" title={option.detail} disabled={busy} onClick={() => send(option.decision, option.title)}>
+      <span className="ugc-decision-body"><strong>{option.title}</strong></span>
+    </button>)}</span> : null}
     <label htmlFor={`decision-${creatorId}`}>Или напишите своё решение</label>
     <textarea id={`decision-${creatorId}`} value={text} onChange={(event) => { setText(event.target.value); if (error) setError(''); }} rows={2} placeholder="Например: ссылки нет, вежливо попроси ссылку на пост" />
     <button type="submit" disabled={busy}>{busy ? 'Передаю…' : 'Передать Диане'}</button>

@@ -278,7 +278,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-stage[data-stage="ordered"] { background: var(--st-ordered); }
 .ugc-stage[data-stage="creation"] { background: var(--st-creation); }
 .ugc-stage[data-stage="posted"] { background: var(--st-posted); font-weight: 800; }
-.ugc-stage[data-stage="gold"] { background: var(--st-gold); font-weight: 700; }
+.ugc-stage[data-stage="gold"] { background: #F3DB82; color: #3D2E05; font-weight: 800; }
 .ugc-stage[data-stage="failed"], .ugc-stage[data-stage="refused"] { background: var(--st-red); }
 .ugc-stage[data-stage="rival"] { background: var(--st-rival); color: var(--st-rival-fg); }
 .ugc-stage[data-stage="fee"] { background: var(--st-fee); }
@@ -474,8 +474,8 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 :root[data-theme="dark"] .ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); }
 
 /* Owner 2026-11-04: accepted creators with no reel for more than 10 days sit on a light brown row with a day counter. */
-.ugc-creator-row[data-stalled="true"], .ugc-creator-row[data-stalled="true"] > td { background: #F1E4D3; }
-.ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover > td, .ugc-creator-row[data-stalled="true"]:hover { background: #E8D5BC; }
+.ugc-creator-row[data-stalled="true"], .ugc-creator-row[data-stalled="true"] > td { background: #F8F0E4; }
+.ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover > td, .ugc-creator-row[data-stalled="true"]:hover { background: #F1E4D1; }
 .ugc-creator-row[data-stalled="true"].ugc-creator-row-unavailable { opacity: 1; filter: none; }
 .ugc-creator-row[data-stalled="true"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--stone-500); }
 .ugc-stall-days { display: block; flex-basis: 100%; text-align: right; font-size: 12px; line-height: 16px; font-weight: 800; color: #6B4220; white-space: nowrap; letter-spacing: 0; font-variant-numeric: tabular-nums; }
@@ -513,10 +513,10 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-attn-card .ugc-decision-opt:hover:not(:disabled) { background: #F1E4D3 !important; border-color: #7A4E25 !important; }
 .ugc-attn-card .ugc-photo-note { margin: 0; }
 
-.ugc-creator-row[data-stage="gold"], .ugc-creator-row[data-stage="gold"] > td { background: #FBEFC0; }
-.ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover > td, .ugc-creator-row[data-stage="gold"]:hover { background: #F5E29A; }
+.ugc-creator-row[data-stage="gold"], .ugc-creator-row[data-stage="gold"] > td { background: #FFF8DC; }
+.ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover > td, .ugc-creator-row[data-stage="gold"]:hover { background: #FDEFB8; }
 .ugc-creator-row[data-stage="gold"].ugc-creator-row-unavailable { opacity: 1; filter: none; }
 .ugc-creator-row[data-stage="gold"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--stone-500); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"], :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"] > td { background: #3A3016; } :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); } }
-:root[data-theme="dark"] .ugc-creator-row[data-stage="gold"], :root[data-theme="dark"] .ugc-creator-row[data-stage="gold"] > td { background: #3A3016; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"], :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"] > td { background: #FFF8DC; } :root:not([data-theme="light"]) .ugc-creator-row[data-stage="gold"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); } }
+:root[data-theme="dark"] .ugc-creator-row[data-stage="gold"], :root[data-theme="dark"] .ugc-creator-row[data-stage="gold"] > td { background: #FFF8DC; }
 :root[data-theme="dark"] .ugc-creator-row[data-stage="gold"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); }

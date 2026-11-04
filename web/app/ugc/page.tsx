@@ -310,7 +310,6 @@ function DecisionNote({ creatorId, onSaved }: { creatorId: string; onSaved: () =
     <span className="ugc-decision-head">Выберите решение, Диана ответит блогеру по нему</span>
     {options === null ? <span className="ugc-decision-wait"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Читаю сообщение блогера…</span> : null}
     {options?.map((option, index) => <button key={index} type="button" className="ugc-decision-opt" disabled={busy} onClick={() => send(option.decision, option.title)}>
-      <span className="ugc-decision-n">{index + 1}</span>
       <span className="ugc-decision-body"><strong>{option.title}</strong><span>{option.detail}</span></span>
     </button>)}
     <label htmlFor={`decision-${creatorId}`}>Или напишите своё решение</label>

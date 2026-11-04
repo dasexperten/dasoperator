@@ -145,6 +145,7 @@ type Creator = {
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
+  accepted_at?: number | null;
   attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
@@ -194,6 +195,19 @@ function primaryProfile(creator: Creator, activePlatform: string): PlatformMetri
 
 function unavailableInstagram(profile: PlatformMetric): boolean {
   return profile.platform === 'instagram' && profile.availability_status === 'unavailable';
+}
+
+// Owner 2026-11-04: accepted, no reel for more than 10 days — light brown row with a day counter.
+// Clock: the latest paid payout; without one, the moment the creator entered an accepted stage.
+const ACCEPTED_STAGES = new Set(['agreed', 'cart', 'paid', 'ordered', 'creation']);
+const STALL_DAYS = 10;
+function stalledDays(creator: Creator): number | null {
+  if (!ACCEPTED_STAGES.has(creator.lifecycle_stage)) return null;
+  const paid = (creator.payouts ?? []).map((item) => (item.status === 'paid' && item.paid_at ? Date.parse(item.paid_at) : 0)).filter((ms) => ms > 0);
+  const start = paid.length ? Math.max(...paid) : creator.accepted_at ?? null;
+  if (!start) return null;
+  const days = Math.floor((Date.now() - start) / 86400000);
+  return days > STALL_DAYS ? days : null;
 }
 
 function ProfileAvailability({ profile }: { profile: PlatformMetric }) {
@@ -323,7 +337,8 @@ function GoldAward({ creator }: { creator: Creator }) {
 }
 
 function CreatorStatus({ creator }: { creator: Creator }) {
-  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} /></span>;
+  const stalled = stalledDays(creator);
+  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>{stalled} дн</span> : null}</span>;
 }
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {
@@ -1070,7 +1085,7 @@ export default function UgcPage() {
           {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
-            return <div key={creator.id} className={`ugc-mobile-row ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
+            return <div key={creator.id} className={`ugc-mobile-row ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} data-stalled={stalledDays(creator) ? 'true' : undefined} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
               <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-profile-copy"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><ProfileAvailability profile={profile} /></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCountShort(profile.followers)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
@@ -1097,7 +1112,7 @@ export default function UgcPage() {
               const name = handle ?? creator.display_name ?? 'Автор';
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
-              return <tr key={creator.id} className={`ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
+              return <tr key={creator.id} className={`ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} data-stalled={stalledDays(creator) ? 'true' : undefined} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
                 <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <span className="absolute right-1 top-1/2 -translate-y-1/2"><AttentionMark attention={creator.attention} name={name} onOpen={() => setSelectedId(creator.id)} /></span> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} chat /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>

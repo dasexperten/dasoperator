@@ -190,7 +190,7 @@ ugc.get('/', async (c) => {
     `SELECT
        c.id creator_id, c.normalized_handle creator_handle, c.display_name, c.city,
        c.category, c.audience_market, c.audience_language, c.lifecycle_stage, c.origin,
-       c.priority, c.owner, c.notes, c.archived_at, c.updated_at creator_updated_at,
+       c.priority, c.owner, c.notes, c.archived_at, c.updated_at creator_updated_at, c.accepted_at,
        p.id profile_id, p.platform, p.handle, p.profile_url, p.followers,
        p.engagement_rate, p.engagement_rate_method, p.avg_video_views,
        p.median_video_views, p.avg_comments, p.posting_cadence,
@@ -422,6 +422,7 @@ ugc.get('/', async (c) => {
       owner: row.owner,
       notes: row.notes,
       archived_at: row.archived_at,
+      accepted_at: row.accepted_at ?? null,
       updated_at: row.creator_updated_at,
       profiles: [],
       collaboration: latestCollaboration.get(creatorId) ?? null,

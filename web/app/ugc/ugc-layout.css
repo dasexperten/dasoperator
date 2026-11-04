@@ -472,3 +472,13 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"], :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"] > td { background: #3A1C1E; } :root:not([data-theme="light"]) .ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); } }
 :root[data-theme="dark"] .ugc-creator-row[data-stage="refused"], :root[data-theme="dark"] .ugc-creator-row[data-stage="refused"] > td { background: #3A1C1E; }
 :root[data-theme="dark"] .ugc-creator-row[data-stage="refused"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); }
+
+/* Owner 2026-11-04: accepted creators with no reel for more than 10 days sit on a light brown row with a day counter. */
+.ugc-creator-row[data-stalled="true"], .ugc-creator-row[data-stalled="true"] > td { background: #F1E4D3; }
+.ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stalled="true"]:hover > td, .ugc-creator-row[data-stalled="true"]:hover { background: #E8D5BC; }
+.ugc-creator-row[data-stalled="true"].ugc-creator-row-unavailable { opacity: 1; filter: none; }
+.ugc-creator-row[data-stalled="true"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--stone-500); }
+.ugc-stall-days { display: inline-block; padding: 0 5px; border-radius: var(--radius-sm); background: #7A4E25; color: #fff; font-size: 11px; line-height: 16px; font-weight: 800; white-space: nowrap; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-creator-row[data-stalled="true"], :root:not([data-theme="light"]) .ugc-creator-row[data-stalled="true"] > td { background: #33261A; } :root:not([data-theme="light"]) .ugc-creator-row[data-stalled="true"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); } }
+:root[data-theme="dark"] .ugc-creator-row[data-stalled="true"], :root[data-theme="dark"] .ugc-creator-row[data-stalled="true"] > td { background: #33261A; }
+:root[data-theme="dark"] .ugc-creator-row[data-stalled="true"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--fg-2); }

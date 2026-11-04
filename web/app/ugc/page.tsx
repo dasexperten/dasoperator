@@ -357,7 +357,7 @@ function GoldAward({ creator }: { creator: Creator }) {
 
 function CreatorStatus({ creator }: { creator: Creator }) {
   const stalled = stalledDays(creator);
-  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>{stalled} дн</span> : null}</span>;
+  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}</span>;
 }
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {

@@ -218,8 +218,12 @@ function ProfileAvailability({ profile }: { profile: PlatformMetric }) {
 
 function contentHref(value: string | null | undefined): string | null {
   if (!value) return null;
+  // Several links or stray characters in one field: use the first link; Instagram posts go to the canonical address.
+  const first = /https?:\/\/[^\s]+/i.exec(value)?.[0] ?? value;
+  const post = /^https?:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(p|reels?|tv)\/([A-Za-z0-9_-]+)/i.exec(first);
+  if (post) return `https://www.instagram.com/${post[1].toLowerCase() === 'p' ? 'p' : 'reel'}/${post[2]}/`;
   try {
-    const url = new URL(value);
+    const url = new URL(first);
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
   } catch {
     return null;

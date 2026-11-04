@@ -589,15 +589,19 @@ function AttentionMark({ attention, name, onOpen }: { attention: NonNullable<Cre
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLButtonElement | null>(null);
   const last = attention.last_in ?? [];
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keep = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
   const show = () => {
+    keep();
     const r = ref.current?.getBoundingClientRect();
     if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(window.innerWidth - 336, r.right - 320)) });
   };
-  const hide = () => setPos(null);
+  // Owner 2026-11-04: the card stays open while the cursor travels from the mark onto it, so it can be read and scrolled.
+  const hide = () => { keep(); timer.current = setTimeout(() => setPos(null), 250); };
   return <span className="ugc-attn" onMouseEnter={show} onMouseLeave={hide}>
     <button ref={ref} type="button" onClick={onOpen} onFocus={show} onBlur={hide} aria-label={`${attention.label}: ${name}`}
       className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button>
-    {pos ? createPortal(<span className="ugc-attn-card" role="tooltip" style={{ top: pos.top, left: pos.left }}>
+    {pos ? createPortal(<span className="ugc-attn-card" role="tooltip" style={{ top: pos.top, left: pos.left }} onMouseEnter={keep} onMouseLeave={hide}>
       <strong>{attention.label}</strong>
       <span className="ugc-attn-reason">{attention.reason}</span>
       {attention.kind === 'business' ? <span className="ugc-attn-head">Нажмите на знак, чтобы написать решение</span> : null}

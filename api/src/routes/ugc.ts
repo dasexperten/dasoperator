@@ -115,7 +115,7 @@ async function stableId(prefix: string, input: string): Promise<string> {
 }
 
 // Owner 2026-11-04: one old card of a renamed Instagram creator folds into the card that already carries the new name.
-// Everything that hangs on the old card moves to the live one (payments, content, collaborations, payout requisites),
+// Everything that hangs on the old card moves to the live one (payments, content, collaborations; payout requisites follow their payout),
 // the old account name goes into the history, and the old card is removed. One transaction: if anything still points
 // at the old card (for example the same payment row on both), nothing changes.
 ugc.post('/creators/merge', async (c) => {
@@ -133,7 +133,7 @@ ugc.post('/creators/merge', async (c) => {
   if (oldProfiles.some((p) => p.platform !== 'instagram')) return fail(c, 422, [{ code: 'other_platforms', message: 'The old card has non-Instagram profiles; merge by hand' }]);
   const now = new Date().toISOString();
   const moved: Record<string, number> = {};
-  for (const table of ['ugc_content', 'ugc_collaborations', 'ugc_source_records', 'ugc_payouts', 'ugc_payout_requisites'] as const) {
+  for (const table of ['ugc_content', 'ugc_collaborations', 'ugc_source_records', 'ugc_payouts'] as const) {
     const row = await db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE creator_id=?`).bind(from).first<{ n: number }>();
     moved[table] = row?.n ?? 0;
   }
@@ -144,7 +144,6 @@ ugc.post('/creators/merge', async (c) => {
     db.prepare('UPDATE ugc_collaborations SET creator_id=?1 WHERE creator_id=?2').bind(into, from),
     db.prepare('UPDATE ugc_source_records SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
     db.prepare('UPDATE ugc_payouts SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
-    db.prepare('UPDATE ugc_payout_requisites SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
     ...oldProfiles.map((p) => db.prepare('INSERT INTO ugc_handle_history (id, creator_platform_id, platform, old_handle, new_handle, evidence, changed_at) VALUES (?,?,?,?,?,?,?)')
       .bind(crypto.randomUUID(), target.id, 'instagram', p.normalized_handle, target.normalized_handle, 'склейка карточек по решению владельца 2026-11-04', now)),
     db.prepare(`DELETE FROM ugc_creator_platforms WHERE creator_id=?1 AND id IN (${marks})`).bind(from, ...oldIds),

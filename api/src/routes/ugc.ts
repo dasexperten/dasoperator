@@ -324,6 +324,8 @@ ugc.get('/', async (c) => {
     contentByCreator.set(String(row.creator_id), list);
   }
 
+  const followersByProfile = new Map<string, number>();
+  for (const row of profiles.results ?? []) if (row.profile_id && Number(row.followers) > 0) followersByProfile.set(String(row.profile_id), Number(row.followers));
   const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number; content: Record<string, unknown>[] }>();
   for (const row of metricRows.results ?? []) {
     const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -346,6 +348,12 @@ ugc.get('/', async (c) => {
       likes: row.likes,
       metrics_checked_at: row.metrics_checked_at,
       comments: row.comments,
+      // Owner 2026-11-04: ER of a publication = (likes + comments) / followers of the account, in percent.
+      engagement_rate: (() => {
+        const followers = followersByProfile.get(String(row.creator_platform_id));
+        if (!followers || (row.likes == null && row.comments == null)) return null;
+        return Math.round(((Number(row.likes ?? 0) + Number(row.comments ?? 0)) / followers) * 1000) / 10;
+      })(),
       product_codes: productCodes,
       products: productIdentity.matches.map((match) => ({ ...match, source: row.product_source ?? match.source })),
       product_labels: publicationProductLabels(row.product_evidence),

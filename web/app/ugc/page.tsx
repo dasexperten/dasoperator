@@ -733,11 +733,11 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   // No stored date: an Instagram link carries its own posting time (shortcode -> media id -> ms since 2011-08-24).
   const postedAt = item.published_at ? new Date(item.published_at) : instagramPostedAt(item.content_url);
   const posted = postedAt && !Number.isNaN(postedAt.valueOf()) ? postedAt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', ...(postedAt.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) }) : '';
-  // Owner 2026-11-04: the watch is 5 days now; Owner 2026-11-03: after the watch the ER sits inside the icon (no % sign); during it, the day under the date.
+  // Owner 2026-11-04: no day counter; ER is written from day 5, re-read until day 10, then it stays as it is. the ER sits inside the icon (no % sign); during it, the day under the date.
   const age = postedAt ? Math.floor((Date.now() - postedAt.valueOf()) / 86_400_000) + 1 : 0;
   // Only a reel whose 10 days are over carries a number; a younger one shows its day instead.
-  const er = item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age > 5) ? item.engagement_rate.toFixed(1) : '';
-  const watchDay = postedAt && !er ? age : 0;
+  const er = item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? item.engagement_rate.toFixed(1) : '';
+  const watchDay = 0;
   return <span className="ugc-pub" data-state={state} data-net={net || undefined}>
     <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
     <span className="ugc-pub-stats">

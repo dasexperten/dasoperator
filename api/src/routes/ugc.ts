@@ -589,6 +589,7 @@ ugc.post('/content/metrics', async (c) => {
   try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
   const items = Array.isArray(body.items) ? body.items : [];
   if (!items.length || items.length > 100) return fail(c, 413, [{ code: 'batch_size', message: 'Send 1 to 100 items per request' }]);
+  // Owner 2026-11-04: ER is re-read from day 5 to day 10 after posting; after the 10th day the numbers stay as they are.
   const count = (value: unknown) => (value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Math.round(Number(value)));
   const now = Date.now();
   const statements: D1PreparedStatement[] = [];
@@ -598,7 +599,8 @@ ugc.post('/content/metrics', async (c) => {
     if (!id || !checkedAt) continue;
     statements.push(c.env.DB.prepare(
       `UPDATE ugc_content SET views = COALESCE(?, views), likes = COALESCE(?, likes), comments = COALESCE(?, comments),
-              metrics_checked_at = ?, metrics_source = ?, updated_at = ? WHERE id = ?`
+              metrics_checked_at = ?, metrics_source = ?, updated_at = ? WHERE id = ?
+        AND (published_at IS NULL OR views IS NULL OR published_at >= date('now', '-10 day'))`
     ).bind(count(raw.views), count(raw.likes), count(raw.comments), checkedAt, typeof raw.source === 'string' ? raw.source.slice(0, 40) : 'platform', now, id));
   }
   if (!statements.length) return fail(c, 400, [{ code: 'no_valid_items', message: 'Each item needs id and checked_at' }]);

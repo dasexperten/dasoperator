@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { callPro } from './llm';
+import { callFlash } from './llm';
 
 // Owner 2026-11-04: on a business exclamation mark the Owner (or Diana's manager) picks a ready decision
 // instead of typing one. The options are written from the blogger's own message; the pick is saved as the
@@ -51,12 +51,32 @@ export async function decisionOptions(env: Env, creatorId: string): Promise<(Dec
   const user = `Факты по выплате: ${payouts}\n\nПереписка:\n${dialog}`;
   let options: DecisionSet | null = null;
   try {
-    const r = await callPro([{ role: 'system', content: system }, { role: 'user', content: user }], { env, maxTokens: 900, temperature: 0.3, prefer: 'anthropic' })
-      .catch(() => callPro([{ role: 'system', content: system }, { role: 'user', content: user }], { env, maxTokens: 900, temperature: 0.3 }));
+    const r = await callFlash([{ role: 'system', content: system }, { role: 'user', content: user }], { env, maxTokens: 700, temperature: 0.3, prefer: 'anthropic' })
+      .catch(() => callFlash([{ role: 'system', content: system }, { role: 'user', content: user }], { env, maxTokens: 700, temperature: 0.3 }));
     options = parseOptions(r.text);
   } catch { options = null; }
   if (!options) return { summary: 'Блогер написал, нужно решение', quote: '', options: FALLBACK, source: 'fallback' };
   await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
     .bind(KEY(conv.cid), JSON.stringify({ at: lastAt, ...options }), Date.now()).run();
   return { ...options, source: 'model' };
+}
+
+// Owner 2026-11-04: the hover card was slow because the model ran on hover. Every minute the direct lane warms the
+// options for creators whose chat waits for a business decision, so the card opens from the cache.
+export async function warmDecisionOptions(env: Env, limit = 3): Promise<number> {
+  const rows = (await env.DB.prepare(`
+    WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
+    SELECT COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
+        (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1)) creator_id,
+      latest.conversation_id cid, latest.at at
+    FROM crm_sync_state state
+      JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
+      JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
+    WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
+      AND json_extract(state.value,'$.kind')='business' AND json_extract(state.value,'$.status')='needs_review'
+      AND NOT EXISTS (SELECT 1 FROM crm_sync_state c WHERE c.key='${'ig_decision_options_v3:'}'||latest.conversation_id AND json_extract(c.value,'$.at')=latest.at)
+    LIMIT ?1`).bind(limit).all<{ creator_id: string | null }>().catch(() => ({ results: [] as Array<{ creator_id: string | null }> }))).results ?? [];
+  let done = 0;
+  for (const r of rows) { if (!r.creator_id) continue; const out = await decisionOptions(env, r.creator_id).catch(() => null); if (out && !('error' in out)) done++; }
+  return done;
 }

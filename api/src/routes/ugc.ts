@@ -118,8 +118,9 @@ async function stableId(prefix: string, input: string): Promise<string> {
 ugc.post('/profiles/rename-check', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
+  const body = await c.req.json<{ profile_id?: string }>().catch(() => ({} as { profile_id?: string }));
   const { checkInstagramRenames } = await import('../lib/ugc-rename-check');
-  return ok(c, await checkInstagramRenames(c.env, undefined, 50));
+  return ok(c, await checkInstagramRenames(c.env, body.profile_id, 50));
 });
 
 ugc.post('/profiles/refresh', async (c) => {

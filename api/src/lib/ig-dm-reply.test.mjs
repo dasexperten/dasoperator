@@ -279,7 +279,7 @@ test.skip('an older paid basket does not permit saying the new basket is paid â€
 test('context failure never calls the writer, sends, or marks handled', async()=>{
  const f=fixture();f.contextError=true;await igDmReply(f.env);
  assert.equal(f.systems.length,0);assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);
- assert.equal(incident(f).reason,'diana_context_unavailable');assert.equal(incident(f).status,'retry');
+ assert.match(incident(f).reason,/^diana_context_unavailable/);assert.equal(incident(f).status,'retry');
 });
 test.skip('JEV image outage never calls the writer or sends a stock response â€” retired: Owner 2026-10-20, the photo is read by Sonnet and a failed check never stops Diana', async()=>{
  const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture'}];f.jevImageError=true;

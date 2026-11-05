@@ -94,6 +94,25 @@ function isSimpleAcknowledgement(message: Msg): boolean {
   return words.length ? words.every((word) => ACKNOWLEDGEMENT_WORDS.has(word)) : /\p{Extended_Pictographic}/u.test(text);
 }
 
+const CONTEXT_FAILURES = 'diana_context_failures';
+async function watchContextFailures(env: Env, handle: string, detail: string): Promise<void> {
+  const now = Date.now();
+  const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(CONTEXT_FAILURES).first<{ value: string }>();
+  let list: { at: number; h: string; d: string }[] = [];
+  try { list = JSON.parse(row?.value ?? '[]'); } catch { list = []; }
+  list = [...list.filter((x) => now - x.at < 30 * 60_000), { at: now, h: handle, d: detail }].slice(-10);
+  await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+    .bind(CONTEXT_FAILURES, JSON.stringify(list), now).run();
+  if (list.length < 3) return;
+  const { handToMina } = await import('./mina-alert');
+  const hour = new Date(now).toISOString().slice(0, 13);
+  await handToMina(env, `mina_alert:diana_context:${hour}`, [
+    `ERP: Диана не может ответить блогерам — ${list.length} сбоев за 30 минут на шаге загрузки её правил и навыков.`,
+    `Последние: ${list.slice(-3).map((x) => `@${x.h}: ${x.d}`).join(' | ')}`,
+    'Найди причину и почини. Кнопки оплаты ERP ставит сам по реквизитам, но ответы блогерам стоят.',
+  ].join('\n'));
+}
+
 /** One awaiting payout per blogger; an existing open row is reused. */
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
   const now = Date.now();
@@ -484,7 +503,14 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       prepared = await prepareDianaContext({ task: context,
         githubToken: (env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '',
         infer: subscriptionInfer(env, 'context') });
-    } catch { await failStep('diana_context_unavailable'); continue; }
+    } catch (error) {
+      // Owner 2026-11-06: «why erp check didn't work» — the cause was swallowed. Keep it, and three failures
+      // in 30 minutes go to Mina at once instead of waiting for someone to notice by eye.
+      const detail = String((error as Error)?.message ?? error).replace(/^diana_context_unavailable:\s*/, '').slice(0, 140);
+      await failStep(`diana_context_unavailable: ${detail}`);
+      await watchContextFailures(env, w.h, detail).catch(() => undefined);
+      continue;
+    }
     const scenarioTextPolicy = textOnlyScenario ? '\nДОСТАВКА В ЭТОМ ОТВЕТЕ: только текст, изображения отправлены не будут; send_cards=false. Это ограничение текущей доставки уточняет общее правило send_cards=true выше. Ответь на последнее сообщение по существу. Если блогер просит идею, объясни один подходящий утверждённый сценарий обычными словами прямо в тексте. Не объявляй и не обещай карточки или четыре варианта, не проси их номер и не утверждай, что они уже доставлены. Не рассказывай блогеру о внутренних проверках или техническом ограничении.' : '';
     const system = `${prepared.system}\n\n${SCENARIO_RULES}\n\n${JSON_SPEC}\nРегистрируй реквизиты только для текущей неоплаченной корзины. Уже исполненную выплату повторно не создавай. Верни законченный JSON, reason до 80 знаков. ${state?.at === w.t ? `Предыдущий ответ отклонён: ${state.reason}. Исправь формулировку; не обещай оплату.` : ''}${scenarioTextPolicy}`;
     let screenshots;

@@ -72,3 +72,85 @@ Existing `angela_article_queue`, `org_task_runs.exported_at`, `Social/angela/off
 ## Rollback of this preparation
 
 Do not import this module from a production entrypoint. Keep both flags off. Historical data stays where it is. If a later isolated rehearsal is stopped, retain its manifest and objects for audit; there is no deletion script. After any future live cutover, turning a flag off alone is not a safe rollback: first reconcile records and external outcomes and preserve delivery locks before any old writer is re-enabled.
+
+## Nightly observations and destination receipts
+
+The detached `nightly-archive-receipt-adapter.mjs` validates a real organizacia
+nightly export observation against an independently held source checkpoint,
+then connects existing capture/store to `export-destination-ledger.mjs`. The
+separate ledger schema records verified archive destinations without changing
+source exported_at/distilled_at markers or dashboard counts. Both require explicit
+pilot-only configuration; neither is imported by a production Worker. See
+`NIGHTLY-ARCHIVE-RECEIPT-ADAPTER.md` and `EXPORT-DESTINATION-LEDGER.md`.
+
+The source exporter seam is inactive and local to the organization preparation.
+Timeout or interrupted capture is unknown; explicit identical archive-only replay
+must never repeat Git, outreach or publication. A complete archive result covers
+only that selected observation, not all history or cutover readiness. Deleted or
+newer source records remain historical and are never recreated. Current Diana
+manual review, stage and original-channel rules remain authoritative in Git.
+
+Production checkpoint provenance, durable event/result retention, runtime lifetime
+management and live authorization remain unresolved integration gates.
+
+## Clarified Sheets-to-ERP boundary
+
+The user clarified that preliminary contact/comments remain in the existing
+Google Sheet; after a blogger response plus a deliberate substantive-discussion
+decision, the case and subsequent work belong in ERP. A response alone is not a
+transfer or an agreed stage. `hybrid-outreach-planner.mjs` is a detached, disabled
+metadata-only planner for that distinction, exact identities, manual stage and
+blocking conditions. It has no transfer, source write, classifier, schema or
+action API. Every result prohibits cutover and live writes. See
+HYBRID-OUTREACH-PLANNER.md and the bounded header-only notebook observation.
+
+The real notebook currently lacks explicit stable case and substantive-decision
+columns; existing mapping values and completeness remain unverified. Do not
+automatically generate live cases from handles, row positions or response cells.
+Source-system policy and counters must be reconciled before any active change.
+
+## Handoff recovery and identity observation
+
+`handoff-recovery.mjs` is explicitly Node-only local bookkeeping with permanent
+source-case fences and append-only outcome assertions. It cannot create a card or
+write to Sheets. Independent-connection and reopen tests establish local SQLite
+consistency only. See HANDOFF-RECOVERY.md.
+
+`handoff-identity.mjs` is default-off and resolves only supplied metadata. It
+preserves actual IDs through explicit aliases, rejects ambiguous/cyclic histories
+and stage conflicts, and retains restrictive authority flags. Non-Instagram
+purge/deletion semantics currently fail closed. Neither a resolved identity nor an
+absent observation authorizes creation or reinvitation. See HANDOFF-IDENTITY.md.
+
+ERP-HANDOFF-CONTRACT.md records the pinned existing API limitations;
+MIGRATION-READINESS.md lists the remaining production prerequisites and rollback
+boundary. No live handoff or source switch is implemented by these modules.
+
+## Detached atomic handoff candidate
+
+`atomic-handoff.mjs` adds an unmounted, default-off service/endpoint tested against
+synthetic local workerd D1 tables. It requires a trusted source/authority verifier
+with no production implementation. Transaction guards retain exact source-case
+identity, actual IDs and manual stages; response loss never authorizes a fresh
+case. Native tests include actual late-trigger rollback, strict readback and a
+shared asynchronous deadline. See ATOMIC-HANDOFF.md for its synthetic boundary.
+Do not deploy its permissive fixture.
+
+`erp-handoff-persistence.mjs` connects that unchanged service to the real pinned
+UGC table definitions in a separate local fixture. Sixteen checks, including
+fifteen native D1 tests, verify actual IDs, preserved existing fields, stale
+manual/alias state rejection, late rollback and exact replay. Twelve further
+tests extract the unchanged cleanup selector from verified source. Enforced
+identity references roll back a stale cleanup batch, but would also block
+legitimate legacy merges/deletions, so this is not a drop-in migration. Real
+qualification/source verification, complete deletion history, deployed-schema
+validation and monotonic manual revisions remain missing. See
+ERP-HANDOFF-PERSISTENCE.md and ERP-PURGE-CONTRACT.md. No live route is mounted.
+
+The subsequent bounded alternative composes explicit manual-record revision
+enrollment and versioned live mapping with permanent source-case history. It
+exercises exact known merge and current-eligible purge paths, rejects stale cleanup
+and known retired-identity reuse, and preserves survivors and dependent data.
+Source authentication, actual writer placement, complete deletion coverage and
+isolated rollout remain unfinished. See MANUAL-STAGE-REVISION.md,
+ERP-REMAP-INTEGRATION.md and INTEGRATION-PATH.md for the tested path and its limits.

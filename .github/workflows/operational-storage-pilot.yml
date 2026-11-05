@@ -34,8 +34,19 @@ jobs:
             pilots/operational-storage/capture.test.mjs \
             pilots/operational-storage/memory-head.test.mjs \
             pilots/operational-storage/reconciliation.test.mjs \
+            pilots/operational-storage/export-destination-ledger.test.mjs \
+            pilots/operational-storage/nightly-archive-receipt-adapter.test.mjs \
+            pilots/operational-storage/hybrid-outreach-planner.test.mjs \
+            pilots/operational-storage/handoff-recovery.test.mjs \
+            pilots/operational-storage/handoff-recovery.file.test.mjs \
+            pilots/operational-storage/handoff-identity.test.mjs \
+            pilots/operational-storage/atomic-handoff.test.mjs \
+            pilots/operational-storage/erp-purge-contract.test.mjs \
+            pilots/operational-storage/erp-handoff.test.mjs \
+            pilots/operational-storage/manual-stage-revision.test.mjs \
             workers/_social/article-service.test.mjs
       - name: Explain integration boundary
         run: |
           echo 'Diana cross-repository parser fixtures are optional locally and skipped here.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Native D1/R2 and handoff suites require the explicit isolated local runtime; their optional tests are skipped in this package-free job.' >> "$GITHUB_STEP_SUMMARY"
           echo 'No Cloudflare bindings, production source state, credentials or publisher are used.' >> "$GITHUB_STEP_SUMMARY"

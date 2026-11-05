@@ -1,7 +1,8 @@
 # Opt-in Cloudflare runtime rehearsal
 
 This is an isolated synthetic test harness, not a Worker entrypoint for deployment.
-It executes the unchanged `store.mjs`, `capture.mjs` and `memory-head.mjs` inside official Cloudflare
+It executes the unchanged `store.mjs`, `capture.mjs`, `memory-head.mjs`, `export-destination-ledger.mjs`
+and `nightly-archive-receipt-adapter.mjs` inside official Cloudflare
 workerd through Miniflare, using actual local D1 and R2 APIs. It creates no remote
 Cloudflare resources, bindings, routes or deployments and reads no source records.
 
@@ -68,8 +69,9 @@ Node SQLite/fake-R2 unit checks remain independently runnable.
 7. Git blob SHA1 plus SHA256, required independent source verification and exact
    pinned provenance inside actual workerd.
 8. Queue version, baseline, unknown/publishing outcomes, approvals, opaque payloads
-   and export/distillation markers remain inert archived bytes. No source tables
-   or publisher APIs are created and the store/capture calls attempt no egress.
+   and export/distillation markers remain inert archived bytes. Store/capture
+   creates no source tables or publisher APIs and attempts no egress; a later
+   preservation test explicitly creates guarded synthetic source-table sentinels.
 9. Candidate-head schema/view and multiline SQL guards run on actual D1. Direct
    UPDATE/DELETE abort; duplicate version/request identity REPLACE is ignored with
    zero changes. A test barrier forces both racing requests to reach native INSERT
@@ -95,9 +97,28 @@ Node SQLite/fake-R2 unit checks remain independently runnable.
     Both INSERT and staged-read barriers share only plain flags/counters. Each
     waiting request polls with its own local awaited timer, respecting workerd's
     request-scoped Promise ownership without compatibility overrides.
-15. The Node egress guard and Worker outbound interception are tested explicitly.
+15. The destination receipt schema and append-only triggers execute in native D1:
+    UPDATE/DELETE abort, and both REPLACE identity conflicts preserve the receipt.
+    Concurrent nightly observations and exact replay preserve one manifest/receipt
+    per row and retain unknown status, approvals and opaque source fields as bytes.
+16. Native manifest/receipt commit followed by a lost response stays explicitly
+    partial-or-unknown, leaves later rows unattempted, and reconciles on exact replay.
+    An injected native SQL AFTER INSERT abort leaves no receipt; retry reuses the
+    archived manifest without repeating source actions.
+17. Independent synthetic checkpoint/current-observation tables back the nightly
+    verifier and ledger projection. Missing/off flags, missing/denied nightly auth,
+    or a mismatching checkpoint cannot write archive state. Export/distillation
+    markers remain independent of content parity, and corrupt R2 fails closed.
+18. Write-guarded synthetic source/queue sentinels and a delivery lock are unchanged
+    after nightly observation and replay. A synthetic UGC do-not-contact purge
+    marker remains present and deleted creator/relationship sentinels remain empty.
+    No real purge implementation or operational data is imported or executed.
+19. The Node egress guard and Worker outbound interception are tested explicitly.
 
-Schema loading here splits only at the two reviewed schemas' top-level CREATE
+The complete opt-in suite currently has 36 tests, including seven destination
+ledger/nightly-adapter tests. Native fixtures use only synthetic records.
+
+Schema loading here splits only at the three reviewed schemas' top-level CREATE
 statements. It is not a generic SQL parser or a production migration mechanism.
 Do not split trigger bodies on semicolons or feed individual physical lines to
 D1 `exec`.

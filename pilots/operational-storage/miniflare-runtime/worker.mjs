@@ -2,6 +2,8 @@
 import { createPilotStore } from '../store.mjs';
 import { createOperationalCapture } from '../capture.mjs';
 import { createMemoryHead } from '../memory-head.mjs';
+import { createExportDestinationLedger } from '../export-destination-ledger.mjs';
+import { createNightlyArchiveReceiptAdapter } from '../nightly-archive-receipt-adapter.mjs';
 
 // Keep only plain state across requests. Every waiter creates and awaits its own
 // timer in its current workerd request context; no request resolves another
@@ -72,10 +74,15 @@ export default {
           if (!pausedRead && matches) { pausedRead = true; await afterNativeRead(barrier.id, barrier.stage); }
           return result;
         },
+        all(...args) { return native.all(...args); },
         async run(...args) {
+          const isReceipt = sql.includes('INSERT INTO pilot_export_destination_receipts');
+          const isManifest = sql.includes('INSERT INTO pilot_operational_manifests');
+          if (isReceipt && input.receiptFault === 'before-commit') throw Error('synthetic_receipt_before_commit');
           const isHead = sql.includes('INSERT INTO pilot_working_memory_transitions');
           if (isHead) { counts.headWrites++; await beforeHeadInsert(input.headBarrier); }
           const result = await native.run(...args);
+          if ((isReceipt && input.receiptFault === 'after-commit') || (isManifest && input.manifestFault === 'after-commit')) throw Error('synthetic_response_lost_after_commit');
           if (isHead && input.headFault === 'after-commit') throw Error('synthetic_response_lost_after_commit');
           return result;
         },
@@ -106,9 +113,28 @@ export default {
       };
       const heads = createMemoryHead({ config: input.config, db, store, authorize: headAuthorize,
         now: () => new Date('2026-11-05T07:00:00Z') });
+      const ledger = createExportDestinationLedger({ config: input.config, db, store,
+        authorize: input.ledgerAuth === 'missing' ? undefined : async () => input.ledgerAuth !== 'deny',
+        readCurrentSource: async ({ namespace, agent, table, sourceRowId }) => {
+          const row = await db.prepare('SELECT body FROM synthetic_current_source WHERE namespace = ? AND agent = ? AND source_table = ? AND row_id = ?')
+            .bind(namespace, agent, table, sourceRowId).first();
+          return row ? new TextEncoder().encode(row.body) : null;
+        }, now: () => new Date('2026-11-05T08:00:00Z') });
+      const nightly = createNightlyArchiveReceiptAdapter({ config: input.config, capture, ledger,
+        authorize: input.nightlyAuth === 'missing' ? undefined : async () => input.nightlyAuth !== 'deny',
+        verifySnapshot: async ({ namespace, snapshotSha256 }) => {
+          // A separate Node-side fixture registered this checkpoint before observe.
+          // The observe request cannot supply the verifier's answer.
+          const row = await db.prepare('SELECT checkpoint FROM synthetic_nightly_checkpoints WHERE namespace = ? AND hash = ?')
+            .bind(namespace, snapshotSha256).first();
+          return row ? JSON.parse(row.checkpoint) : null;
+        } });
       let result;
       const bytes = input.bytes === undefined ? undefined : new Uint8Array(input.bytes);
       switch (input.operation) {
+        case 'observeNightly': result = await nightly.observe(input.event); break;
+        case 'recordReceipt': result = await ledger.recordReceipt(input.receiptRequest); break;
+        case 'projectCurrent': result = await ledger.projectCurrent(input.sourceRequest); break;
         case 'import': result = await store.importSnapshot(input.descriptor, bytes); break;
         case 'read': {
           result = await store.readSnapshot(input.agent, input.id);

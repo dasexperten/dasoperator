@@ -53,6 +53,14 @@ describe('isolated Miniflare/workerd D1/R2 contract', {
     assert.equal(headStatements.length, 5);
     assert.ok(headStatements.every(s => /^CREATE (?:TABLE|VIEW|TRIGGER)\b/.test(s)));
     await db.batch(headStatements.map(sql => db.prepare(sql)));
+    const receiptSchema = await readFile(new URL('./export-destination-ledger.schema.sql', import.meta.url), 'utf8');
+    const receiptStatements = receiptSchema.replace(/^\s*--.*$/gm, '').split(/(?=^CREATE (?:TABLE|TRIGGER)\b)/m).map(s => s.trim()).filter(Boolean);
+    assert.equal(receiptStatements.length, 4);
+    assert.ok(receiptStatements.every(s => /^CREATE (?:TABLE|TRIGGER)\b/.test(s)));
+    await db.batch(receiptStatements.map(sql => db.prepare(sql)));
+    await db.prepare('CREATE TABLE synthetic_nightly_checkpoints (namespace TEXT, hash TEXT, checkpoint TEXT, PRIMARY KEY(namespace, hash))').run();
+    await db.prepare('CREATE TABLE synthetic_current_source (namespace TEXT, agent TEXT, source_table TEXT, row_id INTEGER, body TEXT, PRIMARY KEY(namespace, agent, source_table, row_id))').run();
+
   });
   after(async () => { if (mf) await mf.dispose(); });
 
@@ -613,6 +621,190 @@ describe('isolated Miniflare/workerd D1/R2 contract', {
     const sourceTables = await db.prepare("SELECT name FROM sqlite_master WHERE name IN ('angela_article_queue','org_task_runs','agent_chat_messages','ugc_creators')").all();
     assert.deepEqual(sourceTables.results, []);
     assert.equal(outboundAttempts, 0, 'Head transitions did not attempt any external action');
+  });
+
+  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+  const nightlyTask = (id = 1, more = {}) => ({ id, agent_slug: 'diana-helios', task_id: 'synthetic-task',
+    due_date: '2026-11-05', status: 'unknown', exported_at: null, title: 'Synthetic joined title', ...more });
+  async function nightlyEvent(namespace, rows = [nightlyTask()], sourceTable = 'org_task_runs') {
+    const rowsJson = JSON.stringify(canonical(rows)), agent = rows[0].agent_slug;
+    const event = { namespace, sourceTable, agent, rows: JSON.parse(rowsJson), rowsJson,
+      observedAt: '2026-11-05T10:00:00.000Z',
+      snapshotSha256: digest(JSON.stringify({ namespace, sourceTable, agent, rowsJson })),
+      selection: sourceTable === 'org_task_runs' ? 'pending_runs_join_task_title' : 'oldest_500_undistilled_chat_projection' };
+    const checkpoint = { namespace, agent, sourceTable, selection: event.selection, rowsJson };
+    await db.prepare('INSERT INTO synthetic_nightly_checkpoints VALUES (?, ?, ?)').bind(namespace, event.snapshotSha256, JSON.stringify(checkpoint)).run();
+    return event;
+  }
+  const observe = (event, more = {}) => invoke({ operation: 'observeNightly', config: settings(event.namespace), event, ...more });
+  async function receiptRows(namespace) {
+    return (await db.prepare('SELECT * FROM pilot_export_destination_receipts WHERE namespace = ? ORDER BY source_row_id').bind(namespace).all()).results;
+  }
+  async function currentSource(event, row) {
+    await db.prepare('INSERT OR REPLACE INTO synthetic_current_source VALUES (?, ?, ?, ?, ?)')
+      .bind(event.namespace, event.agent, event.sourceTable, row.id, JSON.stringify(row)).run();
+  }
+  const project = event => invoke({ operation: 'projectCurrent', config: settings(event.namespace),
+    sourceRequest: { agent: event.agent, table: event.sourceTable, sourceRowId: event.rows[0].id } });
+
+  test('native nightly receipt replay and concurrent observations retain exact archive bytes and one receipt', async () => {
+    const event = await nightlyEvent('pilot-mf-nightly-replay', [nightlyTask(1, { approved: true, delivery: 'publishing', future: { opaque: 'Точный текст' } })]);
+    const results = await Promise.all([observe(event), observe(event)]);
+    assert.ok(results.every(result => result.status === 'complete'));
+    const replay = await observe({ ...event, observedAt: '2026-11-06T10:00:00.000Z' });
+    assert.equal(replay.rows[0].captureReplay, true);
+    assert.equal(replay.rows[0].receiptReplay, true);
+    assert.equal(replay.cutoverReady, false);
+    assert.equal(replay.sourceActionsRepeated, false);
+    assert.equal(replay.archiveCompleteness, 'captured-export-observation-only');
+    assert.equal((await receiptRows(event.namespace)).length, 1);
+    assert.equal(await rowCount(event.namespace), 1);
+    const archived = await invoke({ operation: 'read', config: settings(event.namespace), agent: event.agent, id: replay.rows[0].manifestId });
+    assert.deepEqual(archived.bytes, [...encode(JSON.stringify(event.rows[0]))]);
+    assert.equal(archived.manifest.archive_only, 1);
+    assert.deepEqual(JSON.parse((await receiptRows(event.namespace))[0].source_status_json), { present: true, value: 'unknown' });
+  });
+
+  test('native receipt triggers reject UPDATE/DELETE and ignore both REPLACE identity conflicts', async () => {
+    const event = await nightlyEvent('pilot-mf-receipt-schema');
+    await observe(event);
+    const [row] = await receiptRows(event.namespace), keys = Object.keys(row);
+    for (const sql of ['UPDATE pilot_export_destination_receipts SET source_content_bytes = 0 WHERE namespace = ?',
+      'DELETE FROM pilot_export_destination_receipts WHERE namespace = ?']) {
+      await assert.rejects(db.prepare(sql).bind(event.namespace).run(), /append_only_receipt/);
+    }
+    for (const changed of [{ ...row, source_sha256: 'f'.repeat(64) }, { ...row, receipt_id: 'f'.repeat(64) }]) {
+      const result = await db.prepare(`INSERT OR REPLACE INTO pilot_export_destination_receipts (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
+        .bind(...keys.map(key => changed[key])).run();
+      assert.equal(result.meta.changes, 0);
+      assert.deepEqual(await receiptRows(event.namespace), [row]);
+    }
+  });
+
+  test('native nightly commit-response loss stays partial unknown and exact replay reconciles without duplicated rows', async () => {
+    for (const [fault, receiptCount, manifestCount] of [['manifestFault', 0, 1], ['receiptFault', 1, 1]]) {
+      const event = await nightlyEvent(`pilot-mf-nightly-lost-${fault.toLowerCase()}`, [nightlyTask(), nightlyTask(2)]);
+      const first = await observe(event, { [fault]: 'after-commit' });
+      assert.equal(first.status, 'partial-or-unknown');
+      assert.equal(first.rows[0][fault === 'manifestFault' ? 'capture' : 'receipt'], 'unknown');
+      assert.equal(first.rows[1].capture, 'not-attempted');
+      assert.equal(first.rows[1].receipt, 'not-attempted');
+      assert.equal((await receiptRows(event.namespace)).length, receiptCount);
+      assert.equal(await rowCount(event.namespace), manifestCount);
+      const retried = await observe(event);
+      assert.equal(retried.status, 'complete');
+      assert.equal(retried.rows[0].captureReplay, true);
+      if (fault === 'receiptFault') assert.equal(retried.rows[0].receiptReplay, true);
+      assert.equal((await receiptRows(event.namespace)).length, 2);
+      assert.equal(await rowCount(event.namespace), 2);
+    }
+  });
+
+  test('native nightly receipt SQL abort is partial unknown and later replay repairs archive bookkeeping only', async () => {
+    const event = await nightlyEvent('pilot-mf-nightly-abort', [nightlyTask(), nightlyTask(2)]);
+    await db.prepare(`CREATE TRIGGER synthetic_receipt_abort AFTER INSERT ON pilot_export_destination_receipts
+      WHEN NEW.namespace = '${event.namespace}' BEGIN SELECT RAISE(ABORT, 'synthetic_receipt_abort'); END;`).run();
+    try {
+      const first = await observe(event);
+      assert.equal(first.status, 'partial-or-unknown');
+      assert.equal(first.rows[0].capture, 'verified');
+      assert.equal(first.rows[0].receipt, 'unknown');
+      assert.equal(first.rows[1].capture, 'not-attempted');
+      assert.deepEqual(await receiptRows(event.namespace), []);
+      assert.equal(await rowCount(event.namespace), 1);
+    } finally { await db.prepare('DROP TRIGGER synthetic_receipt_abort').run(); }
+    const retried = await observe(event);
+    assert.equal(retried.status, 'complete');
+    assert.equal(retried.rows[0].captureReplay, true);
+    assert.equal(retried.rows[0].receiptReplay, false);
+    assert.equal((await receiptRows(event.namespace)).length, 2);
+  });
+
+  test('native projections separate export and distillation markers from archive content and reject corrupt R2', async () => {
+    for (const [table, row, marker] of [
+      ['org_task_runs', nightlyTask(), 'exported_at'],
+      ['agent_chat_messages', { id: 1, agent_slug: 'angela', role: 'assistant', channel: 'synthetic', content: 'Opaque approval is inert', meta: '{"approved":true,"delivery":"unknown"}' }, 'distilled_at'],
+    ]) {
+      const event = await nightlyEvent(`pilot-mf-marker-${table.replaceAll('_', '-')}`, [row], table);
+      const result = await observe(event);
+      await currentSource(event, row);
+      const initial = await project(event);
+      assert.equal(initial.archiveState, 'current-content-archived');
+      assert.equal(initial.legacyGitExport.state, 'legacy-marker-absent');
+      await currentSource(event, { ...row, [marker]: 'synthetic-legacy-marker' });
+      const marked = await project(event);
+      assert.equal(marked.archiveState, 'current-content-archived');
+      assert.equal(marked.legacyGitExport.state, 'legacy-marker-present');
+      assert.equal(marked.legacyGitExport.deliveryVerified, false);
+      assert.equal(marked.cutoverReady, false);
+      assert.equal(marked.consistentDatabaseBackupVerified, false);
+      await currentSource(event, { ...row, future: 'new observed field', [marker]: 'synthetic-legacy-marker' });
+      assert.equal((await project(event)).archiveState, 'historical-only');
+      const [receipt] = await receiptRows(event.namespace);
+      await bucket.put(receipt.archive_object_key, 'synthetic corruption');
+      await assert.rejects(project(event), /object_integrity_failure/);
+      const replay = await observe(event);
+      assert.equal(replay.status, 'partial-or-unknown');
+      assert.equal(replay.rows[0].capture, 'unknown');
+      assert.equal((await receiptRows(event.namespace)).length, 1);
+      assert.equal(result.rows[0].receipt, 'verified');
+    }
+  });
+
+  test('native nightly defaults and checkpoint mismatch fail closed before archive writes', async () => {
+    const event = await nightlyEvent('pilot-mf-nightly-guards');
+    for (const more of [{ config: undefined }, { config: settings(event.namespace, { 'diana-helios': 'off' }) },
+      { nightlyAuth: 'missing' }, { nightlyAuth: 'deny' }]) {
+      const response = await failure({ operation: 'observeNightly', config: settings(event.namespace), event, ...more }, /pilot_disabled|access_denied/);
+      assert.equal(response.counts.prepare + response.counts.get + response.counts.put, 0);
+    }
+    await db.prepare('UPDATE synthetic_nightly_checkpoints SET checkpoint = ? WHERE namespace = ?')
+      .bind(JSON.stringify({ namespace: event.namespace, agent: event.agent, sourceTable: event.sourceTable, selection: event.selection, rowsJson: '[]' }), event.namespace).run();
+    await failure({ operation: 'observeNightly', config: settings(event.namespace), event }, /snapshot_not_independently_verified/);
+    assert.equal(await rowCount(event.namespace), 0);
+    assert.deepEqual(await receiptRows(event.namespace), []);
+    assert.deepEqual((await bucket.list({ prefix: event.namespace })).objects, []);
+  });
+
+  test('native nightly observation leaves source markers, queue, purge exclusions and delivery locks untouched', async () => {
+    const event = await nightlyEvent('pilot-mf-nightly-inert');
+    const source = JSON.stringify(nightlyTask()), queue = '{"version":42,"initializedAt":1720000000000,"seen":["historical"],"articles":[{"status":"unknown","approved":true,"delivery":"publishing"}]}';
+    const lockKey = 'Social/angela/offers/synthetic-nightly/main.json', lock = '{"status":"unknown","postId":"synthetic-remote"}';
+    const purgedTables = ['ugc_creators', 'synthetic_deleted_creator_platforms',
+      'synthetic_deleted_handle_history', 'synthetic_deleted_collaborations'];
+    const purgeKey = 'ugc_purged:instagram:synthetic-retired-creator';
+    const purgeValue = '{"reason":"synthetic-do-not-contact","purged_at":"2026-11-05T09:00:00Z"}';
+    // These minimal sentinels represent retained exclusion intent and absent rows,
+    // not a replica of the live schema or a test of the actual cleanup job.
+    await db.prepare('CREATE TABLE crm_sync_state (key TEXT PRIMARY KEY, value TEXT)').run();
+    await db.prepare('INSERT INTO crm_sync_state VALUES (?, ?)').bind(purgeKey, purgeValue).run();
+    for (const table of purgedTables) await db.prepare(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, body TEXT)`).run();
+    for (const table of ['crm_sync_state', ...purgedTables]) {
+      for (const action of ['INSERT', 'UPDATE', 'DELETE']) await db.prepare(`CREATE TRIGGER synthetic_no_${action}_${table} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT, 'purge_exclusion_write_forbidden'); END;`).run();
+    }
+    // Synthetic source sentinels are not adapter bindings. Every write would abort.
+    await db.prepare('CREATE TABLE org_task_runs (id INTEGER PRIMARY KEY, body TEXT)').run();
+    await db.prepare('CREATE TABLE agent_chat_messages (id INTEGER PRIMARY KEY, body TEXT)').run();
+    await db.prepare('CREATE TABLE angela_article_queue (id INTEGER PRIMARY KEY, body TEXT)').run();
+    try {
+      for (const [table, body] of [['org_task_runs', source], ['agent_chat_messages', '{"distilled_at":null}'], ['angela_article_queue', queue]]) {
+        await db.prepare(`INSERT INTO ${table} VALUES (1, ?)`).bind(body).run();
+        for (const action of ['INSERT', 'UPDATE', 'DELETE']) await db.prepare(`CREATE TRIGGER synthetic_no_${action}_${table} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT, 'source_write_forbidden'); END;`).run();
+      }
+      await bucket.put(lockKey, lock);
+      assert.equal((await observe(event)).status, 'complete');
+      assert.equal((await observe(event)).rows[0].receiptReplay, true);
+      for (const [table, body] of [['org_task_runs', source], ['agent_chat_messages', '{"distilled_at":null}'], ['angela_article_queue', queue]]) {
+        assert.deepEqual((await db.prepare(`SELECT * FROM ${table}`).all()).results, [{ id: 1, body }]);
+      }
+      assert.deepEqual((await db.prepare('SELECT * FROM crm_sync_state').all()).results, [{ key: purgeKey, value: purgeValue }]);
+      for (const table of purgedTables) assert.deepEqual((await db.prepare(`SELECT * FROM ${table}`).all()).results, []);
+      assert.equal(await (await bucket.get(lockKey)).text(), lock);
+      assert.equal(outboundAttempts, 0);
+    } finally {
+      for (const table of ['org_task_runs', 'agent_chat_messages', 'angela_article_queue', 'crm_sync_state', ...purgedTables]) await db.prepare(`DROP TABLE ${table}`).run();
+    }
   });
 
   test('test-only network guards reject Node egress and intercept Worker fetch without network', async () => {

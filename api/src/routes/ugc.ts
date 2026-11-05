@@ -651,11 +651,11 @@ ugc.post('/import', async (c) => {
     const normalizedHandle = normalizeHandle(row.handle);
     if (!normalizedHandle) { rejected += 1; continue; }
     const platform = normalizePlatform(row.platform);
-    // Owner 2026-11-05: a Shopee blogger is in the ERP only once a dialogue with her has started
-    // (she agreed, the specifics are being discussed). A scouting row alone creates no card.
-    if (platform === 'shopee') {
-      const shopeeId = await stableId('ugc', `${platform}:${normalizedHandle}`);
-      const known = await c.env.DB.prepare(`SELECT lifecycle_stage FROM ugc_creators WHERE id = ?1`).bind(shopeeId).first<{ lifecycle_stage: string }>();
+    // Owner 2026-11-05: a blogger on any platform other than Instagram is in the ERP only after she agreed
+    // to work with us (specifics are being discussed). A scouting row alone creates no card.
+    if (platform !== 'instagram') {
+      const knownId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+      const known = await c.env.DB.prepare(`SELECT lifecycle_stage FROM ugc_creators WHERE id = ?1`).bind(knownId).first<{ lifecycle_stage: string }>();
       if (!known || !DIALOGUE_STAGES.has(String(known.lifecycle_stage ?? ''))) { rejected += 1; continue; }
     }
     // A matching handle on two platforms is not proof of one person. Keep a

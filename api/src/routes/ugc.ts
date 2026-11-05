@@ -106,6 +106,8 @@ function normalizePlatform(value: unknown): string {
   if (raw.includes('lazada')) return 'lazada';
   if (raw.includes('facebook')) return 'facebook';
   if (raw.includes('telegram')) return 'telegram';
+  // Owner 2026-11-05: Threads has its own outreach and round; its cards carry platform threads.
+  if (raw.includes('threads')) return 'threads';
   if (raw.includes('youtube')) return 'youtube';
   return 'other';
 }

@@ -3,52 +3,55 @@ import { createPilotStore } from '../store.mjs';
 import { createOperationalCapture } from '../capture.mjs';
 import { createMemoryHead } from '../memory-head.mjs';
 
-// A local barrier forces competing synthetic requests to reach their native D1
-// INSERT before either commits. It does not emulate D1 or modify adapter code.
+// Keep only plain state across requests. Every waiter creates and awaits its own
+// timer in its current workerd request context; no request resolves another
+// request's Promise or inherits a Promise created by a completed control request.
+async function waitForState(predicate, timeout, error) {
+  const deadline = Date.now() + timeout;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw Error(error);
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+
+// Force both contenders to finish native reads and reach the native D1 INSERT
+// before either commits. These counters coordinate the test, not a fake D1 engine.
 const barriers = new Map();
 async function beforeHeadInsert(id) {
   if (!id) return;
   let barrier = barriers.get(id);
   if (!barrier) {
-    let release;
-    const promise = new Promise(resolve => { release = resolve; });
-    barrier = { count: 0, promise, release };
+    barrier = { arrived: 0, departed: 0, released: false };
     barriers.set(id, barrier);
   }
-  if (++barrier.count === 2) { barriers.delete(id); barrier.release(); }
-  let timer;
+  barrier.arrived++;
+  if (barrier.arrived === 2) barrier.released = true;
   try {
-    await Promise.race([barrier.promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('synthetic_barrier_timeout')), 3000); })]);
-  } finally { clearTimeout(timer); }
+    await waitForState(() => barrier.released, 3000, 'synthetic_barrier_timeout');
+  } finally {
+    barrier.departed++;
+    if (barrier.departed === barrier.arrived) barriers.delete(id);
+  }
 }
 
-// Deterministic stale-read schedules for exact idempotency regressions. Native
-// D1 first() completes before the request is paused; another request then commits.
+// Native D1 first() completes before the request pauses. The control requests
+// only observe/set flags; polling Promises and timers never enter this map.
 const stagedReads = new Map();
 function readGate(id) {
   let gate = stagedReads.get(id);
   if (!gate) {
-    let arrive, release;
-    const arrived = new Promise(resolve => { arrive = resolve; });
-    const released = new Promise(resolve => { release = resolve; });
-    gate = { arrived, released, arrive, release, reached: false };
+    gate = { reached: false, released: false, stage: null };
     stagedReads.set(id, gate);
   }
   return gate;
-}
-async function bounded(promise) {
-  let timer;
-  try {
-    return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('synthetic_read_barrier_timeout')), 5000); })]);
-  } finally { clearTimeout(timer); }
 }
 async function afterNativeRead(id, stage) {
   const gate = readGate(id);
   gate.reached = true;
   gate.stage = stage;
-  gate.arrive();
-  try { await bounded(gate.released); }
-  finally { stagedReads.delete(id); }
+  try {
+    await waitForState(() => gate.released, 5000, 'synthetic_read_barrier_timeout');
+  } finally { stagedReads.delete(id); }
 }
 
 export default {
@@ -116,13 +119,13 @@ export default {
         case 'captureGithubFile': result = await capture.captureGithubFile(input.metadata, bytes); break;
         case 'awaitHeadRead': {
           const gate = readGate(input.headReadBarrier.id);
-          await bounded(gate.arrived);
+          await waitForState(() => gate.reached, 5000, 'synthetic_read_barrier_timeout');
           result = { reached: gate.reached, stage: gate.stage }; break;
         }
         case 'releaseHeadRead': {
           const gate = readGate(input.headReadBarrier.id);
           if (!gate.reached) throw Error('synthetic_read_not_paused');
-          gate.release(); result = { released: true }; break;
+          gate.released = true; result = { released: true }; break;
         }
         case 'advanceHead': result = await heads.advanceHead(input.headRequest); break;
         case 'rollbackHead': result = await heads.rollbackHead(input.headRequest); break;

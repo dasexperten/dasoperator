@@ -11,6 +11,7 @@ This package rehearses the storage boundary for Diana and Angela. GitHub remains
 - `config.example.json`: independent exact-agent flags, both off. Only `off` and `shadow` exist. No primary mode.
 - `store.test.mjs`: Node SQLite plus in-memory R2 tests. No Cloudflare account or credentials required.
 - `capture.mjs`: observer-side writer adapters for Git files, allowed D1 records and evidence. No source write callbacks or source-state updates.
+- Its pure `classifyGithubSourcePath` export shares the exact archival path policy with the optional organization write router. Classification performs no I/O and does not grant authorization, establish provenance or approve a write. The router applies stricter write-path and queue/approval exclusions.
 - `capture.test.mjs`: byte/ID/status preservation and existing reader-contract integration with synthetic data.
 - `no-network.mjs`: Node-only optional test preload that blocks unmocked network traffic.
 - `miniflare-runtime/` and `miniflare.test.mjs`: opt-in official local workerd rehearsal with actual local D1/R2 APIs, pinned dependencies, no account or remote resources. See its README for the separate command and isolation limits.

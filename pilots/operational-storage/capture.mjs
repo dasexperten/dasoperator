@@ -39,6 +39,11 @@ function sourcePath(path,agent) {
       || parts.slice(1).some(p=>p.startsWith('.') || SENSITIVE_OR_RULES.test(p))) fail('source_path_requires_review');
   return /\.(?:jpg|jpeg|png|webp|svg|pdf)$/i.test(path) ? 'evidence' : 'operational-record';
 }
+/** Pure shared path policy; no verification, authorization or storage I/O. */
+export function classifyGithubSourcePath(path,agent) {
+  if (!PILOT_AGENTS.includes(agent)) fail('unsupported_agent');
+  return sourcePath(path,agent);
+}
 function originalGithubUrl(repository,commit,path) {
   return `https://github.com/${repository}/blob/${commit}/${path.split('/').map(p=>encodeURIComponent(p).replace(/[!'()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join('/')}`;
 }

@@ -11,8 +11,12 @@ From the repository root with Node 24 (the validated version):
 
 ```sh
 npm ci --prefix pilots/operational-storage/miniflare-runtime
-npm test --prefix pilots/operational-storage/miniflare-runtime
+node pilots/operational-storage/miniflare-runtime/run.mjs
 ```
+
+The equivalent `npm test --prefix pilots/operational-storage/miniflare-runtime`
+script remains available. Direct Node invocation avoids npm update-notifier
+checks and unrelated npm configuration warnings during offline test runs.
 
 The install needs npm registry access and downloads the official local runtime.
 The test run needs no internet, account, login, token or Cloudflare credentials.
@@ -88,6 +92,9 @@ Node SQLite/fake-R2 unit checks remain independently runnable.
     current-head read, commit an identical concurrent call, then release. Advances,
     fences and rollbacks reconcile as exact replay with no extra INSERT. Reused
     request IDs with changed targets and corrupted historical bytes still fail.
+    Both INSERT and staged-read barriers share only plain flags/counters. Each
+    waiting request polls with its own local awaited timer, respecting workerd's
+    request-scoped Promise ownership without compatibility overrides.
 15. The Node egress guard and Worker outbound interception are tested explicitly.
 
 Schema loading here splits only at the two reviewed schemas' top-level CREATE

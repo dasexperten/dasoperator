@@ -1,0 +1,9 @@
+{
+  "name": "erp-pilot-miniflare-runtime",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in synthetic local workerd D1/R2 tests; never deployed",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node run.mjs" },
+  "devDependencies": { "miniflare": "4.20260730.0" }
+}

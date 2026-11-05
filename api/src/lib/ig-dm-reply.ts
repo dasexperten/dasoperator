@@ -267,6 +267,11 @@ export async function registerTextRequisites(env: Env): Promise<number> {
   for (const { h, texts } of byConv.values()) {
     const found = detectRequisites(texts);
     if (!found) continue;
+    // Owner 2026-11-06 (fatima_massage26, natali_matrysovaa): a blogger with ANY payout in the last 60 days —
+    // paid included — never gets a second one from text. Only a first payment is opened here.
+    const prior = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE lower(handle)=?1 AND created_at > ?2`)
+      .bind(h, Date.now() - 60 * 86_400_000).first<{ n: number }>();
+    if (Number(prior?.n ?? 0) > 0) continue;
     try { if (await registerPayout(env, h, found, 'Сумма не подтверждена: впишите сумму корзины (только паста) перед оплатой')) made++; }
     catch { /* next minute tries again */ }
   }

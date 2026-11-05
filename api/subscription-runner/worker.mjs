@@ -15,9 +15,12 @@ export class CodexRunner extends Container {
   if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}
   const encrypted=await this.ctx.storage.get('auth');if(!encrypted)return Response.json({error:'subscription_auth_not_seeded'},{status:503});
   const auth=await unseal(encrypted,this.env.AUTH_KEY);
-  const response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);
-  if(!response.ok)return Response.json({error:'native_runner_unavailable'},{status:503});
+  // Owner 2026-11-06: every call leaves one log line (operation, model, wait, run time, outcome) so an outage has a cause on record.
+  const t0=Date.now();const log=(outcome,extra={})=>console.log(JSON.stringify({diana_runner:true,op:body.operation,model:body.model,req:String(body.requestId).slice(0,24),run_ms:Date.now()-t0,outcome,...extra}));
+  let response;try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);}catch(e){log('container_fetch_threw',{error:String(e?.message??e).slice(0,200)});throw e;}
+  if(!response.ok){log('container_http_'+response.status);return Response.json({error:'native_runner_unavailable'},{status:503});}
   const result=await response.json();
+  log(result.error?'error':'ok',result.error?{error:result.error,diagnostic:result.diagnostic}:{});
   // Persist native refresh before returning. Never expose the credential to callers.
   if(result.auth)await this.ctx.storage.put('auth',await seal(result.auth,this.env.AUTH_KEY));
   delete result.auth;

@@ -10,6 +10,7 @@
 import type { Env } from './types';
 import { salesPeriod, historicalCampaigns, mergeCpc, echoedPeriodMatches } from './lib/ozon-perf-period';
 import { runInboxIngestion } from './lib/inbox-ingestion';
+import { runUgcSilentPurge } from './lib/ugc-silent-purge';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
@@ -569,6 +570,14 @@ export async function handleScheduled(
       console.log(`[cron:bank-statements] complete: ${JSON.stringify(bankStats)}`);
     } catch (e) { recordFailure(e);
       console.error('[cron:bank-statements] failed:', e);
+    }
+
+    // Owner 2026-11-05: Instagram bloggers silent for a week after Diana wrote are deleted (not archived).
+    try {
+      const purge = await runUgcSilentPurge(env);
+      console.log(`[cron:ugc-silent-purge] deleted ${purge.deleted}`);
+    } catch (e) { recordFailure(e);
+      console.error('[cron:ugc-silent-purge] failed:', e);
     }
 
     // Reconcile (00:40, erp-inbox-reconcile) and marketplace FIFO (00:50, erp-marketplace-fifo)

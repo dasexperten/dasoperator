@@ -249,7 +249,31 @@ export async function holdOpenPayouts(env: Env, creatorId: string, why: string):
   return open.length;
 }
 
+/** Owner 2026-11-06: «ERP had to put immediately the brown button». An independent pass over every conversation
+ * of the last 3 days, before any reply gate (retry waits, reviews, attachment refresh, Diana's context): complete
+ * requisites in the blogger's own messages after our last message register the payout at once. */
+export async function registerTextRequisites(env: Env): Promise<number> {
+  const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const rows = ((await env.DB.prepare(
+    `WITH lo AS (SELECT conversation_id cid, MAX(created_at) t FROM ugc_ig_messages WHERE direction='out' GROUP BY 1)
+     SELECT m.conversation_id cid, LOWER(m.from_username) h, m.text FROM ugc_ig_messages m LEFT JOIN lo ON lo.cid=m.conversation_id
+      WHERE m.direction='in' AND m.from_username IS NOT NULL AND m.created_at>=?1 AND (lo.t IS NULL OR m.created_at>lo.t)
+      ORDER BY m.conversation_id, m.created_at`
+  ).bind(since).all<{ cid: string; h: string; text: string | null }>()).results ?? []);
+  const byConv = new Map<string, { h: string; texts: string[] }>();
+  for (const r of rows) { const c = byConv.get(r.cid) ?? { h: r.h, texts: [] }; c.texts.push(r.text ?? ''); byConv.set(r.cid, c); }
+  let made = 0;
+  for (const { h, texts } of byConv.values()) {
+    const found = detectRequisites(texts);
+    if (!found) continue;
+    try { if (await registerPayout(env, h, found, 'Сумма не подтверждена: впишите сумму корзины (только паста) перед оплатой')) made++; }
+    catch { /* next minute tries again */ }
+  }
+  return made;
+}
+
 export async function igDmReply(env: Env, options: { batchClock?: () => number } = {}): Promise<{ replied: number; escalated: number; errors: number; deferred: number }> {
+  await registerTextRequisites(env).catch(() => 0);
   const batchClock = options.batchClock ?? Date.now;
   const batchStarted = batchClock();
   const now = Date.now();

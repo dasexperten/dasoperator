@@ -18,7 +18,7 @@
 import PostalMime from 'postal-mime';
 import { archiveEmail } from './inbox-archive';
 import type { MailAuth } from './inbox-archive';
-import { isOwnerGmailOnly, OWNER_PERSONAL_ADDRESS, OWNER_GMAIL_FORWARD } from './mailbox-registry';
+import { isOwnerGmailOnly, OWNER_PERSONAL_ADDRESS, OWNER_GMAIL_FORWARD, routeInboundRecipient } from './mailbox-registry';
 import type { Env } from '../types';
 import { forwardWorkspaceInbound } from './workspace-forward';
 
@@ -124,9 +124,14 @@ export async function handleInboundEmail(
   // routed to us (matches how `sent` records key on the From address).
   const mailbox = (message.to || '').trim().toLowerCase();
 
+  // Owner 2026-11-05: decide on the BASE address. A tagged reply
+  // (eurasia+t9spx8@) reaches us through the catch-all; looking the tagged
+  // string up as-is made every such letter an "unknown address".
+  const route = routeInboundRecipient(mailbox);
+
   // Owner personal → Gmail only (CF Email Routing forward). If a catch-all
   // or mis-rule still delivers here, drop without R2 archive.
-  if (isOwnerGmailOnly(mailbox) || mailbox === OWNER_PERSONAL_ADDRESS) {
+  if (route.action === 'owner_only' || isOwnerGmailOnly(mailbox) || mailbox === OWNER_PERSONAL_ADDRESS) {
     console.log(
       JSON.stringify({
         scope: 'email-inbound',
@@ -137,6 +142,18 @@ export async function handleInboundEmail(
         from: message.from,
       }),
     );
+    return;
+  }
+
+  // An address nobody owns: keep the Owner-2026-10-03 behaviour of the
+  // catch-all (Gmail only, no archive) so junk does not grow R2 folders.
+  if (route.action === 'forward_only') {
+    try {
+      await message.forward(OWNER_GMAIL_FORWARD);
+    } catch (err) {
+      console.log(JSON.stringify({ scope: 'email-inbound', success: false, mailbox, stage: 'unknown-address-forward', error: err instanceof Error ? err.message : String(err) }));
+    }
+    console.log(JSON.stringify({ scope: 'email-inbound', success: true, skipped: 'unknown_address_gmail_only', mailbox, from: message.from }));
     return;
   }
 

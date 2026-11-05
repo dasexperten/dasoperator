@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { findMailbox, isOwnerGmailOnly, OWNER_GMAIL_FORWARD } from './mailbox-registry';
+import { findMailbox, isOwnerGmailOnly, OWNER_GMAIL_FORWARD, routeInboundRecipient } from './mailbox-registry';
 
 const WORKSPACE_DESTINATION = 'sales@dasexperten.com.test-google-a.com';
 
@@ -7,7 +7,8 @@ const WORKSPACE_DESTINATION = 'sales@dasexperten.com.test-google-a.com';
  * enter this path. Personal mail and unknown/catch-all addresses stay separate. */
 export async function forwardWorkspaceInbound(message: ForwardableEmailMessage, env: Env): Promise<boolean> {
   const recipient = message.to.trim().toLowerCase();
-  const canonical = findMailbox(recipient)?.address || recipient;
+  const base = routeInboundRecipient(recipient).base;
+  const canonical = findMailbox(base)?.address || base;
   const enabled = (env.GOOGLE_WORKSPACE_FORWARD_MAILBOXES || '').split(',').map(a => a.trim().toLowerCase());
   if (!enabled.includes(canonical) || isOwnerGmailOnly(recipient)) return false;
   if (!canonical.endsWith('@dasexperten.com')) throw new Error('Workspace forwarding recipient is not configured');

@@ -151,6 +151,41 @@ export function findMailbox(address: string): MailboxDef | undefined {
   );
 }
 
+/**
+ * Owner 2026-11-05 (Magnit letters lost): a reply to a tagged Reply-To
+ * (eurasia+t9spx8@) matches no literal Cloudflare rule, falls into the
+ * catch-all and reaches this Worker with the tag still on the address.
+ * Every registry lookup must therefore run on the BASE address, otherwise a
+ * tagged letter to a real box looks like an unknown address.
+ *
+ *   owner_only   - Owner personal box (with or without tag): Gmail only, no R2.
+ *   archive      - a company box we own (base address or alias is in the
+ *                  registry, inbound "worker"): copy to Gmail AND archive,
+ *                  attachments included.
+ *   forward_only - an address nobody owns (junk, retired, no seat): Gmail only,
+ *                  as the catch-all always did (Owner 2026-10-03).
+ */
+export type InboundAction = 'owner_only' | 'archive' | 'forward_only';
+
+export function routeInboundRecipient(address: string): { base: string; tag?: string; action: InboundAction } {
+  const addr = (address || '').trim().toLowerCase();
+  const at = addr.lastIndexOf('@');
+  let base = addr;
+  let tag: string | undefined;
+  if (at > 0) {
+    const local = addr.slice(0, at);
+    const plus = local.indexOf('+');
+    if (plus > 0) {
+      base = `${local.slice(0, plus)}@${addr.slice(at + 1)}`;
+      tag = local.slice(plus + 1).trim() || undefined;
+    }
+  }
+  const def = findMailbox(base);
+  if (base === OWNER_PERSONAL_ADDRESS || def?.inbound === 'forward_gmail') return { base, tag, action: 'owner_only' };
+  if (def && def.inbound === 'worker') return { base, tag, action: 'archive' };
+  return { base, tag, action: 'forward_only' };
+}
+
 /** True when inbound must not land in R2 (Owner Gmail-only path). */
 export function isOwnerGmailOnly(address: string): boolean {
   const def = findMailbox(address);

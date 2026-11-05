@@ -452,7 +452,7 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
     }
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
-      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? (failedSide(p.konsol_error) === 'bank' ? `failed (банк блогера отказал: ${String(p.konsol_error).slice(0, 120)})` : 'failed (не прошёл с нашей стороны; банк блогера ни при чём — не говори, что банк отклонил, не проси другой банк)') : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
+      ? payouts.map((p) => `${p.amount_minor <= UNCONFIRMED_MINOR ? 'СУММА НЕ ПОДТВЕРЖДЕНА — прочитай сумму корзины на фото блогера и верни её в requisites.amount_rub вместе с реквизитами' : `${Math.round(p.amount_minor / 100)} ₽`} — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? (failedSide(p.konsol_error) === 'bank' ? `failed (банк блогера отказал: ${String(p.konsol_error).slice(0, 120)})` : 'failed (не прошёл с нашей стороны; банк блогера ни при чём — не говори, что банк отклонил, не проси другой банк)') : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
       : 'выплат нет';
     // Owner 2026-10-21 (zhuldiz_maratkyzy_official: card number instead of a phone, Diana wrote «как только перевод
     // пройдёт, напишем» with no payout row): ERP tells Diana plainly whether a transfer is registered at all.
@@ -593,7 +593,9 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart, ownerDecided: Boolean(ownerDecision) });
       // mari.d_w 2026-10-18: a payout is already open — repeated requisites are not a new registration
       // and must never stop the conversation (the surname check blocked her for 15 minutes).
-      if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) out.requisites = null;
+      // Owner 2026-11-06: a payout the ERP opened from text without a sum (UNCONFIRMED_MINOR) does NOT count here —
+      // Diana's reading with the cart sum must reach registerPayout, which writes the sum into that row.
+      if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status) && p.amount_minor > UNCONFIRMED_MINOR)) out.requisites = null;
       if (out.requisites && !seenRequisites) seenRequisites = { ...out.requisites };
       if (textOnlyScenario) {
         out.sendCards = false;

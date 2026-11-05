@@ -5,7 +5,7 @@ SELECT 'ig_owner_decision:' || cid,
        json_object('at', t, 'text', 'Корзина 429 ₽ подтверждена, идём к оплате. Заказ через подругу подходит: пусть подруга оформит заказ на Ozon и оставит отзыв со своего аккаунта. Попроси для перевода номер телефона, банк и имя получателя.', 'by', 'Aram (via Claude)'),
        CAST(strftime('%s','now') AS INTEGER) * 1000
   FROM (SELECT conversation_id cid, MAX(created_at) t FROM ugc_ig_messages
-         WHERE conversation_id = (SELECT conversation_id FROM ugc_ig_messages WHERE lower(from_username)='balovay' LIMIT 1))
+         WHERE conversation_id = (SELECT conversation_id FROM ugc_ig_messages WHERE lower(from_username)='balovay' LIMIT 1)) WHERE 1
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
 DELETE FROM crm_sync_state WHERE key = 'ig_reply_escalated:' || (SELECT conversation_id FROM ugc_ig_messages WHERE lower(from_username)='balovay' LIMIT 1);
 UPDATE ugc_creators SET lifecycle_stage = 'cart', updated_at = CAST(strftime('%s','now') AS INTEGER) * 1000

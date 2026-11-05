@@ -98,16 +98,16 @@ function isSimpleAcknowledgement(message: Msg): boolean {
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
   const now = Date.now();
   const { cid, pid } = await ensureCreator(env, handle);
-  // Owner 2026-11-06: a payout the minute check registered without an amount gets Diana's amount once she reads the cart.
-  if (r.amount_minor > UNCONFIRMED_MINOR) {
-    const blank = await env.DB.prepare(`SELECT id FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved') AND amount_minor=?2 AND konsol_payment_id IS NULL LIMIT 1`).bind(cid, UNCONFIRMED_MINOR).first<{ id: string }>();
-    if (blank) {
-      await env.DB.prepare(`UPDATE ugc_payouts SET amount_minor=?2, product=COALESCE(?3, product), updated_at=?4 WHERE id=?1`).bind(blank.id, r.amount_minor, r.product, now).run();
-      return true;
-    }
-  }
   const open = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved','sent')`).bind(cid).first<{ n: number }>();
-  if (Number(open?.n ?? 0) > 0) return false;
+  if (Number(open?.n ?? 0) > 0) {
+    // Owner 2026-11-06: a payout the minute check registered without an amount gets Diana's amount once she reads the cart.
+    if (r.amount_minor > UNCONFIRMED_MINOR) {
+      await env.DB.prepare(`UPDATE ugc_payouts SET amount_minor=?2, product=COALESCE(?3, product), updated_at=?4
+        WHERE creator_id=?1 AND status IN ('awaiting_approval','approved') AND amount_minor=?5 AND konsol_payment_id IS NULL`)
+        .bind(cid, r.amount_minor, r.product, now, UNCONFIRMED_MINOR).run();
+    }
+    return false;
+  }
   const id = crypto.randomUUID();
   const day = new Date(now + 4 * 3_600_000).toISOString().slice(0, 10);
   const masked = `${r.phone.slice(0, 5)}*****${r.phone.slice(-2)}`;

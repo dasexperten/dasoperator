@@ -32,3 +32,10 @@ test('incomplete requisites register nothing', () => {
 test('Abkhazia numbers stay refused', () => {
   assert.equal(detectRequisites(['+79401234567 Сбер Анна']), null);
 });
+
+test('e_zulia.20 01.11: surname first, then name and patronymic', () => {
+  const r = detectRequisites(['Реквизиты \n89280000072-Асварова Зульфия Хелифовна  Сбербанк']);
+  assert.equal(r.first_name, 'Зульфия');
+  assert.equal(r.patronymic, 'Хелифовна');
+  assert.equal(r.last_name, 'Асварова');
+});

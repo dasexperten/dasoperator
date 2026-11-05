@@ -250,10 +250,11 @@ export async function holdOpenPayouts(env: Env, creatorId: string, why: string):
 }
 
 /** Owner 2026-11-06: «ERP had to put immediately the brown button». An independent pass over every conversation
- * of the last 3 days, before any reply gate (retry waits, reviews, attachment refresh, Diana's context): complete
+ * of the last 14 days, before any reply gate (retry waits, reviews, attachment refresh, Diana's context): complete
  * requisites in the blogger's own messages after our last message register the payout at once. */
 export async function registerTextRequisites(env: Env): Promise<number> {
-  const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  // Owner 2026-11-06: «the ERP has to check all» — two weeks back, not three days.
+  const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const rows = ((await env.DB.prepare(
     `WITH lo AS (SELECT conversation_id cid, MAX(created_at) t FROM ugc_ig_messages WHERE direction='out' GROUP BY 1)
      SELECT m.conversation_id cid, LOWER(m.from_username) h, m.text FROM ugc_ig_messages m LEFT JOIN lo ON lo.cid=m.conversation_id

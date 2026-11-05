@@ -6,6 +6,7 @@ import type { Env } from '../types';
 import { readReplyState } from './ig-dm-reply-state.mjs';
 import { handToMina } from './mina-alert';
 import { sendOwnerTelegram } from './owner-telegram';
+import { askOwnerIncident } from './ugc-hard-question';
 
 const HOUR = 3_600_000;
 const GATE = 'incident_control:last';
@@ -23,7 +24,7 @@ export async function incidentControl(env: Env, now = Date.now()): Promise<strin
     FROM crm_sync_state s JOIN latest ON s.key='ig_reply_escalated:'||latest.cid
     JOIN ugc_ig_messages w ON w.conversation_id=latest.cid AND w.created_at=latest.at AND w.direction='in'
     WHERE json_valid(s.value) AND json_extract(s.value,'$.at')=latest.at`).all<{ key: string; value: string; cid: string; last_in: string | null }>()).results ?? [];
-  let mina = 0; const owner: string[] = [];
+  let mina = 0; let asked_n = 0; const owner: string[] = [];
   for (const r of rows) {
     const st = readReplyState(r.value);
     if (!st || now - Date.parse(st.at) < HOUR) continue;
@@ -39,9 +40,14 @@ export async function incidentControl(env: Env, now = Date.now()): Promise<strin
     } else {
       const once = await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO NOTHING`)
         .bind(`owner_alert:incident:${id}`, st.reason, now).run().catch(() => null);
-      if ((once?.meta?.changes ?? 0) === 1) owner.push(`@${st.handle}: ${st.reason.slice(0, 140)}. Последнее: ${(r.last_in ?? '').slice(0, 120)}`);
+      if ((once?.meta?.changes ?? 0) === 1) {
+        // Owner 2026-11-05: every decision reaches the Owner as its own question with buttons; plain text only as a fallback.
+        const asked = await askOwnerIncident(env, { cid: r.cid, handle: st.handle, at: st.at }, st.reason, r.last_in ?? '').catch(() => false);
+        if (!asked) owner.push(`@${st.handle}: ${st.reason.slice(0, 140)}. Последнее: ${(r.last_in ?? '').slice(0, 120)}`);
+        else asked_n++;
+      }
     }
   }
   if (owner.length) await sendOwnerTelegram(env, [`Диана ждёт вашего решения больше часа (${owner.length}):`, ...owner.map((l) => `• ${l}`), 'Подробно: https://erp.dasexperten.com/ugc'].join('\n'), 'diana-helios').catch(() => false);
-  return `incident control: ${rows.length} open, Mina ${mina}, Owner ${owner.length}`;
+  return `incident control: ${rows.length} open, Mina ${mina}, Owner asked ${asked_n}, plain ${owner.length}`;
 }

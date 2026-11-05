@@ -87,3 +87,26 @@ export async function answerHardQuestion(env: Env, messageId: number, choice: st
   await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`ig_reply_escalated:${q.cid}`).run();
   return { handled: true, note: `Отправила @${q.handle}:\n${parts.join('\n')}` };
 }
+
+// Owner 2026-11-05: «Где мультиопцион?» — an open incident waiting for the Owner (Diana does not know what to
+// answer) also comes with buttons. The tap goes through answerHardQuestion: the button carries the decision,
+// Diana writes the words in her voice and sends them to the blogger.
+export function incidentAnswers(): Record<string, string[] | null> {
+  return {
+    'Ответить по смыслу': ['Ответь блогеру по смыслу её последних сообщений, по правилам программы и её текущему этапу.',
+      'Если она назвала день публикации ролика — коротко подтверди этот день и поблагодари. Если она получила товар — порадуйся вместе с ней и спроси, когда ждать ролик.'],
+    'Напомнить о ролике': ['Коротко и тепло напомни о ролике и попроси назвать день публикации.'],
+    [SELF]: null,
+  };
+}
+
+export async function askOwnerIncident(env: Env, w: { cid: string; handle: string; at: string }, reason: string, lastIn: string): Promise<boolean> {
+  const options = incidentAnswers();
+  const text = `Диана ждёт вашего решения по @${w.handle}.\n\nПричина: ${reason.slice(0, 200)}\n\nОна пишет:\n${lastIn.slice(0, 600)}\n\nВыберите действие — слова Диана напишет сама своим голосом.\n\nhttps://erp.dasexperten.com/ugc?search=${encodeURIComponent(w.handle)}`;
+  const messageId = await sendOwnerQuestion(env, text, Object.keys(options));
+  if (messageId == null) return false;
+  const q: Question = { cid: w.cid, handle: w.handle, at: w.at, options };
+  await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(QUESTION_KEY(messageId), JSON.stringify(q), Date.now()).run();
+  return true;
+}

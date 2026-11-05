@@ -63,8 +63,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           SUB_TOKEN: ${{ secrets.CLOUDFLARE_SUBSCRIPTION_TOKEN }}
         run: |
-          (timeout 120 npx wrangler tail dasoperator-api --format json > api.log 2>&1 || true) &
-          (CLOUDFLARE_API_TOKEN="$SUB_TOKEN" timeout 120 npx wrangler tail diana-subscription-runner --format json > sub.log 2>&1 || true) &
+          (timeout 240 npx wrangler tail dasoperator-api --format json > api.log 2>&1 || true) &
+          (timeout 240 npx wrangler tail diana-subscription-runner --format json > sub.log 2>&1 || true) &
           wait
           for f in api.log sub.log; do
             echo "===== $f"; python3 - "$f" <<'PY'

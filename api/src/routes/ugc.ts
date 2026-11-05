@@ -15,6 +15,8 @@ import { identifySourceProductNames, payoutProductRecords, publicationProductLab
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
+// Owner 2026-11-05: stages where a dialogue about specifics is already going.
+const DIALOGUE_STAGES = new Set(['agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold']);
 const UGC_STAGES = new Set([
   '', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold',
   'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner',
@@ -649,6 +651,13 @@ ugc.post('/import', async (c) => {
     const normalizedHandle = normalizeHandle(row.handle);
     if (!normalizedHandle) { rejected += 1; continue; }
     const platform = normalizePlatform(row.platform);
+    // Owner 2026-11-05: a Shopee blogger is in the ERP only once a dialogue with her has started
+    // (she agreed, the specifics are being discussed). A scouting row alone creates no card.
+    if (platform === 'shopee') {
+      const shopeeId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+      const known = await c.env.DB.prepare(`SELECT lifecycle_stage FROM ugc_creators WHERE id = ?1`).bind(shopeeId).first<{ lifecycle_stage: string }>();
+      if (!known || !DIALOGUE_STAGES.has(String(known.lifecycle_stage ?? ''))) { rejected += 1; continue; }
+    }
     // A matching handle on two platforms is not proof of one person. Keep a
     // creator per platform profile until an explicit link is recorded.
     const creatorId = await stableId('ugc', `${platform}:${normalizedHandle}`);

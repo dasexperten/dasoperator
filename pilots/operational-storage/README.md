@@ -41,6 +41,10 @@ If source snapshot capture fails after a source action succeeded, retain that ac
 
 Run capture tests with Node 24: `node --test pilots/operational-storage/capture.test.mjs`. An optional `DIANA_RUNNER=/path/to/organizacia/jobs/diana-instagram-scouting/runner.py` enables a local Python receipt-count parity test. The fixture also imports the existing ERP queue's read-only status contract with no publisher configured, preserving initializedAt, seen, CAS version, unknown/publishing outcomes and payloads. No production queue is initialized or ticked.
 
+## Read-only reconciliation
+
+`reconciliation.mjs` compares independently pinned source inventories with archived manifests and bytes. It requires exact namespace, agent scopes, checkpoint, observation time and inventory hash; source rows and original status/approval/export markers remain opaque and unchanged. It distinguishes missing, conflicting, unexpected and unavailable archive state instead of repairing anything. Historical records absent from a current source are never a recommendation to recreate them. `cutoverReady` is always false: byte parity is not authorization, current-live evidence or delivery reconciliation. See `RECONCILIATION.md` for the source contract and 31 focused synthetic checks. No existing schema, route, queue or source writer is changed.
+
 ## Contract
 
 Construct `createPilotStore` with a copied config, **separate pilot** D1 `db`, **private pilot** R2 `bucket`, and a trusted `authorize({agent,operation,namespace})` callback. It must be bound to an authenticated identity and return exactly `true` only for allowed agent + read/import operations. Missing or failed authorization denies access. Never use `() => true` outside synthetic fixtures, request-supplied approval flags, or global auth observe mode. A production authorization route is deliberately absent and remains a cutover prerequisite.

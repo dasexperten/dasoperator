@@ -1,0 +1,34 @@
+name: Operational storage pilot tests
+
+on:
+  pull_request:
+    paths:
+      - 'pilots/operational-storage/**'
+      - '.github/workflows/operational-storage-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operational-storage-pilot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test storage, capture and existing social contracts without live network
+        run: |
+          node --import ./pilots/operational-storage/no-network.mjs --test \
+            pilots/operational-storage/store.test.mjs \
+            pilots/operational-storage/capture.test.mjs \
+            workers/_social/article-service.test.mjs
+      - name: Explain integration boundary
+        run: |
+          echo 'Diana cross-repository parser fixtures are optional locally and skipped here.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Cloudflare bindings, production source state, credentials or publisher are used.' >> "$GITHUB_STEP_SUMMARY"

@@ -1296,6 +1296,9 @@ ugc.post('/payouts/:id/execute', async (c) => {
   if (access instanceof Response) return access;
   // The Owner pays by hand (Owner 2026-10-15): only Admin may send money to Konsol.
   if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can pay' }]);
+  // Owner 2026-11-06: a payout registered from the details alone has no confirmed amount; never pay it until he types it.
+  const unconfirmed = await c.env.DB.prepare(`SELECT amount_minor FROM ugc_payouts WHERE id=?1`).bind(c.req.param('id')).first<{ amount_minor: number }>();
+  if (unconfirmed && Number(unconfirmed.amount_minor) < 5000) return fail(c, 422, [{ code: 'amount_unconfirmed', message: 'Впишите сумму корзины перед оплатой' }]);
   // Owner follow-up 2026-10-16: enrichment runs independently and never blocks payment.
   const out = await executeUgcPayout(c.env, c.req.param('id'));
   if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);

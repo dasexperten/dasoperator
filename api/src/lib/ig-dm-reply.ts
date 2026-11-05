@@ -11,6 +11,7 @@ import { failedSide } from './ugc-payout-execute.mjs';
 const VOICE_VETO = false;
 import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, OZON_CARD_PHOTO, guardReply, requisitesSupportedByText, type CleanRequisites, REFUSAL } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
+import { detectRequisites, UNCONFIRMED_MINOR } from './ugc-requisites-detect.mjs';
 import { checkSubscriptionImages } from './diana-subscription-vision.mjs';
 import { checkDianaVoice } from './diana-voice-check';
 import { canAttemptReply, isTechnical, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
@@ -97,6 +98,14 @@ function isSimpleAcknowledgement(message: Msg): boolean {
 async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
   const now = Date.now();
   const { cid, pid } = await ensureCreator(env, handle);
+  // Owner 2026-11-06: a payout the minute check registered without an amount gets Diana's amount once she reads the cart.
+  if (r.amount_minor > UNCONFIRMED_MINOR) {
+    const blank = await env.DB.prepare(`SELECT id FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved') AND amount_minor=?2 AND konsol_payment_id IS NULL LIMIT 1`).bind(cid, UNCONFIRMED_MINOR).first<{ id: string }>();
+    if (blank) {
+      await env.DB.prepare(`UPDATE ugc_payouts SET amount_minor=?2, product=COALESCE(?3, product), updated_at=?4 WHERE id=?1`).bind(blank.id, r.amount_minor, r.product, now).run();
+      return true;
+    }
+  }
   const open = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved','sent')`).bind(cid).first<{ n: number }>();
   if (Number(open?.n ?? 0) > 0) return false;
   const id = crypto.randomUUID();
@@ -385,6 +394,19 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
     const payouts = creator ? ((await env.DB.prepare(
       `SELECT amount_minor, status, payout_date, konsol_payment_id, konsol_error, paid_at, sent_at, created_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
     ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; konsol_error?: string | null; paid_at?: string | null; sent_at?: string | null; created_at?: number }>()).results ?? []) : [];
+    // Owner 2026-11-06: «ERP had to put immediately the brown button». Complete requisites in the blogger's own
+    // text register the payout here, in the minute check itself — before and independent of Diana's model reply.
+    if (creator && !payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) {
+      const burst = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in').map((m) => m.text ?? '');
+      const found = detectRequisites(burst);
+      if (found) {
+        try {
+          if (await registerPayout(env, w.h, found, 'Сумма не подтверждена: впишите сумму корзины (только паста) перед оплатой')) {
+            payouts.unshift({ amount_minor: found.amount_minor, status: 'awaiting_approval', payout_date: '', created_at: Date.now() });
+          }
+        } catch { /* the model path below still tries; nothing is lost */ }
+      }
+    }
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
       ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? (failedSide(p.konsol_error) === 'bank' ? `failed (банк блогера отказал: ${String(p.konsol_error).slice(0, 120)})` : 'failed (не прошёл с нашей стороны; банк блогера ни при чём — не говори, что банк отклонил, не проси другой банк)') : 'ждёт оплаты'} (${p.payout_date})`).join('; ')

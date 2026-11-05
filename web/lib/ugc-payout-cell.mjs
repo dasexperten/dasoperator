@@ -69,6 +69,8 @@ export function payoutCell(payout, now = Date.now()) {
   }
   if (payout.over_limit) return out(payout.has_requisites ? 'brown' : 'grey', 'сверх лимита');
   if (!payout.has_requisites) return out('grey', 'ждёт реквизитов');
+  // Owner 2026-11-06: the button appears with the details; the cart amount is typed by the Owner once.
+  if (Number(payout.amount_minor) < 5000) return { tone: 'brown', text: 'сумма?', reason: 'впишите сумму корзины', title: 'Реквизиты есть, сумма не подтверждена: нажмите и впишите сумму корзины (только паста)' };
   // Owner follow-up 2026-10-16: enrichment never changes payment readiness.
   return out('brown', label.toLowerCase());
 }

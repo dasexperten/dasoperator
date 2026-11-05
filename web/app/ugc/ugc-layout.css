@@ -511,3 +511,8 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover, .ugc-table tbody tr.ugc-creator-row[data-stage="gold"]:hover > td, .ugc-creator-row[data-stage="gold"]:hover { background: #FDEFB8; }
 .ugc-creator-row[data-stage="gold"].ugc-creator-row-unavailable { opacity: 1; filter: none; }
 .ugc-creator-row[data-stage="gold"] :is(.ugc-creator-handle, .ugc-muted, .ugc-mobile-meta) { color: var(--stone-500); }
+
+/* Owner 2026-11-05: double click on the status changes it by hand; a hand mark stays until Diana has studied the miss. */
+.ugc-stage-edit { min-height: 28px; padding: 0 6px; font: inherit; font-weight: 700; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.ugc-stage-edit-error { margin-left: 6px; font-weight: 700; color: var(--text-primary); }
+.ugc-manual-mark { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; border-radius: 50%; background: var(--text-primary); color: var(--bg-surface); }

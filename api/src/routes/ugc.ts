@@ -10,6 +10,7 @@ import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
 import { followPayoutStage, shownStage } from '../lib/ugc-payout-stage.mjs';
 import { cooldownLeft, fireText, isTarget, queueItems } from '../lib/browser-queue.mjs';
+import { buildManualStage, manualStageKey, MANUAL_STAGE_PREFIX, markReviewed, parseManualStage } from '../lib/ugc-manual-stage.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
@@ -422,6 +423,14 @@ ugc.get('/', async (c) => {
     if (state && row.creator_id) attentionByCreator.set(row.creator_id, { ...replyAttention(state), last_in: lastIn.get(row.cid) ?? [] });
   }
 
+  // Owner 2026-11-05: statuses changed by hand, shown as a mark until Diana has studied them.
+  const manualStageRows = await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE ?1`)
+    .bind(`${MANUAL_STAGE_PREFIX}%`).all<{ key: string; value: string }>().catch(() => ({ results: [] as any[] }));
+  const manualStageByCreator = new Map<string, NonNullable<ReturnType<typeof parseManualStage>>>();
+  for (const row of manualStageRows.results ?? []) {
+    const parsed = parseManualStage(row.value);
+    if (parsed) manualStageByCreator.set(String(row.key).slice(MANUAL_STAGE_PREFIX.length), parsed);
+  }
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -475,6 +484,7 @@ ugc.get('/', async (c) => {
       display_name: row.display_name,
       city: row.city ?? null,
       attention: attentionByCreator.get(creatorId) ?? null,
+      manual_stage: manualStageByCreator.get(creatorId) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,
@@ -781,7 +791,28 @@ ugc.patch('/creators/:id', async (c) => {
     body.notes === undefined ? current.notes : textValue(body.notes, 3000),
     updatedAt, id, nextOrigin, archivedAt,
   ).run();
+  // Owner 2026-11-05: a status changed by hand (double click in the ERP) is remembered so Diana sees it
+  // at her next round, takes it as her own miss and learns from it. Only the double-click sends manual_edit.
+  if (body.manual_edit === true) {
+    const change = buildManualStage({ from: current.lifecycle_stage, to: nextStage, by: access.name ?? null, at: updatedAt });
+    if (change) {
+      await c.env.DB.prepare(BQ_UPSERT).bind(manualStageKey(id), JSON.stringify(change), updatedAt).run();
+    }
+  }
   return ok(c, { id, updated_at: updatedAt });
+});
+
+// Owner 2026-11-05: Diana marks a manual status change as studied once her conclusion is written down.
+ugc.post('/creators/:id/manual-stage/reviewed', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key = ?1`).bind(manualStageKey(id)).first<{ value: string }>();
+  const record = parseManualStage(row?.value);
+  if (!record) return fail(c, 404, [{ code: 'not_found', message: 'No manual status change for this creator' }]);
+  const now = Date.now();
+  await c.env.DB.prepare(BQ_UPSERT).bind(manualStageKey(id), JSON.stringify(markReviewed(record, now)), now).run();
+  return ok(c, { id, reviewed_at: now });
 });
 
 // Owner 2026-10-19: «Очередь браузера · N» on /ugc. The click starts the browser task at once on the

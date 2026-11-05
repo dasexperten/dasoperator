@@ -146,6 +146,7 @@ type Creator = {
   paid_total_minor?: number;
   last_activity_at?: number | null;
   accepted_at?: number | null;
+  manual_stage?: { from: string; to: string; by: string | null; at: number; reviewed_at: number | null } | null;
   attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
@@ -361,13 +362,60 @@ function CreatorStatus({ creator }: { creator: Creator }) {
 }
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {
+  const { isAdmin } = useContext(PayContext);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const openTimer = useRef<number | null>(null);
   const href = instagramChatHref(creator.profiles);
+  // Owner 2026-11-05: a status changed by hand stays marked until Diana has studied why she missed it.
+  const manual = creator.manual_stage && !creator.manual_stage.reviewed_at ? creator.manual_stage : null;
+  const manualMark = manual
+    ? <span className="ugc-manual-mark" title={`Статус изменён вручную: было ${manual.from || 'без статуса'}, стало ${manual.to || 'без статуса'}. Диана разберёт, что она недоделала.`} aria-label="Статус изменён вручную"><Hand className="h-3 w-3" aria-hidden="true" /></span>
+    : null;
+  if (editing && isAdmin) {
+    return <span className="ugc-stage-wrap">
+      <select translate="no" autoFocus disabled={saving} aria-label="Сменить статус вручную" defaultValue={creator.lifecycle_stage} className="ugc-stage-edit"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === 'Escape') setEditing(false); }}
+        onBlur={() => { if (!saving) setEditing(false); }}
+        onChange={async (event) => {
+          const next = event.target.value;
+          if (next === creator.lifecycle_stage) { setEditing(false); return; }
+          setSaving(true); setSaveError('');
+          const r = await apiPatch(`/api/ugc/creators/${creator.id}`, { lifecycle_stage: next, manual_edit: true });
+          setSaving(false);
+          if (r.success) { setEditing(false); window.dispatchEvent(new Event('ugc:reload')); }
+          else setSaveError(r.errors?.[0]?.message ?? 'Статус не сохранился');
+        }}>
+        <option value="">— без статуса</option>
+        {STAGES.map((value) => <option key={value} value={value}>{value}</option>)}
+      </select>
+      {saveError ? <span role="alert" className="ugc-stage-edit-error">{saveError}</span> : null}
+    </span>;
+  }
   // Owner 2026-10-18: no status, or a word outside the list, shows as a plain dash.
-  if (!STAGES.includes(creator.lifecycle_stage)) return <span className="ugc-stage ugc-stage-none" title="Без статуса">—</span>;
+  if (!STAGES.includes(creator.lifecycle_stage)) {
+    return <span className="ugc-stage-wrap"><span className="ugc-stage ugc-stage-none" title={isAdmin ? 'Без статуса. Двойной клик меняет статус вручную' : 'Без статуса'} onDoubleClick={isAdmin ? (event) => { event.stopPropagation(); setEditing(true); } : undefined}>—</span>{manualMark}</span>;
+  }
+  const doubleClickTitle = isAdmin ? ' · двойной клик меняет статус вручную' : '';
+  // The first click of a double click must not open Instagram: the chat opens after a short pause, and a second click cancels it.
+  const onChipClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isAdmin || !href) return;
+    event.preventDefault();
+    if (openTimer.current !== null) window.clearTimeout(openTimer.current);
+    openTimer.current = window.setTimeout(() => { openTimer.current = null; window.open(href, '_blank', 'noopener,noreferrer'); }, 280);
+  };
+  const onChipDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    event.preventDefault(); event.stopPropagation();
+    if (openTimer.current !== null) { window.clearTimeout(openTimer.current); openTimer.current = null; }
+    setEditing(true);
+  };
   // Chrome translation must not replace the status word: it overflows the badge and freezes the old value.
-  return href
-    ? <a translate="no" href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
-    : <span translate="no" className="ugc-stage" data-stage={creator.lifecycle_stage} title="Instagram-аккаунт не указан">{creator.lifecycle_stage}</span>;
+  const chip = href
+    ? <a translate="no" href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title={`Открыть переписку в Instagram${doubleClickTitle}`} onClick={onChipClick} onDoubleClick={isAdmin ? onChipDoubleClick : undefined}>{creator.lifecycle_stage}</a>
+    : <span translate="no" className="ugc-stage" data-stage={creator.lifecycle_stage} title={`Instagram-аккаунт не указан${doubleClickTitle}`} onDoubleClick={isAdmin ? onChipDoubleClick : undefined}>{creator.lifecycle_stage}</span>;
+  return <span className="ugc-stage-wrap">{chip}{manualMark}</span>;
 }
 
 // The Owner reserved only whitespace for opening the card. Text selection,

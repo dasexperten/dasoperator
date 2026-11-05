@@ -1,6 +1,6 @@
 # Operational storage: isolated archive pilot
 
-**Not deployed. Not connected to production. No current publisher, loader, export or cron changes.**
+**Not wired into production. No current publisher, loader, export or cron changes.** The existing Cloudflare Git integration automatically built a non-production Pages preview when the draft branch was first published. That preview does not execute this pilot, is not an isolated D1/R2 rehearsal, and its remote bindings have not been audited. Reviewed code-only draft updates use the documented leading `[CF-Pages-Skip]` commit marker to suppress the standard Pages Git build while retaining GitHub test checks. The branch's audited Actions triggers do not deploy. This is not a universal deployment lock, does not remove the old preview, and does not make it safe to browse against production. No production switch or integration-setting change was made.
 
 This package rehearses the storage boundary for Diana and Angela. GitHub remains the source for code and system rules. A future cutover can keep operational records in ERP D1 and exact payload/evidence bytes in private R2, but this pilot cannot perform that cutover or stop current commits by itself.
 
@@ -13,10 +13,14 @@ This package rehearses the storage boundary for Diana and Angela. GitHub remains
 - `capture.mjs`: observer-side writer adapters for Git files, allowed D1 records and evidence. No source write callbacks or source-state updates.
 - `capture.test.mjs`: byte/ID/status preservation and existing reader-contract integration with synthetic data.
 - `no-network.mjs`: Node-only optional test preload that blocks unmocked network traffic.
+- `miniflare-runtime/` and `miniflare.test.mjs`: opt-in official local workerd rehearsal with actual local D1/R2 APIs, pinned dependencies, no account or remote resources. See its README for the separate command and isolation limits.
+- `memory-head.mjs` and its separate schema/tests: candidate pointers to already archived Git-origin memory snapshots, with optimistic version checks, fencing and append-only transitions. See `MEMORY-HEAD.md`. No active context loader consumes these pointers, and they do not yet accept ERP-native memory revisions.
 
 Run locally with Node 24: `node --test pilots/operational-storage/store.test.mjs`.
 
 The suite deliberately uses real SQLite through Node 24's `node:sqlite`. Existing Node 20 deployment CI does not cover it. A separate draft-PR workflow runs the pilot under Node 24 with read-only repository permission and no Cloudflare credentials or deployment step. Its optional Diana cross-repository checks remain local-only and are explicitly skipped in CI. Production CI Node versions and deploy workflows remain unchanged.
+
+The pilot job checks out and prints the exact PR head SHA, with persisted checkout credentials disabled. Existing repository guards may still test GitHub's synthetic merge commit. The Cloudflare-specific marker is documented at https://developers.cloudflare.com/pages/configuration/git-integration/github-integration/#skipping-a-build-via-a-commit-message and must prefix every new publication commit; it does not suppress manual/API deployments, independent deploy hooks or Workers Builds. Do not substitute generic `[skip ci]`, which would also suppress GitHub tests.
 
 The corresponding organizacia `pilots/operational-storage/` contains a metadata-only import planner and the reader/writer dependency inventory. There is no automatic import into any live service.
 
@@ -46,7 +50,7 @@ The 32 MiB guard is a code bound, not a verified Worker capacity claim: hashing 
 
 Source key and revision must identify an immutable audited source. For GitHub, use repository + path as key, pinned commit as revision, and the original pinned URL. Verify downloaded bytes against the Git blob SHA before computing SHA256. A Git blob SHA is not a SHA256. D1/R2 snapshots require a separately captured version/checkpoint and authorization to read their source; an arbitrary caller string is not source authenticity evidence.
 
-The manifest ID hashes agent + source type + key + revision and is rechecked on read. R2 keys include namespace + agent + SHA256. D1 insertion happens only after readback and hash verification. Exact retries return the same manifest. Different bytes or metadata for the same source revision fail rather than overwrite. SQL triggers reject manifest UPDATE/DELETE; no latest pointer or deletion API is provided. R2/D1 errors are visible and never silently fall back to GitHub. A failed D1 write may leave an unreferenced R2 blob; retry verifies and reuses it. Do not delete unreferenced blobs automatically.
+The manifest ID hashes agent + source type + key + revision and is rechecked on read. R2 keys include namespace + agent + SHA256. D1 insertion happens only after readback and hash verification. Exact retries return the same manifest. Different bytes or metadata for the same source revision fail rather than overwrite. SQL triggers reject manifest UPDATE/DELETE; the store itself has no latest pointer or deletion API. The separate memory-head module can nominate archived candidate versions only, without changing manifests or active context. R2/D1 errors are visible and never silently fall back to GitHub. A failed D1 write may leave an unreferenced R2 blob; retry verifies and reuses it. Do not delete unreferenced blobs automatically.
 
 A BEFORE INSERT guard also ignores duplicate identities before SQLite REPLACE can delete the existing row; API post-read comparison still rejects conflicting payloads. These are application-integrity guards, not protection against an administrator who can drop tables/triggers or alter storage directly.
 
@@ -56,7 +60,7 @@ A BEFORE INSERT guard also ignores duplicate identities before SQLite REPLACE ca
 
 ## Deployment boundary
 
-No Wrangler config, Worker entrypoint, cron, binding ID, credential, existing source import, deploy command or production migration registration is included. `pilots/` is outside `workers/erp-*` discovery and deployed API source. Do not alias pilot resources to production; the library cannot prove that a caller supplied a separate remote database/bucket. Provisioning or wiring real services needs a separate reviewed step and permission.
+No Wrangler config, deployable Worker entrypoint, cron, binding ID, credential, existing source import, deploy command or production migration registration is included. The local emulator's `worker.mjs` is an unauthenticated synthetic test driver: never deploy it. `pilots/` is outside `workers/erp-*` discovery and deployed API source. Do not alias pilot resources to production; the library cannot prove that a caller supplied a separate remote database/bucket. Provisioning or wiring real services needs a separate reviewed step and permission. GitHub Actions inspection alone is not enough to predict deployment side effects: external Git integrations may build previews on branch pushes.
 
 Existing `angela_article_queue`, `org_task_runs.exported_at`, `Social/angela/offers/*` locks, original GitHub paths, and permissions stay untouched. Production cutover requires the full organizacia dependency inventory, an authenticated operational API, trusted revision-bound editorial approvals, all-reader/all-writer migration, current baseline and delivery-state preservation, live reconciliation, rollback rehearsal, and notification before switching.
 

@@ -24,47 +24,75 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(crm_sync_state.value AS INTEGER)<?3`)
     .bind(String(slot), now, slot).run();
   if (!lease.meta.changes) return { not_due: true, detected: 0 };
-  let inspected = 0, detected = 0, errors = 0;
+  const owner = crypto.randomUUID();
+  const lock = await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan',?1,?2)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE crm_sync_state.updated_at<?3`)
+    .bind(owner,Date.now(),Date.now()-180_000).run();
+  if (!lock.meta.changes) return { scan_running: true, detected: 0 };
+  const scanStarted = Date.now();
+  let inspected = 0, detected = 0, errors = 0, ownershipLost = false;
   try {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
   if (!token) throw new Error('instagram_metadata_token_missing');
   const page = await graph(`/${PAGE}?fields=access_token`, token);
   if (!page.access_token) throw new Error('instagram_page_token_missing');
+  const records = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE 'diana_metadata_seen:v2:%' OR key LIKE 'diana_metadata_message_seen:%' OR key LIKE 'diana_message_done:%' OR key LIKE 'diana_metadata_incomplete:%'").all<{key:string;value:string}>()).results ?? [];
+  const known = new Map(records.map(row => [row.key,row.value]));
+  const resume = await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").first<{value:string}>();
+  let resumed = false;
   let after = '';
   const cursors = new Set<string>();
-  do {
-    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
+  scan: do {
+    const pageStart = after;
+    let pageChanged = false;
+    const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
+    if (!renewed.meta.changes) throw new Error('metadata_scan_ownership_lost');
+    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(100){id,created_time,from}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
     for (const conversation of list.data ?? []) {
       inspected++;
       try {
-      const bookmark = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1')
-        .bind('diana_metadata_seen:v2:' + conversation.id).first<{ value: string }>();
-      if (bookmark?.value === conversation.updated_time) continue;
+      const bookmark = known.get('diana_metadata_seen:v2:' + conversation.id);
+      if (bookmark === conversation.updated_time) continue;
+      pageChanged = true;
+      if (Date.now()-scanStarted >= 90_000) {
+        await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(pageStart,Date.now()).run();
+        break scan;
+      }
       // This endpoint explicitly requests metadata only. Diana reads the original content herself.
-      const detail = await graph(`/${encodeURIComponent(conversation.id)}?fields=participants,messages.limit(100){id,created_time,from}`, page.access_token);
-      const frontier = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1')
-        .bind('diana_metadata_message_seen:' + conversation.id).first<{ value: string }>();
+      const detail = conversation.messages ? conversation : await graph(`/${encodeURIComponent(conversation.id)}?fields=participants,messages.limit(100){id,created_time,from}`, page.access_token);
+      const frontier = known.get('diana_metadata_message_seen:' + conversation.id);
       let messagePage = detail.messages, message: any = null, reached = false;
       const newestId = messagePage?.data?.[0]?.id;
+      const incompleteKey = 'diana_metadata_incomplete:' + conversation.id;
+      let saved: any;
+      try { saved = JSON.parse(known.get(incompleteKey) ?? 'null'); } catch { saved = null; }
       const messageCursors = new Set<string>();
       while (messagePage?.data?.length && !reached) {
         for (const candidate of messagePage.data) {
-          if (candidate.id === frontier?.value) { reached = true; break; }
+          if (candidate.id === frontier) { reached = true; break; }
           if (!message && candidate.id && candidate.created_time && candidate.from?.id && ![BRAND, PAGE].includes(String(candidate.from.id))) message = candidate;
         }
         // Initial scan needs the newest incoming, including one followed by Owner's outgoing.
-        if (!frontier && message) break;
-        const cursor = messagePage.paging?.next && messagePage.paging?.cursors?.after;
+        if (message) break; // The newest inbound is sufficient; Diana reads the entire original thread.
+        const cursor = saved?.newest_id === newestId ? saved.cursor : messagePage.paging?.next && messagePage.paging?.cursors?.after;
+        saved = null;
         if (reached || !cursor || messageCursors.has(cursor)) break;
         messageCursors.add(cursor);
-        messagePage = await graph(`/${encodeURIComponent(conversation.id)}/messages?fields=id,created_time,from&limit=100&after=${encodeURIComponent(cursor)}`, page.access_token);
+        await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(incompleteKey,JSON.stringify({newest_id:newestId,cursor}),Date.now()).run();
+        if (Date.now()-scanStarted >= 90_000) {
+          await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(pageStart,Date.now()).run();
+          break scan;
+        }
+        const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
+        if (!renewed.meta.changes) { ownershipLost = true; throw new Error('metadata_scan_ownership_lost'); }
+        try { messagePage = await graph(`/${encodeURIComponent(conversation.id)}/messages?fields=id,created_time,from&limit=100&after=${encodeURIComponent(cursor)}`, page.access_token); }
+        catch (error) { await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(incompleteKey).run(); throw error; }
       }
       if (message) {
         const participant = (detail.participants?.data ?? []).find((p: any) => String(p.id) === String(message.from.id));
         const handle = String(message.from.username ?? participant?.username ?? '').toLowerCase();
-        const handled = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1')
-          .bind('diana_message_done:' + conversation.id).first<{ value: string }>();
-        if (handled?.value !== message.id) {
+        const handled = known.get('diana_message_done:' + conversation.id);
+        if (handled !== message.id) {
           const alarm = { handle, cid: String(conversation.id), message_id: String(message.id), event_id: 'message:' + message.id, at: String(message.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
           await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
@@ -78,13 +106,24 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
         ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
         .bind('diana_metadata_seen:v2:' + conversation.id, String(conversation.updated_time), now).run();
-      } catch { errors++; } // Leave this conversation's checkpoint untouched; continue others.
+      await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(incompleteKey).run();
+      } catch { errors++; if (ownershipLost) break scan; } // Leave failed checkpoints untouched.
     }
     after = list.paging?.next ? String(list.paging?.cursors?.after ?? '') : '';
+    // Always inspect the newest page each tick, then resume the historical tail.
+    // Bound initial catch-up so the current signal is delivered before the next tick.
+    if (!pageChanged && !resumed && after && resume?.value) { after = resume.value; resumed = true; }
+    await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(after,Date.now()).run();
+    if (Date.now()-scanStarted >= 90_000) break;
     if (cursors.has(after)) break;
     cursors.add(after);
   } while (after);
-  } catch { errors++; } // Existing durable signals must still reach Diana during Graph outages.
+  } catch {
+    errors++;
+    await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").run();
+  } // Existing durable signals still reach Diana; invalid cursors are retried from the newest page.
+  await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan' AND value=?1").bind(owner).run();
   const channel = env.DIANA_WAKE.get(env.DIANA_WAKE.idFromName('diana'));
   const pushed = await channel.fetch('https://wake.internal/dispatch', { method: 'POST' });
   if (!pushed.ok) throw new Error('diana_dispatch_failed');

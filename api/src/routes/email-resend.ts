@@ -70,6 +70,16 @@ async function requireUserOrService(c: import('hono').Context<{ Bindings: Env }>
   return !!user;
 }
 
+// Service callers supply Resend-style base64 attachments; preserve these at
+// both send and archive boundaries instead of silently stripping them.
+const attachmentSchema = z.object({
+  filename: z.string().min(1).max(255),
+  content: z.string().min(1),
+  mimeType: z.string().optional(),
+  encoding: z.literal('base64').default('base64'),
+});
+const attachmentsSchema = z.array(attachmentSchema).max(20).optional();
+
 const sendSchema = z.object({
   from: z.string().min(3),
   to: z.string().email().or(z.array(z.string().email()).min(1)),
@@ -81,6 +91,7 @@ const sendSchema = z.object({
   in_reply_to: z.string().optional(),
   reply_to_tag: z.string().regex(/^[a-z0-9]{4,16}$/).optional(),
   trigger: z.string().max(120).optional(),
+  attachments: attachmentsSchema,
 });
 
 // Thread tag (Owner 2026-08-03 mechanism). Until 2026-08-09 this route issued none,
@@ -113,6 +124,7 @@ route.post('/resend-send', async (c) => {
 
   const d = parsed.data;
   const result = await sendHumanResend(c.env, {
+    attachments: d.attachments,
     from: d.from,
     to: d.to,
     subject: d.subject,

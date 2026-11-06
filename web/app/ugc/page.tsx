@@ -11,6 +11,8 @@ import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
 import { contentConfirmed, contentState, publicationNetwork } from '@/lib/ugc-content-state.mjs';
 import { reelClickController } from '@/lib/ugc-reel-click.mjs';
+import { contentHref, creatorPublicationLinks } from '@/lib/ugc-publication-links.mjs';
+import { PublicationCarousel } from '@/components/ugc/PublicationCarousel';
 import { deviceTargets } from '@/lib/browser-target.mjs';
 
 type PlatformMetric = {
@@ -220,20 +222,6 @@ function ProfileAvailability({ profile }: { profile: PlatformMetric }) {
   if (!unavailableInstagram(profile)) return null;
   const checked = profile.availability_checked_at ? new Date(profile.availability_checked_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null;
   return <span className="ugc-profile-unavailable" title={['Instagram недоступен', checked ? `Проверено: ${checked}` : null, profile.availability_note].filter(Boolean).join(' · ')}><Link2Off aria-hidden="true" />Instagram недоступен</span>;
-}
-
-function contentHref(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
-function linkedContent(profile: PlatformMetric): { item: ContentObservation; href: string }[] {
-  return profile.content.flatMap((item) => { const href = contentHref(item.content_url); return href ? [{ item, href }] : []; });
 }
 
 function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Content' {
@@ -757,8 +745,7 @@ const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'ви
 const PRODUCT_PILLS = 6;
 // «Контент» (Owner 2026-10-16): per publication, its link icon as tall as the three
 // figures stacked right of it (views, likes, comments); a dead link is faded.
-// Two publications side by side, then «+N».
-const CONTENT_ICONS = 2;
+// Owner 2026-11-07: all creator publications remain available in a horizontal strip.
 
 // Owner 2026-11-03: posting date for the Content column. Instagram shortcodes encode the media id, whose top bits
 // are milliseconds since Instagram's epoch (1314220021721); checked against ERP import times before shipping.
@@ -772,7 +759,7 @@ function instagramPostedAt(url: string | null): Date | null {
   return ms > 1314220021721 && ms < Date.now() + 86_400_000 ? new Date(ms) : null;
 }
 
-function Publication({ item, href, more }: { item: ContentObservation; href: string; more: number }) {
+function Publication({ item, href }: { item: ContentObservation; href: string }) {
   const { isAdmin } = useContext(PayContext);
   const [jobStatus, setJobStatus] = useState(item.reel_status ?? null);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -830,7 +817,6 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>
       <span title={figure('Комментарии', item.comments)}><MessageCircle aria-hidden="true" />{formatCount(item.comments)}</span>
     </span>
-    {more > 0 ? <span className="ugc-pub-more" title={`Ещё ${more}`}>+{more}</span> : null}
   </span>;
 }
 
@@ -1193,10 +1179,12 @@ export default function UgcPage() {
           {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
+            const linked = creatorPublicationLinks(creator.profiles);
             return <div key={creator.id} className={`ugc-mobile-row ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} data-stalled={stalledDays(creator) ? 'true' : undefined} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
               <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-profile-copy"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><ProfileAvailability profile={profile} /></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCountShort(profile.followers)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
+              {linked.length ? <div className="ugc-mobile-publications"><PublicationCarousel count={linked.length} label={name}>{linked.map(({ item, href }) => <Publication key={item.id} item={item} href={href} />)}</PublicationCarousel></div> : null}
             </div>;
           })}
         </div>
@@ -1214,7 +1202,7 @@ export default function UgcPage() {
           <tbody>
             {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
-              const linked = linkedContent(profile);
+              const linked = creatorPublicationLinks(creator.profiles);
               const products = Array.from(new Map([...profile.content.flatMap((item) => item.products), ...(profile.source_products ?? [])].map((item) => [item.sku, item])).values());
               const handle = profile.handle ? `@${profile.handle}` : null;
               const name = handle ?? creator.display_name ?? 'Автор';
@@ -1227,7 +1215,7 @@ export default function UgcPage() {
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><CreatorPayment creator={creator} /></td>
                 <td className="ugc-c-product ugc-sec-2">{products.length || profile.source_product_labels?.length ? <div className="ugc-pills" title={[...products.map((item) => `${compactProductCode(item.sku)} · ${item.name}${item.source === 'blogger_database' ? ' · база блогеров' : ''}`), ...(profile.source_product_labels ?? []).map((item) => `${item.name} · название из базы, тип не указан`)].join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{profile.source_product_labels?.map((item) => <span key={item.name} className="ugc-pill">{item.name}</span>)}</div> : creator.payout?.product ? <div className="ugc-pills" title={`Из выплаты: ${creator.payout.product}`}>{creator.payout.product.split('+').map((part) => part.trim()).filter(Boolean).slice(0, PRODUCT_PILLS).map((part) => <span key={part} className="ugc-pill">{part}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
-                <td className="ugc-c-media ugc-sec-3" aria-label={`${profile.content_count} публикаций`}>{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }, index) => <Publication key={item.id} item={item} href={href} more={index === CONTENT_ICONS - 1 ? linked.length - CONTENT_ICONS : 0} />)}</div> : <span className="ugc-muted">—</span>}</td>
+                <td className="ugc-c-media ugc-sec-3" aria-label={`${linked.length} публикаций`}>{linked.length ? <PublicationCarousel count={linked.length} label={name}>{linked.map(({ item, href }) => <Publication key={item.id} item={item} href={href} />)}</PublicationCarousel> : <span className="ugc-muted">—</span>}</td>
                 <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><CreatorStatus creator={creator} /></td>
               </tr>;
             })}

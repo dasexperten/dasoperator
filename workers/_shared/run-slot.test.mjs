@@ -70,7 +70,7 @@ test('same UTC slot has stable UUID across sub-minute timestamps and sources', a
   assert.equal(await slotRunKey(workerName, cron, slot), await slotRunKey(workerName, cron, now));
   assert.match(await slotRunKey(workerName, cron, now), /^[a-f0-9]{8}-[a-f0-9]{4}-8[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
   assert.notEqual(await slotRunKey(workerName, cron, slot), await slotRunKey(workerName, cron, slot + 60_000));
-  assert.notEqual(await slotRunKey(workerName, cron, slot), await slotRunKey('erp-ugc-payouts', cron, slot));
+  assert.notEqual(await slotRunKey(workerName, cron, slot), await slotRunKey('erp-ugc-direct', cron, slot));
 });
 
 test('HTTP accepts only an integer timestamp for the current UTC minute', () => {

@@ -374,6 +374,7 @@ ugc.get('/', async (c) => {
       reel_error: row.reel_error ?? null,
       reel_publications: JSON.parse(row.reel_publications ?? '[]'),
       published_at: row.published_at,
+      imported_at: row.imported_at,
       views: row.views,
       likes: row.likes,
       metrics_checked_at: row.metrics_checked_at,

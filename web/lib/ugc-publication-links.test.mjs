@@ -15,3 +15,18 @@ test('only navigable public HTTP links enter the carousel', () => {
   assert.equal(contentHref(null), null);
   assert.deepEqual(creatorPublicationLinks([{ content: [{ id: 'empty' }, { id: 'bad', content_url: 'not a URL' }] }]), []);
 });
+
+test('only the latest five are selected across profiles, newest first', () => {
+  const item = (day) => ({ id: `post${day}`, content_url: `https://example.org/${day}`, published_at: `2026-11-0${day}T10:00:00Z` });
+  const result = creatorPublicationLinks([{ content: [item(1), item(7), item(3)] }, { content: [item(4), item(2), item(6), item(5)] }]);
+  assert.deepEqual(result.map(({ item }) => item.id), ['post7', 'post6', 'post5', 'post4', 'post3']);
+});
+
+test('a publication without a date uses its recorded import time for ordering', () => {
+  const result = creatorPublicationLinks([{ content: [
+    { id: 'dated', content_url: 'https://example.org/dated', published_at: '2026-11-01T10:00:00Z' },
+    { id: 'undated', content_url: 'https://example.org/undated', published_at: null, imported_at: Date.parse('2026-11-02T10:00:00Z') },
+  ] }]);
+  assert.deepEqual(result.map(({ item }) => item.id), ['undated', 'dated']);
+  assert.equal(result[0].item.published_at, null);
+});

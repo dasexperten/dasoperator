@@ -55,6 +55,7 @@ type ContentObservation = {
   reel_error?: string | null;
   reel_publications?: { platform: string; url: string }[];
   published_at: string | null;
+  imported_at?: string | number | null;
   views: number | null;
   likes?: number | null;
   // Owner 2026-11-03: ER of the reel = (likes + comments) / the blogger's followers × 100, fixed on day 10 of Diana's watch.
@@ -745,7 +746,7 @@ const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'ви
 const PRODUCT_PILLS = 6;
 // «Контент» (Owner 2026-10-16): per publication, its link icon as tall as the three
 // figures stacked right of it (views, likes, comments); a dead link is faded.
-// Owner 2026-11-07: all creator publications remain available in a horizontal strip.
+// Owner 2026-11-07: show only the latest five; sliding is for Mac computers only.
 
 // Owner 2026-11-03: posting date for the Content column. Instagram shortcodes encode the media id, whose top bits
 // are milliseconds since Instagram's epoch (1314220021721); checked against ERP import times before shipping.

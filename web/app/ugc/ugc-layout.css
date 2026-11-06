@@ -126,17 +126,13 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
    publication follows in the same line. Live link in red, unchecked in ink, dead faded.
    «Просмотры» left too (Owner 2026-10-16): views live in each publication.
    «Посты» left the table: the count lives here as «+N» and in the cell's label. */
-.ugc-content-carousel { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 4px; width: 100%; min-width: 0; }
-.ugc-media { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--stone-300) transparent; }
-.ugc-media-track { display: flex; align-items: center; gap: 8px; width: max-content; min-width: 100%; }
+.ugc-content-carousel { width: 100%; min-width: 0; }
+.ugc-media { min-width: 0; overflow: hidden; }
+.ugc-media-track { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.ugc-content-carousel[data-sliding="true"] .ugc-media { overflow-x: auto; scroll-snap-type: x proximity; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--stone-300) transparent; }
+.ugc-content-carousel[data-sliding="true"] .ugc-media-track { flex-wrap: nowrap; width: max-content; min-width: 100%; }
 .ugc-media-track > .ugc-pub { scroll-snap-align: start; }
-.ugc-content-scroll { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; color: var(--fg-1); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--paper); cursor: pointer; }
-.ugc-content-scroll svg { width: 18px; height: 18px; }
-.ugc-content-scroll:hover:not(:disabled) { background: var(--paper-sunk); }
-.ugc-content-scroll:disabled { opacity: .3; cursor: default; }
-.ugc-media:focus-visible, .ugc-content-scroll:focus-visible { outline: 2px solid var(--brand-schwarz); outline-offset: -2px; }
-.ugc-content-carousel[data-scrollable="false"] .ugc-content-scroll { display: none; }
-.ugc-content-carousel[data-scrollable="false"] .ugc-media { grid-column: 1 / -1; }
+.ugc-media:focus-visible { outline: 2px solid var(--brand-schwarz); outline-offset: -2px; }
 .ugc-pub { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .ugc-pub-link { display: inline-flex; flex: 0 0 48px; width: 48px; height: 48px; color: var(--brand-rot); border-radius: var(--radius-sm); }
 .ugc-pub-link svg { width: 48px; height: 48px; stroke-width: 1.75; }
@@ -446,7 +442,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-table td.ugc-c-pay { padding-left: 6px; padding-right: 6px; }
 .ugc-table th.ugc-c-creator { width: 22%; }
 .ugc-table th.ugc-c-product { width: auto; }
-/* Three full publications on desktop; four when the table has more room. */
+/* Latest five: wrap on PC, scroll without arrows only on Mac computers. */
 @container ugc-table (min-width: 964px) {
   .ugc-table th.ugc-c-creator { width: 180px; }
   .ugc-table th.ugc-c-media { width: 320px; }
@@ -456,7 +452,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 }
 @container ugc-table (min-width: 1480px) {
   .ugc-table th.ugc-c-creator { width: 200px; }
-  .ugc-table th.ugc-c-media { width: 556px; }
+  .ugc-table th.ugc-c-media { width: 574px; }
 }
 .ugc-mobile-publications { grid-column: 1 / -1; min-width: 0; width: 100%; padding: 0 0 12px; }
 .ugc-table .ugc-payout-cell { display: grid; grid-template-columns: 80px minmax(0, auto); column-gap: 8px; row-gap: 2px; align-items: center; justify-content: start; justify-items: start; }

@@ -1,52 +1,27 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
-import { build } from 'esbuild';
-import { fileURLToPath } from 'node:url';
-async function load(path) {
- const built=await build({entryPoints:[fileURLToPath(new URL(path,import.meta.url))],bundle:true,platform:'node',format:'esm',write:false});
- return import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].text).toString('base64'));
-}
-const {detectDianaMessages,dianaWindow}=await load('./diana-alarm.ts');
+import {build} from 'esbuild';
+import {fileURLToPath} from 'node:url';
+import {DatabaseSync} from 'node:sqlite';
+async function load(path){const b=await build({entryPoints:[fileURLToPath(new URL(path,import.meta.url))],bundle:true,platform:'node',format:'esm',write:false});return import('data:text/javascript;base64,'+Buffer.from(b.outputFiles[0].text).toString('base64'))}
+const {detectDianaMessages,dianaWindow,acknowledgeDianaEvent}=await load('./diana-alarm.ts');
 const {DianaWake}=await load('../diana-wake.ts');
-const at=(hour,minute=0)=>Date.UTC(2026,10,6,hour-4,minute);
-function fixture() {
- const state=new Map(), calls=[], dispatched=[];
- const env={DB:{prepare(sql){let params;const statement={bind(...p){params=p;return statement},
-  async first(){return state.has(params[0])?{value:state.get(params[0])}:null},
-  async run(){if(sql.includes("'diana_metadata_tick'")){if(state.has('tick')&&params[1]-state.get('tick')<180000)return {meta:{changes:0}};state.set('tick',params[1]);}
-   else state.set(params[0],params[1]);return {meta:{changes:1}}},
-  async all(){return {results:[...state].filter(([k])=>k.startsWith('diana_round_alarm:')).map(([,value])=>({value}))}}};return statement}},
-  META_IG_MESSAGING_TOKEN:'fake',DIANA_WAKE:{idFromName:()=>1,get:()=>({async fetch(){dispatched.push(1);return Response.json({dispatched:true})}})}};
- const fetch=async(url,options)=>{calls.push([url,options]);const p=new URL(url);
-  if(p.searchParams.get('fields')==='access_token')return Response.json({access_token:'page-fake'});
-  if(p.pathname.endsWith('/conversations'))return Response.json({data:['one','two','three'].map(id=>({id,updated_time:'new'}))});
-  const id=p.pathname.split('/').at(-1);return Response.json({participants:{data:[{id:'person-'+id,username:id}]},messages:{data:[{id:'message-'+id,created_time:'2026-11-06T15:00:00Z',from:{id:'person-'+id}}]}})};
- return {env,state,calls,dispatched,fetch};
+const at=(h,m=0,s=0)=>Date.UTC(2026,10,6,h-4,m,s);
+function fixture(){
+ const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER)');
+ const state={get:k=>db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(k)?.value,set:(k,v)=>db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,0)').run(k,v)};
+ const calls=[],dispatched=[];
+ const DB={prepare(sql){let p=[];const st={bind(...a){p=a;return st},async first(){return db.prepare(sql).get(...p)??null},async run(){return {meta:{changes:db.prepare(sql).run(...p).changes}}},async all(){return {results:db.prepare(sql).all(...p)}}};return st},async batch(st){db.exec('BEGIN');try{const r=[];for(const s of st)r.push(await s.run());db.exec('COMMIT');return r}catch(e){db.exec('ROLLBACK');throw e}}};
+ const env={DB,META_IG_MESSAGING_TOKEN:'fake',DIANA_WAKE:{idFromName:()=>1,get:()=>({async fetch(){dispatched.push(1);return Response.json({dispatched:true})}})}};
+ const fetch=async(url)=>{calls.push(url);const p=new URL(url);if(p.searchParams.get('fields')==='access_token')return Response.json({access_token:'fake'});if(p.pathname.endsWith('/conversations'))return Response.json({data:['one','two','three'].map(id=>({id,updated_time:'new'}))});const id=p.pathname.split('/').at(-1);return Response.json({participants:{data:[{id:'person-'+id,username:id}]},messages:{data:[{id:'message-'+id,created_time:'2026-11-06T15:00:00Z',from:{id:'person-'+id}}]}})};
+ return {env,state,calls,dispatched,fetch,db};
 }
-test('Yerevan window includes 06:00 and 01:59, excludes 02:00 through 05:59',()=>{
- assert.equal(dianaWindow(at(6)),true);assert.equal(dianaWindow(at(1,59)),true);
- assert.equal(dianaWindow(at(2)),false);assert.equal(dianaWindow(at(5,59)),false);
-});
-test('three conversations produce metadata alarms and one dispatch without requesting text or attachments',async t=>{
- const f=fixture();t.mock.method(globalThis,'fetch',f.fetch);
- assert.equal((await detectDianaMessages(f.env,at(19))).detected,3);assert.equal(f.dispatched.length,1);
- for(const [url]of f.calls){const fields=new URL(url).searchParams.get('fields');assert.ok(!/(?:^|[,{}])message(?:[,}]|$)|attachments|shares|image|video/.test(fields));}
- const alarm=JSON.parse(f.state.get('diana_round_alarm:two'));
- assert.deepEqual(Object.keys(alarm).sort(),['at','cid','handle','message_id','rang_at','reason']);
- assert.equal((await detectDianaMessages(f.env,at(19,1))).not_due,true);
- await detectDianaMessages(f.env,at(19,3));assert.equal(f.dispatched.length,2);
- assert.equal([...f.state.keys()].some(k=>k.startsWith('ig_reply:')),false);
-});
-test('outside the window performs no Graph request or dispatch',async t=>{
- const f=fixture();t.mock.method(globalThis,'fetch',f.fetch);
- assert.equal((await detectDianaMessages(f.env,at(3))).outside_window,true);
- assert.equal(f.calls.length,0);assert.equal(f.dispatched.length,0);
-});
-test('all pending conversations wake only the highest connected machine; busy Diana is not launched twice',async()=>{
- const f=fixture();for(const cid of ['one','two','three'])f.state.set('diana_round_alarm:'+cid,JSON.stringify({cid,message_id:cid,at:'now'}));
- const peer=role=>({readyState:1,meta:{role,busy:false},sent:[],deserializeAttachment(){return this.meta},serializeAttachment(v){this.meta=v},send(v){this.sent.push(JSON.parse(v))}});
- const backup=peer('backup'),primary=peer('primary');const object=new DianaWake({getWebSockets:()=>[backup,primary]},f.env);
- await object.fetch(new Request('https://wake/dispatch'));assert.equal(primary.sent[0].messages.length,3);assert.equal(backup.sent.length,0);
- const second=await(await object.fetch(new Request('https://wake/dispatch'))).json();assert.equal(second.reason,'diana_working');assert.equal(primary.sent.length,1);
- object.webSocketMessage(primary,'{"type":"ready"}');assert.equal(primary.meta.busy,false);
-});
+test('Yerevan window 06 inclusive to 02 exclusive',()=>{assert.ok(dianaWindow(at(6)));assert.ok(dianaWindow(at(1,59)));assert.ok(!dianaWindow(at(2)));assert.ok(!dianaWindow(at(5,59)))});
+test('metadata only, all dialogs one dispatch; adjacent slots survive jitter and old epoch tick',async t=>{const f=fixture();t.after(()=>f.db.close());f.state.set('diana_metadata_tick',String(at(19)));t.mock.method(globalThis,'fetch',f.fetch);assert.equal((await detectDianaMessages(f.env,at(19,0,2))).detected,3);for(const u of f.calls)assert.ok(!/attachments|shares|image|video|\bmessage\b/.test(new URL(u).searchParams.get('fields')));assert.equal(JSON.parse(f.state.get('diana_round_alarm:two')).event_id,'message:message-two');assert.ok((await detectDianaMessages(f.env,at(19,1))).not_due);await detectDianaMessages(f.env,at(19,3,1));assert.equal(f.dispatched.length,2)});
+test('outside window makes no request',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',f.fetch);assert.ok((await detectDianaMessages(f.env,at(3))).outside_window);assert.equal(f.calls.length,0)});
+test('Owner outgoing and read status cannot hide inbound; metadata pagination reaches it',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/messages'))return Response.json({data:[{id:'incoming',created_time:'now',from:{id:'person',username:'creator'}},{id:'old',from:{id:'person'}}]});if(p.pathname.endsWith('/one'))return Response.json({messages:{data:[{id:'owner-new',created_time:'now',from:{id:'17841466350261166'}}],paging:{next:'yes',cursors:{after:'next'}}}});return f.fetch(u)});f.state.set('diana_metadata_message_seen:one','old');await detectDianaMessages(f.env,at(19));assert.equal(JSON.parse(f.state.get('diana_round_alarm:one')).message_id,'incoming');assert.equal(f.state.get('diana_metadata_message_seen:one'),'owner-new')});
+test('more than 50 dialogs and an inaccessible dialog do not starve remaining signals',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/conversations')){const start=Number(p.searchParams.get('after')||0);return Response.json({data:Array.from({length:25},(_,i)=>({id:'c'+(start+i),updated_time:'new'})),...(start<50?{paging:{next:'yes',cursors:{after:String(start+25)}}}:{})})}if(p.pathname.endsWith('/c0'))return new Response('',{status:403});return f.fetch(u)});const r=await detectDianaMessages(f.env,at(19));assert.equal(r.inspected,75);assert.equal(r.detected,74);assert.equal(r.errors,1);assert.equal(f.dispatched.length,1);assert.equal(f.state.get('diana_metadata_seen:v2:c0'),undefined)});
+test('Graph outage still dispatches durable pending queue',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async()=>new Response('',{status:503}));assert.equal((await detectDianaMessages(f.env,at(19))).errors,1);assert.equal(f.dispatched.length,1)});
+test('all pending go to highest peer once while busy',async t=>{const f=fixture();t.after(()=>f.db.close());for(const cid of ['one','two','three'])f.state.set('diana_round_alarm:'+cid,JSON.stringify({cid,message_id:cid,event_id:'message:'+cid}));const peer=role=>({readyState:1,meta:{role,busy:false},sent:[],deserializeAttachment(){return this.meta},serializeAttachment(v){this.meta=v},send(v){this.sent.push(JSON.parse(v))}});const backup=peer('backup'),primary=peer('primary');const o=new DianaWake({getWebSockets:()=>[backup,primary]},f.env);await o.fetch(new Request('https://wake/dispatch'));assert.equal(primary.sent[0].messages.length,3);assert.equal(backup.sent.length,0);assert.equal((await(await o.fetch(new Request('https://wake/dispatch'))).json()).reason,'diana_working')});
+test('ACK requires exact verified event proof; old reply cannot complete a new action',async t=>{const f=fixture();t.after(()=>f.db.close());const e={cid:'chat',message_id:'old',event_id:'action:payout'};const key='diana_action_pending:'+e.event_id;f.state.set(key,JSON.stringify(e));f.state.set('ig_reply:chat','2099');assert.equal(await acknowledgeDianaEvent(f.env,e),false);f.state.set('diana_event_done:'+e.event_id,JSON.stringify({...e,verified:true,proof:'reopened sent message'}));assert.equal(await acknowledgeDianaEvent(f.env,e),true);assert.equal(f.state.get(key),undefined);assert.equal(f.state.get('diana_message_done:chat'),undefined)});
+test('ACK older incoming preserves newer alarm and done checkpoint',async t=>{const f=fixture();t.after(()=>f.db.close());const e={cid:'chat',message_id:'old',event_id:'message:old'};f.state.set('diana_round_alarm:chat',JSON.stringify({...e,message_id:'new',event_id:'message:new'}));f.state.set('diana_event_done:'+e.event_id,JSON.stringify({...e,verified:true,proof:'verified'}));assert.equal(await acknowledgeDianaEvent(f.env,e),false);assert.equal(f.state.get('diana_message_done:chat'),undefined);assert.equal(JSON.parse(f.state.get('diana_round_alarm:chat')).message_id,'new');f.state.set('diana_round_alarm:chat',JSON.stringify(e));assert.equal(await acknowledgeDianaEvent(f.env,e),true);assert.equal(f.state.get('diana_message_done:chat'),'old')});

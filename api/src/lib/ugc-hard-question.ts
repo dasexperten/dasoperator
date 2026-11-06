@@ -73,7 +73,7 @@ export async function answerHardQuestion(env: Env, messageId: number, choice: st
   const decision = { ...q, choice, decision_at: new Date().toISOString() };
   await env.DB.prepare(`UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1`)
     .bind(QUESTION_KEY(messageId), JSON.stringify(decision), Date.now()).run();
-  await dianaCompose(env, q.handle, '');
+  await dianaCompose(env, q.handle, '', `owner:${messageId}:${choice}`);
   return { handled: true, note: `@${q.handle}: ??????? ????????? ? ???????? ?????. ???????? ??? ?? ????????????.` };
 }
 

@@ -12,7 +12,7 @@ export function reelPublicationProof(value, sourceUrl) {
     const path = url.pathname;
     const valid = platform === 'instagram' ? host === 'instagram.com' && /^\/(?:reel|p)\/[A-Za-z0-9_-]+\/?$/.test(path)
       : platform === 'threads' ? ['threads.net', 'threads.com'].includes(host) && /^\/@[^/]+\/post\/[A-Za-z0-9_-]+\/?$/.test(path)
-      : platform === 'vk' ? ['vk.com', 'vkvideo.ru'].includes(host) && /^\/(?:wall|video|clip)-?\d+_\d+\/?$/.test(path)
+      : platform === 'vk' ? ['vk.com', 'vk.ru', 'vkvideo.ru'].includes(host) && /^\/(?:wall|video|clip)-?\d+_\d+\/?$/.test(path)
       : platform === 'youtube' ? ((['youtube.com','m.youtube.com'].includes(host) && (/^\/shorts\/[A-Za-z0-9_-]{11}\/?$/.test(path) || (path === '/watch' && /^[A-Za-z0-9_-]{11}$/.test(url.searchParams.get('v') ?? '')))) || (host === 'youtu.be' && /^\/[A-Za-z0-9_-]{11}\/?$/.test(path)))
       : platform === 'tiktok' ? host === 'tiktok.com' && /^\/@[A-Za-z0-9._]+\/video\/\d+\/?$/.test(path) && path.split('/')[1]?.slice(1).toLowerCase() === String(item.account ?? '').replace(/^@/,'').trim().toLowerCase() : false;
     const checked = Date.parse(String(item.verified_at ?? ''));
@@ -47,7 +47,8 @@ export function reelTaskText(job, origin) {
 // Stable identity makes retries and equivalent YouTube link forms idempotent.
 export function publicationKey(item) {
   const url = new URL(item.url);
-  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const rawHost = url.hostname.toLowerCase().replace(/^www\./, '');
+  const host = rawHost === 'vk.ru' ? 'vk.com' : rawHost;
   const path = url.pathname.replace(/\/$/, '');
   if (item.platform === 'youtube') return `youtube:${url.searchParams.get('v') || path.split('/').at(-1)}`;
   if (item.platform === 'instagram') return `instagram:${path.split('/').at(-1)}`;

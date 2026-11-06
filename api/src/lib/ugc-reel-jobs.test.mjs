@@ -42,3 +42,9 @@ test('append preserves original proofs and deduplicates equivalent YouTube URLs'
   const incoming={...old,url:'https://youtu.be/AbC123def_0',evidence:'newer check'};
   const merged=appendPublicationProofs([old],[incoming,proof]);assert.equal(merged.length,2);assert.deepEqual(merged[0],old);
 });
+
+test('current vk.ru clip links are accepted and alias retries preserve the original proof',()=>{
+  const vk={...proof,platform:'vk',url:'https://vk.ru/clip-229095983_456240567',account:'dasexperten'};
+  assert.ok(reelPublicationProof([vk],''));
+  assert.equal(appendPublicationProofs([vk],[{...vk,url:'https://vk.com/clip-229095983_456240567'}]).length,1);
+});

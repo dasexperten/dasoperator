@@ -93,7 +93,7 @@ export async function refreshContentMetrics(env: Env): Promise<{ read: number; r
   if (!(env as unknown as { CF_BROWSER_TOKEN?: string }).CF_BROWSER_TOKEN) return { read: 0, removed: 0, error: 'CF_BROWSER_TOKEN not set' };
   const rows = (await env.DB.prepare(
     `SELECT id, content_url FROM ugc_content
-      WHERE content_url LIKE '%instagram.com/%' AND COALESCE(link_status, '') NOT IN ('missing', 'invalid')
+      WHERE product_status='identified' AND content_url LIKE '%instagram.com/%' AND COALESCE(link_status, '') NOT IN ('missing', 'invalid')
         AND (metrics_checked_at IS NULL OR metrics_checked_at < ?1)
       ORDER BY metrics_checked_at IS NOT NULL, metrics_checked_at, RANDOM() LIMIT ${CONTENT_PER_RUN}`
   ).bind(new Date(Date.now() - 7 * 86_400_000).toISOString()).all<{ id: string; content_url: string }>()).results ?? [];

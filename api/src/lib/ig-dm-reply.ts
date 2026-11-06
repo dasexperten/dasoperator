@@ -192,7 +192,6 @@ export function nextStage(current: string | null, target: string): string | null
   if (to < 0 || (current && from < 0)) return null;
   return to > from ? target : null;
 }
-const POST_LINK = /(instagram\.com\/(reel|reels|p|tv)\/|tiktok\.com\/|vk\.com\/(clip|video)|youtube\.com\/shorts\/|youtu\.be\/)/i;
 
 // In a text-only response, do not announce absent cards or ask for their number.
 function scenarioCardClaim(text: string): boolean {
@@ -697,8 +696,8 @@ export async function igDmReply(env: Env, options: { batchClock?: () => number }
       });
       const verifiedOrderAt = Math.max(0, ...orderImageTimes, ...history.filter((m) => m.direction === 'in' && moneyAt && Date.parse(m.created_at) > moneyAt && saidOrdered(m)).map((m) => Date.parse(m.created_at)));
       verifiedOrderForDelivery = verifiedOrderAt > 0;
-      const currentIncoming = history.slice(lastOutIndex + 1).filter((m) => m.direction === 'in');
-      const postedAt = Math.max(0, ...currentIncoming.filter((m) => POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt)).map((m) => Date.parse(m.created_at)));
+      // Owner 06.11: a URL is pending until Diana verifies author and product. reviewContent owns posted.
+      const postedAt = 0;
       const ownIdeaAt = currentOwnIdeaAt;
       const deliveredScenarioAt = Math.max(0, ...scenarioPlans.filter(plan => completeScenario(plan, creator.id, verifiedOrderAt)
         && Number(plan.completedAt) > Number(creator.updated_at ?? 0)).map(plan => Number(plan.completedAt)));

@@ -9,6 +9,7 @@ import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-pa
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/lib/ugc-table-format.mjs';
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
+import { contentConfirmed, contentState, publicationNetwork } from '@/lib/ugc-content-state.mjs';
 import { deviceTargets } from '@/lib/browser-target.mjs';
 
 type PlatformMetric = {
@@ -754,7 +755,6 @@ const PRODUCT_PILLS = 6;
 // figures stacked right of it (views, likes, comments); a dead link is faded.
 // Two publications side by side, then «+N».
 const CONTENT_ICONS = 2;
-const DEAD_LINK: ReadonlySet<LinkStatus> = new Set<LinkStatus>(['missing', 'restricted', 'invalid']);
 
 // Owner 2026-11-03: posting date for the Content column. Instagram shortcodes encode the media id, whose top bits
 // are milliseconds since Instagram's epoch (1314220021721); checked against ERP import times before shipping.
@@ -770,13 +770,12 @@ function instagramPostedAt(url: string | null): Date | null {
 
 function Publication({ item, href, more }: { item: ContentObservation; href: string; more: number }) {
   const kind = mediaKind(item);
-  const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена';
-  const state = item.link_status === 'active' ? 'live' : item.link_status && DEAD_LINK.has(item.link_status) ? 'dead' : 'unknown';
+  const confirmed=contentConfirmed(item);
+  const status = !confirmed ? 'Ожидает проверки Дианы: автор и наш товар не подтверждены' : item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Проверено Дианой';
+  const state=contentState(item);
   // The network the link lives on (Owner 2026-10-16, Marika): Instagram, TikTok, YouTube…
   // instead of photo / video glyphs; a live link is bright, a dead one faded (data-state).
-  const host = (() => { try { return new URL(href).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } })();
-  const net = /instagram\.com|instagr\.am/.test(host) ? 'instagram' : /tiktok\.com/.test(host) ? 'tiktok' : /youtube\.com|youtu\.be/.test(host) ? 'youtube'
-    : /vk\.com|vkvideo\.ru/.test(host) ? 'vk' : /t\.me|telegram/.test(host) ? 'telegram' : /facebook\.com|fb\.watch/.test(host) ? 'facebook' : '';
+  const net=publicationNetwork(href);
   const Glyph = net === 'instagram' ? Instagram : net === 'youtube' ? Youtube : net === 'telegram' ? Send : net === 'facebook' ? Facebook : null;
   const read = item.metrics_checked_at ? ` · ${new Date(item.metrics_checked_at).toLocaleDateString('ru-RU')}` : '';
   const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}${read}`;
@@ -787,7 +786,7 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   // Owner 2026-11-04: no day counter; ER is written from day 5, re-read until day 10, then it stays as it is. the ER sits inside the icon (no % sign); during it, the day under the date.
   const age = postedAt ? Math.floor((Date.now() - postedAt.valueOf()) / 86_400_000) + 1 : 0;
   // Only a reel whose 10 days are over carries a number; a younger one shows its day instead.
-  const er = item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? (item.engagement_rate >= 100 ? String(Math.round(item.engagement_rate)) : item.engagement_rate.toFixed(1)) : '';
+  const er = confirmed && item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? (item.engagement_rate >= 100 ? String(Math.round(item.engagement_rate)) : item.engagement_rate.toFixed(1)) : '';
   const watchDay = 0;
   return <span className="ugc-pub" data-state={state} data-net={net || undefined}>
     <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>

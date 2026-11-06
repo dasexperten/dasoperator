@@ -23,6 +23,9 @@
 }
 
 :root {
+  /* Owner 06.11: verified UGC networks; pending publication is pale beige. */
+  --ugc-network-blue: #1877F2;
+  --ugc-network-light-blue: #229ED9;
   /* ---------------- BRAND — heritage flag palette ---------------- */
   --brand-schwarz:     #282229;  /* warm off-black, sampled from logomark */
   /* Owner 2026-09-04 — the working red. #E5202C, sampled straight off the

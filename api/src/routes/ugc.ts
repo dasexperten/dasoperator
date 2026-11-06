@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { contentEngagement } from '../lib/ugc-content-metrics.mjs';
+import { reviewContent } from '../lib/ugc-content-review';
 import type { Env } from '../types';
 import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
@@ -289,7 +291,7 @@ ugc.get('/', async (c) => {
 
   const contentCounts = await c.env.DB.prepare(
     `SELECT creator_id, creator_platform_id, COUNT(*) content_count
-     FROM ugc_content GROUP BY creator_id, creator_platform_id`
+     FROM ugc_content WHERE product_status='identified' GROUP BY creator_id, creator_platform_id`
   ).all<{ creator_id: string; creator_platform_id: string; content_count: number }>();
 
   const collaborations = await c.env.DB.prepare(
@@ -330,12 +332,13 @@ ugc.get('/', async (c) => {
   }
 
   const followersByProfile = new Map<string, number>();
+  const platformByProfile=new Map<string,string>((profiles.results??[]).map(row=>[String(row.profile_id),String(row.platform)]));
   for (const row of profiles.results ?? []) if (row.profile_id && Number(row.followers) > 0) followersByProfile.set(String(row.profile_id), Number(row.followers));
   const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number; content: Record<string, unknown>[] }>();
   for (const row of metricRows.results ?? []) {
     const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
-    if (row.views != null) entry.views.push(Number(row.views));
-    if (row.comments != null) entry.comments.push(Number(row.comments));
+    if (row.product_status==='identified' && row.views != null) entry.views.push(Number(row.views));
+    if (row.product_status==='identified' && row.comments != null) entry.comments.push(Number(row.comments));
     let productCodes: string[] = [];
     if (row.product_codes) {
       try {
@@ -354,11 +357,7 @@ ugc.get('/', async (c) => {
       metrics_checked_at: row.metrics_checked_at,
       comments: row.comments,
       // Owner 2026-11-04: ER of a publication = (likes + comments) / followers of the account, in percent.
-      engagement_rate: (() => {
-        const followers = followersByProfile.get(String(row.creator_platform_id));
-        if (!followers || followers < 50 || (row.likes == null && row.comments == null)) return null; // under 50 followers the follower count is not reliable
-        return Math.round(((Number(row.likes ?? 0) + Number(row.comments ?? 0)) / followers) * 1000) / 10;
-      })(),
+      engagement_rate: contentEngagement(row,followersByProfile.get(String(row.creator_platform_id)),platformByProfile.get(String(row.creator_platform_id))),
       product_codes: productCodes,
       products: productIdentity.matches.map((match) => ({ ...match, source: row.product_source ?? match.source })),
       product_labels: publicationProductLabels(row.product_evidence),
@@ -590,6 +589,14 @@ ugc.get('/', async (c) => {
     products: Array.from(productCounts, ([sku, content_count]) => ({ sku, name: UGC_PRODUCTS[sku] ?? sku, content_count }))
       .sort((a, b) => b.content_count - a.content_count || a.name.localeCompare(b.name)),
   });
+});
+
+// Diana's explicit review; discovery/HTTP health can never call this automatically.
+ugc.post('/content/:id/review', async(c)=>{
+  const access=await requireAccess(c,true);if(access instanceof Response)return access;
+  let body;try{body=await c.req.json();}catch{return fail(c,400,[{code:'invalid_json',message:'Body must be JSON'}]);}
+  try{return ok(c,await reviewContent(c.env,c.req.param('id'),body));}
+  catch(error){return fail(c,422,[{code:'content_review_failed',message:error instanceof Error?error.message:'review failed'}]);}
 });
 
 ugc.post('/link-health/run', async (c) => {

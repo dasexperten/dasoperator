@@ -133,7 +133,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-pub-link svg[viewBox] path[fill] { stroke: none; }
 .ugc-pub-letter { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; font-size: 18px; font-weight: 900; letter-spacing: 0; }
 .ugc-pub-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
-.ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
+.ugc-pub[data-state="pending"] .ugc-pub-link { color: var(--stone-200); }
 .ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }
 /* Fixed width (Owner 2026-10-16, Marika): «—» and «1461» take the same room, so the second publication and «+N» stand in one line down the column. Four digits fit; a longer figure widens its own cell only. */
 .ugc-pub-icon { display: inline-flex; flex-direction: column; align-items: center; flex: 0 0 48px; }
@@ -296,9 +296,9 @@ a.ugc-creator:hover .ugc-creator-name { text-decoration: underline; }
 .ugc-mobile-name a { color: inherit; text-decoration: none; }
 .ugc-mobile-meta { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
 /* Network colours (Owner 2026-10-16): Instagram stays brand red, TikTok black, Telegram and VK blue. Only live links take the colour; dead and unchecked stay faded grey like Instagram. */
-.ugc-pub[data-net="tiktok"][data-state="live"] .ugc-pub-link { color: var(--brand-schwarz, #111); }
-.ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-link { color: #229ED9; }
-.ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-link { color: #0077FF; }
+.ugc-pub[data-net="tiktok"][data-state="live"] .ugc-pub-link { color: var(--brand-schwarz); }
+.ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-link { color: var(--ugc-network-light-blue); }
+.ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-link { color: var(--ugc-network-light-blue); }
 /* Owner 2026-10-16 (Marika): the hand / magnifier stands right of the @nick on its line;
    under it, smaller and grey, the name and city. */
 .ugc-table td > a.ugc-creator { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-width: 0; }
@@ -404,7 +404,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-photo-note { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
 .ugc-photo-note label { font-weight: 700; font-size: 14px; color: var(--fg-1); }
 .ugc-photo-note textarea { width: 100%; padding: 8px; font-size: 15px; color: var(--fg-1); background: var(--bg-surface); border: 1px solid var(--fg-2); border-radius: var(--radius-sm); }
-.ugc-photo-note button { align-self: flex-start; min-height: 44px; padding: 0 16px; font-weight: 800; color: #fff; background: var(--brand-schwarz, #111); border-radius: var(--radius-sm); }
+.ugc-photo-note button { align-self: flex-start; min-height: 44px; padding: 0 16px; font-weight: 800; color: #fff; background: var(--brand-schwarz); border-radius: var(--radius-sm); }
 .ugc-photo-note button:disabled { opacity: .55; }
 .ugc-photo-note [role=alert] { color: #8a1c1c; font-weight: 700; font-size: 14px; }
 
@@ -516,3 +516,11 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-stage-edit { min-height: 28px; padding: 0 6px; font: inherit; font-weight: 700; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
 .ugc-stage-edit-error { margin-left: 6px; font-weight: 700; color: var(--text-primary); }
 .ugc-manual-mark { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; border-radius: 50%; background: var(--text-primary); color: var(--bg-surface); }
+
+.ugc-pub[data-net="facebook"][data-state="live"] .ugc-pub-link { color: var(--ugc-network-blue); }
+
+/* ER remains readable; the surrounding icon carries the network colour. */
+.ugc-pub-er { color: var(--fg-1); }
+.ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-er, .ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-er { border-color: var(--ugc-network-light-blue); }
+.ugc-pub[data-net="facebook"][data-state="live"] .ugc-pub-er { border-color: var(--ugc-network-blue); }
+.ugc-pub[data-net="instagram"][data-state="live"] .ugc-pub-er { border-color: var(--brand-rot); }

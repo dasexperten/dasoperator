@@ -26,6 +26,7 @@ export function reelPublicationProof(value, sourceUrl) {
     try { source = new URL(String(sourceUrl)); } catch { source = null; }
     if (source && source.hostname.toLowerCase().replace(/^www\./, '') === host && source.pathname.replace(/\/$/, '') === path.replace(/\/$/, '') && (platform !== 'youtube' || path !== '/watch' || source.searchParams.get('v') === youtubeId)) return null;
     if (source && platform === 'youtube' && ['youtube.com','www.youtube.com','m.youtube.com','youtu.be'].includes(source.hostname.toLowerCase()) && publicationKey({platform,url:source.href}) === publicationKey({platform,url:url.href})) return null;
+    if (source && platform === 'vk' && ['vk.com','www.vk.com','vk.ru','www.vk.ru','vkvideo.ru','www.vkvideo.ru'].includes(source.hostname.toLowerCase()) && publicationKey({platform,url:source.href}) === publicationKey({platform,url:url.href})) return null;
     // The same Instagram media shortcode is the original even if /reel becomes /p.
     if (source && platform === 'instagram' && /^(?:www\.)?instagram\.com$/.test(source.hostname) && source.pathname.split('/').filter(Boolean).at(-1) === path.split('/').filter(Boolean).at(-1)) return null;
     result.push({ platform, url: url.href, account: account.slice(0, 160), verified: true,

@@ -12,6 +12,7 @@ const VOICE_VETO = false;
 import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, OZON_CARD_PHOTO, guardReply, requisitesSupportedByText, type CleanRequisites, REFUSAL } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
 import { detectRequisites, UNCONFIRMED_MINOR } from './ugc-requisites-detect.mjs';
+import { confirmedCartAmount } from './ugc-cart-amount.mjs';
 import { checkSubscriptionImages } from './diana-subscription-vision.mjs';
 import { checkDianaVoice } from './diana-voice-check';
 import { canAttemptReply, isTechnical, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
@@ -257,14 +258,17 @@ export async function registerTextRequisites(env: Env): Promise<number> {
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const rows = ((await env.DB.prepare(
     `WITH lo AS (SELECT conversation_id cid, MAX(created_at) t FROM ugc_ig_messages WHERE direction='out' GROUP BY 1)
-     SELECT m.conversation_id cid, LOWER(m.from_username) h, m.text FROM ugc_ig_messages m LEFT JOIN lo ON lo.cid=m.conversation_id
+     SELECT m.conversation_id cid, LOWER(m.from_username) h, m.text,
+       (SELECT MAX(image.created_at) FROM ugc_ig_messages image WHERE image.conversation_id=m.conversation_id
+         AND image.direction='in' AND image.attachments_json IS NOT NULL AND image.attachments_json!='[]') latest_image_at
+       FROM ugc_ig_messages m LEFT JOIN lo ON lo.cid=m.conversation_id
       WHERE m.direction='in' AND m.from_username IS NOT NULL AND m.created_at>=?1 AND (lo.t IS NULL OR m.created_at>lo.t)
       ORDER BY m.conversation_id, m.created_at`
-  ).bind(since).all<{ cid: string; h: string; text: string | null }>()).results ?? []);
-  const byConv = new Map<string, { h: string; texts: string[] }>();
-  for (const r of rows) { const c = byConv.get(r.cid) ?? { h: r.h, texts: [] }; c.texts.push(r.text ?? ''); byConv.set(r.cid, c); }
+  ).bind(since).all<{ cid: string; h: string; text: string | null; latest_image_at: string | null }>()).results ?? []);
+  const byConv = new Map<string, { h: string; texts: string[]; latestImageAt: string | null }>();
+  for (const r of rows) { const c = byConv.get(r.cid) ?? { h: r.h, texts: [], latestImageAt: r.latest_image_at }; c.texts.push(r.text ?? ''); byConv.set(r.cid, c); }
   let made = 0;
-  for (const { h, texts } of byConv.values()) {
+  for (const [cid, { h, texts, latestImageAt }] of byConv) {
     const found = detectRequisites(texts);
     if (!found) continue;
     // Owner 2026-11-06 (fatima_massage26, natali_matrysovaa): a blogger with ANY payout in the last 60 days —
@@ -272,7 +276,14 @@ export async function registerTextRequisites(env: Env): Promise<number> {
     const prior = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE lower(handle)=?1 AND created_at > ?2`)
       .bind(h, Date.now() - 60 * 86_400_000).first<{ n: number }>();
     if (Number(prior?.n ?? 0) > 0) continue;
-    try { if (await registerPayout(env, h, found, 'Сумма не подтверждена: впишите сумму корзины (только паста) перед оплатой')) made++; }
+    // Basket reading is independent of a later reply: reuse it before creating the row.
+    // A newer attachment invalidates the receipt; never inherit an older basket price.
+    const receipt = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1')
+      .bind(`diana_context:${cid}`).first<{ value: string }>();
+    let amount: number | null = null;
+    try { amount = confirmedCartAmount(JSON.parse(receipt?.value ?? 'null')?.image_check, latestImageAt); } catch { /* no usable receipt */ }
+    if (amount != null) found.amount_minor = amount;
+    try { if (await registerPayout(env, h, found, amount == null ? 'Сумма не подтверждена: впишите сумму корзины (только паста) перед оплатой' : '')) made++; }
     catch { /* next minute tries again */ }
   }
   return made;

@@ -21,7 +21,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
       : 'export const IG_UNSUPPORTED="unsupported"; export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
-const { igDmReply, jevSure, surnameWritten } = await import(pathToFileURL(outfile));
+const { igDmReply, registerTextRequisites, jevSure, surnameWritten } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive:true });
 
 test('missing current attachment metadata is repaired internally or stays pending without a resend request',async()=>{
@@ -91,9 +91,10 @@ function fixture() {
     async notify(){notices.push(true);return true;}, async ask(text,buttons){notices.push({text,buttons});return 77;},
     async send(...args){sent.push(args);if(args[3]?.imageUrl)(f.cardUrls??=[]).push(args[3].imageUrl);return f.sendResults?.length?f.sendResults.shift():f.sendError?{ok:false,delivery:'not_sent',error:'send rejected'}:{ok:true,messageId:'mid-'+sent.length};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
-  f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;return st;},async all(){
+  f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;if(sql.includes("INSERT INTO ugc_payouts ("))f.registeredPayout=v;return st;},async all(){
     if(sql.includes("json_extract(value,'$.conversationId')=?1"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&JSON.parse(value).conversationId===p[0]).map(([,value])=>({value}))};
     if(sql.includes("key LIKE 'ig_reply_delivery:%'"))return {results:[...states].filter(([key,value])=>key.startsWith('ig_reply_delivery:')&&!JSON.parse(value).acknowledgedAt&&JSON.parse(value).status!=='superseded').map(([key,value])=>({key,value}))};
+    if(sql.includes('WITH lo AS')) return {results:f.textReqRows??[]};
     if(sql.includes('WITH last')) return {results:f.noWaiting?[]:[{cid,t:f.waitingAt??t,h:'tester'}]};
     if(sql.includes('SELECT id, direction'))return {results:[...(f.history??[{direction:'in',text:'Подскажите',created_at:t}])].sort((a,b)=>b.created_at.localeCompare(a.created_at))};
     if(sql.includes('SELECT amount_minor'))return {results:f.payouts??[]};
@@ -126,7 +127,7 @@ function fixture() {
     if(f.concurrentStage){f.creator.lifecycle_stage=f.concurrentStage;f.creator.updated_at=Date.now();}
     if((f.creator.lifecycle_stage??null)!==p[3]||(f.creator.updated_at??null)!==p[4])return {success:true,meta:{changes:0}};
     (f.stageWrites??=[]).push({stage:p[1],expected:p[3]});f.creator.lifecycle_stage=p[1];f.creator.updated_at=p[2];
-  }else if(sql.includes('UPDATE ugc_payouts')){(f.heldPayouts??=[]).push(p[0]);}else throw Error('unexpected run '+sql);return {success:true,meta:{changes:1}};}};return st;},async batch(){if(f.failBatch)throw Error('database');return [];}}};
+  }else if(sql.includes('UPDATE ugc_payouts')){(f.heldPayouts??=[]).push(p[0]);}else throw Error('unexpected run '+sql);return {success:true,meta:{changes:1}};}};return st;},async batch(statements){f.batches=(f.batches??0)+1;if(f.failBatch)throw Error('database');return [];}}};
   globalThis.__ugcTest=f; return f;
 }
 function incident(f){return JSON.parse(f.states.get('ig_reply_escalated:'+f.cid));}
@@ -612,3 +613,16 @@ test('scenario review recovery does not reopen a manual decision or an ambiguous
 test('subscription image transport outage stays pending without a blind reply',async()=>{const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture',label:'current'}];f.jevImageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'diana_subscription_vision_pending');assert.equal(incident(f).status,'retry');assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);});
 
 test('host batch budget leaves unstarted work unhandled and the next pass completes it',async()=>{const f=fixture();const ticks=[0,7*60000];const result=await igDmReply(f.env,{batchClock:()=>ticks.shift()??7*60000});assert.equal(result.deferred,1);assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);});
+
+
+test('late requisites create payout with already-read basket amount before any reply generation',async()=>{
+ const f=fixture();
+ const imageAt='2026-11-06T13:15:09Z';
+ f.textReqRows=[{cid:f.cid,h:'tester',text:'Озон банк Ксения Сотова 89511688874',latest_image_at:imageAt}];
+ f.states.set('diana_context:'+f.cid,JSON.stringify({image_check:{status:'yes',checks:[{kind:'basket',product:'yes',amount:'yes',seller:'unknown',observed:{price:'367',currency:'RUB'},label:`Скриншот из входящего сообщения ${imageAt}, вложение 1.`}]}}));
+ assert.equal(await registerTextRequisites(f.env),1);
+ assert.equal(f.registeredPayout[4],36700);
+ assert.doesNotMatch(f.registeredPayout[10],/Сумма не подтверждена/);
+ assert.equal(f.systems.length,0);
+ assert.equal(f.sent.length,0);
+});

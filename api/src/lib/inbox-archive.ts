@@ -324,7 +324,7 @@ export async function archiveEmail(
   direction: MailDirection,
   address: string,
   payload: ArchiveEmailInput,
-  options: { strict?: boolean; recordId?: string; timestamp?: string } = {}
+  options: { strict?: boolean; recordId?: string; timestamp?: string; preservedAttachments?: ArchivedAttachment[] } = {}
 ): Promise<string | undefined> {
   const split = splitPlusTag(address);
   const addr = split.base;
@@ -343,7 +343,9 @@ export async function archiveEmail(
   const { attachments: rawAttachments, ...rest } = payload;
   let stored: ArchivedAttachment[] = [];
   try {
-    stored = await storeAttachments(env, `Inbox/${addr}/${direction}/${recordId}`, rawAttachments);
+    stored = rawAttachments?.length
+      ? await storeAttachments(env, `Inbox/${addr}/${direction}/${recordId}`, rawAttachments)
+      : options.preservedAttachments || [];
   } catch (err) {
     if (options.strict) throw err;
     console.log(JSON.stringify({

@@ -147,6 +147,15 @@ const archiveOneSchema = z.object({
   messageId: z.string().min(1),
   cc: z.string().email().or(z.array(z.string().email())).optional(),
   trigger: z.string().optional(),
+  in_reply_to: z.string().optional(),
+  reply_to_tag: z.string().regex(/^[a-z0-9]{4,16}$/).optional(),
+  attachments: z.array(z.object({
+    filename: z.string().min(1),
+    content: z.string().min(1),
+    encoding: z.literal('base64').default('base64'),
+    mimeType: z.string().optional(),
+    contentType: z.string().optional(),
+  })).max(20).optional(),
 });
 
 const archiveBatchSchema = z.object({
@@ -186,6 +195,9 @@ route.post('/archive-sent', async (c) => {
       text: item.text || `(archived send ${item.messageId})`,
       ...(item.html !== undefined ? { html: item.html } : {}),
       ...(item.cc !== undefined ? { cc: item.cc } : {}),
+      ...(item.in_reply_to !== undefined ? { in_reply_to: item.in_reply_to } : {}),
+      ...(item.reply_to_tag !== undefined ? { replyToTag: item.reply_to_tag } : {}),
+      ...(item.attachments !== undefined ? { attachments: item.attachments.map(file => ({ ...file, mimeType: file.mimeType || file.contentType })) } : {}),
       messageId: item.messageId,
       archive_only: true,
       origin: 'human',

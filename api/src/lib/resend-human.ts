@@ -6,7 +6,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { archiveEmail, type RawAttachment } from './inbox-archive';
+import { archiveEmail, type RawAttachment, type ArchivedAttachment } from './inbox-archive';
 import { outgoingAttachments } from './outgoing-attachments';
 import { MAILBOX_REGISTRY } from './mailbox-registry';
 import { heldRecipients, mailHoldRefusal } from './mail-holds';
@@ -332,7 +332,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(messageId));
   const recordId = 'outbox-' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
   const previous = await env.ARCHIVE.get(`Inbox/${fromAddr}/sent/${recordId}.json`);
-  const previousRecord = previous ? await previous.json<{ timestamp?: string }>() : null;
+  const previousRecord = previous ? await previous.json<{ timestamp?: string; attachments?: ArchivedAttachment[]; threadId?: string; plusTag?: string }>() : null;
   const timestamp = previousRecord?.timestamp || new Date().toISOString();
   await archiveEmail(env, 'sent', fromAddr, {
     from: fromRaw,
@@ -344,11 +344,11 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     text: text || undefined,
     html: html,
     messageId,
-    threadId: params.in_reply_to,
-    ...(params.replyToTag ? { plusTag: params.replyToTag } : {}),
+    threadId: params.in_reply_to || previousRecord?.threadId,
+    ...(params.replyToTag || previousRecord?.plusTag ? { plusTag: params.replyToTag || previousRecord?.plusTag } : {}),
     origin: params.origin ?? 'human',
     trigger: params.trigger,
-  }, { strict: true, recordId, timestamp });
+  }, { strict: true, recordId, timestamp, preservedAttachments: previousRecord?.attachments });
 
   // Also index under partnerships@ when it was CC'd so GEO team mailbox sees the send.
   if (ccList?.some((a) => extractEmailAddr(a) === 'partnerships@dasexperten.com') && fromAddr !== 'partnerships@dasexperten.com') {

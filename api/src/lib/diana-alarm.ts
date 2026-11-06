@@ -92,18 +92,33 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
 }
 
 export async function pendingDianaMessages(env: Env) {
-  const rows = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE ?1 OR key LIKE 'diana_action_pending:%' ORDER BY updated_at").bind(ALARM_PREFIX + '%').all<{ key: string; value: string }>()).results ?? [];
-  return rows.flatMap(row => { try { const alarm = JSON.parse(row.value); if (!alarm.event_id && alarm.message_id) alarm.event_id = 'message:' + alarm.message_id; return alarm.cid && alarm.message_id && alarm.event_id ? [{...alarm, queue_key: row.key}] : []; } catch { return []; } });
+  const rows = (await env.DB.prepare("SELECT key,value,updated_at FROM crm_sync_state WHERE key LIKE ?1 OR key LIKE 'diana_action_pending:%' ORDER BY updated_at").bind(ALARM_PREFIX + '%').all<{ key: string; value: string; updated_at: number }>()).results ?? [];
+  const pending = [];
+  for (const row of rows) {
+    try {
+      const alarm = JSON.parse(row.value);
+      if (!alarm.cid && row.key.startsWith(ALARM_PREFIX)) alarm.cid = row.key.slice(ALARM_PREFIX.length);
+      if (!alarm.cid) continue;
+      if (!alarm.event_id) {
+        alarm.message_id ??= null; // Legacy signal: Diana must resolve the original; never invent a message ID.
+        alarm.event_id = alarm.message_id ? 'message:' + alarm.message_id : 'legacy:' + alarm.cid + ':' + row.updated_at;
+        const saved = await env.DB.prepare('UPDATE crm_sync_state SET value=?1 WHERE key=?2 AND value=?3').bind(JSON.stringify(alarm),row.key,row.value).run();
+        if (!saved.meta.changes) continue; // A newer signal arrived; leave it for the next delivery.
+      }
+      pending.push({...alarm, queue_key: row.key});
+    } catch { /* Unreadable records stay durable for diagnosis. */ }
+  }
+  return pending;
 }
 
-export async function acknowledgeDianaEvent(env: Env, event: {cid: string; message_id: string; event_id: string}) {
+export async function acknowledgeDianaEvent(env: Env, event: {cid: string; message_id: string | null; event_id: string}) {
   const key = event.event_id.startsWith('action:') ? 'diana_action_pending:' + event.event_id : ALARM_PREFIX + event.cid;
   const rows = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_event_done:' + event.event_id).first<{value:string}>();
   let receipt: any;
   try { receipt = JSON.parse(rows?.value ?? 'null'); } catch { return false; }
   if (!receipt || receipt.verified !== true || receipt.event_id !== event.event_id || receipt.cid !== event.cid || receipt.message_id !== event.message_id || typeof receipt.proof !== 'string' || !receipt.proof.trim()) return false;
   // Both statements execute atomically; an older completion cannot overwrite a newer alarm.
-  const match = `key=?1 AND json_valid(value) AND json_extract(value,'$.message_id')=?2 AND COALESCE(json_extract(value,'$.event_id'),'message:'||json_extract(value,'$.message_id'))=?3`;
+  const match = `key=?1 AND json_valid(value) AND json_extract(value,'$.message_id') IS ?2 AND json_extract(value,'$.event_id')=?3`;
   const statements = [];
   if (event.event_id === 'message:' + event.message_id) statements.push(env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?4,?2,?5 FROM crm_sync_state WHERE ${match} ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(key,event.message_id,event.event_id,'diana_message_done:'+event.cid,Date.now()));
   statements.push(env.DB.prepare(`DELETE FROM crm_sync_state WHERE ${match}`).bind(key,event.message_id,event.event_id));

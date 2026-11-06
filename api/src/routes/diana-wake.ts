@@ -16,8 +16,8 @@ route.get('/connect', c => {
 });
 route.get('/status', c => c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch('https://wake.internal/status'));
 route.post('/ack', async c => {
-  const body = await c.req.json<{ cid?: string; message_id?: string; event_id?: string }>();
-  if (!body.cid || !body.message_id || !body.event_id) return c.json({ ok: false }, 400);
+  const body = await c.req.json<{ cid?: string; message_id?: string | null; event_id?: string }>();
+  if (!body.cid || body.message_id === undefined || !body.event_id || (body.message_id === null && !body.event_id.startsWith('legacy:'))) return c.json({ ok: false }, 400);
   const ok = await acknowledgeDianaEvent(c.env, {cid:body.cid,message_id:body.message_id,event_id:body.event_id});
   return c.json({ ok }, ok ? 200 : 409);
 });

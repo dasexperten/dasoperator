@@ -100,7 +100,7 @@ jobs:
       - name: Test mail delivery, Owner BCC, archive and idempotency
         run: |
           node api/scripts/test-mail-attachments.mjs
-          node --test api/src/lib/mail-archive-recovery.test.mjs
+          node --test api/src/lib/mail-archive-recovery.test.mjs api/src/lib/resend-human-archive.test.mjs api/src/routes/email-archive-backfill.test.mjs
 
       - name: Test durable cron journal and truthful recovery
         run: node --test api/src/routes/cron-runs.test.mjs workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs workers/_shared/run-slot.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs

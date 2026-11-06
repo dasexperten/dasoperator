@@ -35,7 +35,7 @@ function Correspondent({ value }: { value: string }) {
   return <span className="gm-correspondent" title={value}>{name && <b>{name}</b>}{name && address ? ' ' : ''}{address && <span>{address}</span>}</span>;
 }
 
-export default function GoogleMailApp() {
+export default function GoogleMailApp({ initialFolder = 'INBOX' }: { initialFolder?: 'INBOX' | 'SENT' } = {}) {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [account, setAccount] = useState('');
   const [counts, setCounts] = useState<Record<string, MailCount | null>>({});
@@ -45,7 +45,7 @@ export default function GoogleMailApp() {
   const [identities, setIdentities] = useState<string[]>([]);
   const [accountError, setAccountError] = useState('');
   const [accountsLoading, setAccountsLoading] = useState(true);
-  const [folder, setFolder] = useState('INBOX');
+  const [folder, setFolder] = useState<string>(initialFolder);
   const [scope, setScope] = useState<UiMailbox | null>(null);
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
@@ -199,10 +199,11 @@ export default function GoogleMailApp() {
         }
       }}><button className="gm-mobile gm-close" onClick={() => setDrawer(false)} aria-label="Закрыть папки"><X size={20}/></button><button className="gm-primary" disabled={!identities.length || !!compose} onClick={() => { setCompose({ mode: 'new' }); setDrawer(false); }}><PenLine size={17}/>Написать</button>
         {folders.map(f => <button key={f.id} className={folder === f.id && !scope ? 'gm-active' : ''} onClick={() => { setFolder(f.id); setScope(null); setDrawer(false); }}><f.icon size={17}/><span>{f.name}</span>{countBadge(f.id,f.id === 'INBOX')}</button>)}
-        <small className="gm-count-note">Входящие и ящики — непрочитанные</small>{countsFailed && <button onClick={() => setCountRefresh(v => v + 1)}>Обновить счётчики</button>}<a className="gm-legacy" href="/emailer/archive">История до перехода в Google</a>
+        <small className="gm-count-note">Входящие и ящики — непрочитанные</small>{countsFailed && <button onClick={() => setCountRefresh(v => v + 1)}>Обновить счётчики</button>}<a className="gm-legacy" href="/emailer/archive?folder=sent">Отправленные через ERP</a><a className="gm-legacy" href="/emailer/archive">Входящие и архив ERP</a>
         {[["Agents", AGENT_MAILBOXES], ["Departments", DEPARTMENT_MAILBOXES]].map(([heading, boxes]) => <details key={heading as string} open><summary>{heading as string}</summary>{(boxes as UiMailbox[]).map(m => <button key={m.address} className={scope?.address === m.address ? 'gm-active' : ''} title={m.address} onClick={() => { setScope(m); setFolder('all'); setDrawer(false); }}><span>{m.label}<small>{m.address}</small></span>{countBadge(m.address,true)}</button>)}</details>)}
       </aside>
       <section className={`gm-list ${selected || inlineCompose ? 'gm-mobile-hidden' : ''}`} aria-label="Список писем"><form className="gm-search" onSubmit={e => { e.preventDefault(); setSearch(query); }}><input aria-label="Поиск писем" placeholder={folder === 'DRAFT' ? 'Поиск в загруженных черновиках' : 'Поиск в Gmail'} value={query} onChange={e => setQuery(e.target.value)}/><button aria-label="Искать"><Search size={18}/></button></form><div className="gm-list-title"><strong>{label}</strong><small>{visibleRows.length} загружено</small><button className="gm-mobile" disabled={!identities.length || !!compose} onClick={() => setCompose({ mode: 'new' })} aria-label="Написать письмо"><PenLine size={20}/></button></div>
+        {folder === 'SENT' && <p className="gm-count-note">Здесь письма Google. <a href="/emailer/archive?folder=sent">Открыть отправленные через ERP</a></p>}
         <div className="gm-rows">{error && <div className="gm-error" role="alert">{error}<button onClick={() => void load(failedPage)}>Повторить</button></div>}{busy && !rows.length && <div className="gm-empty" role="status"><Loader2 className="dxmail-spin"/>Загрузка…</div>}{!busy && !error && !visibleRows.length && <div className="gm-empty">Писем не найдено</div>}
           {visibleRows.map(m => <button onPointerEnter={e=>{if(e.pointerType==='mouse')warmMessage(m);}} onPointerLeave={cancelWarm} onFocus={()=>warmMessage(m)} onBlur={cancelWarm} disabled={!!compose && !!m.draftId} key={m.id} className={`gm-row ${m.labelIds?.includes('UNREAD') ? 'gm-unread' : ''} ${selected?.id === m.id ? 'gm-selected' : ''}`} onClick={() => { setAutomaticPreview(false); m.draftId ? setCompose({ mode: 'draft', draftId: m.draftId }) : setSelected(m); }}><span className="gm-row-top"><Correspondent value={m.labelIds?.includes('SENT') ? m.to : m.from}/><time>{date(m.timestamp)}</time></span><strong>{m.subject || '(Без темы)'}</strong><span className="gm-snippet">{readableSnippet(m.snippet)}</span>{m.labelIds?.includes('STARRED') && <span aria-label="Важное">★</span>}</button>)}
           {next && <button className="gm-more" disabled={busy} onClick={() => void load(next)}>{busy ? 'Загрузка…' : 'Загрузить ещё'}</button>}

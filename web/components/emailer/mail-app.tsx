@@ -2058,9 +2058,9 @@ class MailCrashBoundary extends React.Component<
   }
 }
 
-function DesktopMail({ data, toast, initialScope }: { initialScope: MailboxScope; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
+function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScope: MailboxScope; initialFolder: FolderId; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
   const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
-  const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
+  const [activeFolder, setActiveFolder] = useState<FolderId>(initialFolder);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Thread strip: collapsed shows the five newest letters, a click opens the rest
@@ -2724,9 +2724,9 @@ function SwipeableRow({
   );
 }
 
-function MobileMail({ data, toast, initialScope }: { initialScope: MailboxScope; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
+function MobileMail({ data, toast, initialScope, initialFolder }: { initialScope: MailboxScope; initialFolder: FolderId; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
   const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
-  const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
+  const [activeFolder, setActiveFolder] = useState<FolderId>(initialFolder);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [openedId, setOpenedId] = useState<string | null>(null);
@@ -3140,7 +3140,7 @@ function getMobileSnapshot() {
   return window.matchMedia('(max-width: 960px)').matches;
 }
 
-export default function MailApp({ initialMailbox }: { initialMailbox?: string | undefined } = {}) {
+export default function MailApp({ initialMailbox, initialFolder = 'inbox' }: { initialMailbox?: string | undefined; initialFolder?: FolderId } = {}) {
   const initialScope = useMemo<MailboxScope>(() => {
     if (!initialMailbox) return null;
     const address = initialMailbox.trim().toLowerCase();
@@ -3164,7 +3164,7 @@ export default function MailApp({ initialMailbox }: { initialMailbox?: string | 
   return (
     <MailCrashBoundary>
     <div className="dxmail">
-      {isMobile ? <MobileMail key={initialScope?.address || "all"} data={data} toast={toast} initialScope={initialScope} /> : <DesktopMail key={initialScope?.address || "all"} data={data} toast={toast} initialScope={initialScope} />}
+      {isMobile ? <MobileMail key={`${initialScope?.address || "all"}:${initialFolder}`} data={data} toast={toast} initialScope={initialScope} initialFolder={initialFolder} /> : <DesktopMail key={`${initialScope?.address || "all"}:${initialFolder}`} data={data} toast={toast} initialScope={initialScope} initialFolder={initialFolder} />}
 
       {snackbar && (
         <div className="snackbar">

@@ -7,5 +7,5 @@ export const runtime = 'edge';
 export default function MailArchivePage({ searchParams }: { searchParams: { mailbox?: string | string[]; folder?: string | string[] } }) {
   const mailbox = typeof searchParams.mailbox === 'string' ? searchParams.mailbox : undefined;
   const folder = searchParams.folder === 'sent' ? 'sent' : 'inbox';
-  return <div className="dxmail-page"><p style={{ padding: '8px 16px', margin: 0 }}>Почта ERP · <a href="/emailer/archive?folder=sent">Отправленные</a> · <a href="/emailer?folder=sent">Отправленные Google</a> · <a href="/emailer">Входящие Google</a></p><MailApp initialMailbox={mailbox} initialFolder={folder} /></div>;
+  return <div className="dxmail-page" style={{ display: 'flex', flexDirection: 'column' }}><p style={{ padding: '8px 16px', margin: 0 }}>Почта ERP · <a href="/emailer/archive?folder=sent">Отправленные</a> · <a href="/emailer?folder=sent">Отправленные Google</a> · <a href="/emailer">Входящие Google</a></p><div style={{ flex: 1, minHeight: 0 }}><MailApp initialMailbox={mailbox} initialFolder={folder} /></div></div>;
 }

@@ -25,7 +25,7 @@ function fixture() {
     }
     throw Error('Unexpected request');
   };
-  return { requests, fetchImpl, options: { task: 'current task', githubToken: 'test', infer: async messages => { if(rejectJev) throw Error('subscription unavailable'); const {candidates}=JSON.parse(messages[1].content); return {text:JSON.stringify({scores:candidates.map(c=>({id:c.id,score:.8}))})}; }, fetchImpl },
+  return { requests, fetchImpl, options: { task: 'current task', githubToken: 'test', infer: async messages => { if(rejectJev) throw Error('subscription unavailable'); const {candidates}=JSON.parse(messages[1].content); return {text:JSON.stringify({scores:Object.fromEntries(candidates.map(c=>[c.id,.8]))})}; }, fetchImpl },
     failSkill: () => { rejectSkill = true; }, failJev: () => { rejectJev = true; } };
 }
 test('Diana gets subscription-selected full skills and knowledge pinned to source commits', async () => {

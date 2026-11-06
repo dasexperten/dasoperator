@@ -1,0 +1,83 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { build } from 'esbuild';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const temp = mkdtempSync(join(tmpdir(),'ugc-reel-test-'));
+const root = new URL('../../../', import.meta.url);
+await build({ entryPoints: [new URL('../routes/internal-ugc.ts', import.meta.url).pathname], bundle:true, platform:'node', format:'esm', outfile:join(temp,'route.mjs'),logLevel:'silent' });
+await build({ entryPoints: [new URL('./ugc-reel-store.ts', import.meta.url).pathname], bundle:true, platform:'node', format:'esm', outfile:join(temp,'store.mjs'),logLevel:'silent' });
+await build({ entryPoints: [new URL('../routes/ugc.ts', import.meta.url).pathname], bundle:true, platform:'node', format:'esm', outfile:join(temp,'ugc.mjs'),logLevel:'silent' });
+const ownerRoute = (await import(pathToFileURL(join(temp,'ugc.mjs')).href)).default;
+const route = (await import(pathToFileURL(join(temp,'route.mjs')).href)).default;
+const { dispatchReel } = await import(pathToFileURL(join(temp,'store.mjs')).href);
+const sqlite = new DatabaseSync(':memory:');
+sqlite.exec(`CREATE TABLE ugc_content(id TEXT PRIMARY KEY,creator_platform_id TEXT,content_url TEXT,content_type TEXT); CREATE TABLE ugc_creator_platforms(id TEXT PRIMARY KEY,handle TEXT,platform TEXT);`);
+sqlite.exec(readFileSync(new URL('db/migrations/0157_ugc_reel_jobs.sql',root),'utf8'));
+sqlite.exec(`INSERT INTO ugc_content VALUES('reel1','profile','https://instagram.com/reel/SOURCE/','video'); INSERT INTO ugc_creator_platforms VALUES('profile','real_author','instagram');`);
+const DB = { prepare(sql) { return { values:[], bind(...values){this.values=values;return this;}, async first(){return sqlite.prepare(sql).get(...this.values) ?? null;}, async all(){return {results:sqlite.prepare(sql).all(...this.values)};}, async run(){const result=sqlite.prepare(sql).run(...this.values);return {meta:{changes:Number(result.changes)}};} }; } };
+const env = {DB,EMAILER_SERVICE_SECRET:'test-only-service-secret'};
+const request = async (path,body,authorized=true) => {
+  const headers = {'Content-Type':'application/json',...(authorized?{'X-Emailer-Service-Secret':env.EMAILER_SERVICE_SECRET}:{})};
+  return route.request(`https://erp.test${path}`,{method:body===undefined?'GET':'POST',headers,...(body===undefined?{}:{body:JSON.stringify(body)})},env,{waitUntil(){},passThroughOnException(){}});
+};
+sqlite.exec(`CREATE TABLE users(id TEXT PRIMARY KEY,name TEXT,role TEXT,active INTEGER,permissions TEXT);CREATE TABLE sessions(token TEXT PRIMARY KEY,user_id TEXT,expires_at INTEGER);
+INSERT INTO users VALUES('owner','Owner','admin',1,'{}');INSERT INTO users VALUES('staff','Staff','manager',1,'{"/ugc":"rw"}');`);
+for(const [token,user] of [['owner-session-token','owner'],['staff-session-token','staff']]) sqlite.prepare('INSERT INTO sessions VALUES(?,?,?)').run(token,user,Date.now()+60000);
+const insert = () => sqlite.exec(`INSERT OR IGNORE INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at) VALUES('reel1','owner','2026-11-07T00:00:00.000Z','2026-11-07T00:00:00.000Z')`);
+const row = () => sqlite.prepare('SELECT * FROM ugc_reel_jobs').get();
+test('service auth, exclusive claim, proof validation and persistence',async()=>{
+  insert();
+  assert.equal((await request('/reel-jobs',undefined,false)).status,401);
+  assert.equal((await request('/reel-jobs/reel1/claim',{},false)).status,401);
+  let res=await request('/reel-jobs/reel1/claim',{});assert.equal(res.status,200);
+  const claim=(await res.json()).claim_id;
+  assert.equal(row().status,'working');
+  assert.equal((await request('/reel-jobs/reel1/claim',{})).status,409);
+  assert.equal((await request('/reel-jobs/reel1/complete',{claim_id:claim,publications:[]})).status,422);
+  assert.equal(row().status,'working');
+  const proof={platform:'instagram',url:'https://instagram.com/reel/NEWPOST/',account:'dasexperten',verified:true,verified_at:new Date().toISOString(),evidence:'Opened the new post and checked account, video and author credit'};
+  assert.equal((await request('/reel-jobs/reel1/complete',{claim_id:'stale',publications:[proof]})).status,409);
+  assert.equal((await request('/reel-jobs/reel1/complete',{claim_id:claim,publications:[proof]})).status,200);
+  assert.equal(row().status,'published');
+  assert.equal(JSON.parse(row().publications)[0].url,proof.url);
+  const jobs=await(await request('/reel-jobs')).json();assert.equal(jobs.jobs[0].claim_id,undefined);
+});
+test('dispatch goes to Dieter and cannot paint working/published on an accepted narrative',async()=>{
+  sqlite.exec('DELETE FROM ugc_reel_jobs');insert();
+  const calls=[];
+  const SEAT_DIETER_VFX={async fetch(url,init){calls.push({url,init});return Response.json({ok:true,actions:0,reply:'I will do it'});}};
+  await dispatchReel({...env,SEAT_DIETER_VFX},'reel1','https://erp.test');
+  assert.equal(calls.length,1);assert.equal(calls[0].url,'https://seat/adhoc');
+  assert.equal(calls[0].init.headers['X-Emailer-Service-Secret'],env.EMAILER_SERVICE_SECRET);
+  assert.match(JSON.parse(calls[0].init.body).text,/SOURCE/);
+  assert.equal(row().status,'queued');assert.match(row().last_error,/начало/);
+  await dispatchReel({...env,SEAT_DIETER_VFX},'reel1','https://erp.test');
+  assert.equal(calls.length,1,'duplicate selection cannot wake a second task');
+});
+test('release never auto-loops and the third failed work attempt is the last',async()=>{
+  for(let i=0;i<3;i++){
+    const res=await request('/reel-jobs/reel1/claim',{});assert.equal(res.status,200);
+    const claim=(await res.json()).claim_id;
+    assert.equal((await request('/reel-jobs/reel1/release',{claim_id:claim,error:'No download access'})).status,200);
+  }
+  assert.equal((await request('/reel-jobs/reel1/claim',{})).status,409);
+  assert.equal(row().status,'queued');assert.equal(row().attempts,3);assert.equal(row().last_error,'No download access');
+});
+test('real Owner endpoint authorizes selection and persists one job/wake for repeated clicks',async()=>{
+  sqlite.exec('DELETE FROM ugc_reel_jobs');
+  const pending=[];const ctx={waitUntil(p){pending.push(p);},passThroughOnException(){}};
+  const calls=[];const bound={...env,SEAT_DIETER_VFX:{async fetch(url,init){calls.push({url,init});return Response.json({ok:true});}}};
+  const post=(token)=>ownerRoute.request('https://erp.test/content/reel1/reel-job',{method:'POST',headers:{Authorization:`Bearer ${token}`}},bound,ctx);
+  assert.equal((await post('invalid')).status,401);
+  assert.equal((await post('staff-session-token')).status,403);
+  const first=await post('owner-session-token');assert.equal(first.status,200);assert.equal((await first.json()).result.created,true);
+  const again=await post('owner-session-token');assert.equal((await again.json()).result.created,false);
+  await Promise.all(pending);
+  assert.equal(row().status,'queued');assert.equal(row().requested_by,'owner');assert.equal(calls.length,1);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) n FROM ugc_reel_jobs').get().n,1);
+});
+test.after(()=>{sqlite.close();rmSync(temp,{recursive:true,force:true});});

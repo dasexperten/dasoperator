@@ -10,6 +10,7 @@ import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/lib/ugc-table-format.mjs';
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
 import { contentConfirmed, contentState, publicationNetwork } from '@/lib/ugc-content-state.mjs';
+import { reelClickController } from '@/lib/ugc-reel-click.mjs';
 import { deviceTargets } from '@/lib/browser-target.mjs';
 
 type PlatformMetric = {
@@ -48,6 +49,9 @@ type ContentObservation = {
   id: string;
   content_url: string | null;
   content_type: string | null;
+  reel_status?: 'queued' | 'working' | 'published' | null;
+  reel_error?: string | null;
+  reel_publications?: { platform: string; url: string }[];
   published_at: string | null;
   views: number | null;
   likes?: number | null;
@@ -769,6 +773,36 @@ function instagramPostedAt(url: string | null): Date | null {
 }
 
 function Publication({ item, href, more }: { item: ContentObservation; href: string; more: number }) {
+  const { isAdmin } = useContext(PayContext);
+  const [jobStatus, setJobStatus] = useState(item.reel_status ?? null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const jobBusy = useRef(false);
+  useEffect(() => { setJobStatus(item.reel_status ?? null); }, [item.reel_status]);
+  const enqueue = async () => {
+    if (jobBusy.current || jobStatus) return true;
+    jobBusy.current = true; setJobError(null);
+    try {
+      const response = await apiPostTimed<{ job: { status: 'queued' | 'working' | 'published' } }>(`/api/ugc/content/${encodeURIComponent(item.id)}/reel-job`, {}, 20_000);
+      if (!response.success || !response.result?.job) { setJobError(response.errors?.[0]?.message ?? 'Ролик не добавлен в очередь'); return false; }
+      setJobStatus(response.result.job.status); window.dispatchEvent(new Event('ugc:reload')); return true;
+    } catch { setJobError('Нет связи. Отметка не подтверждена'); return false; }
+    finally { jobBusy.current = false; }
+  };
+  const enqueueRef = useRef(enqueue); enqueueRef.current = enqueue;
+  const clicks = useRef<ReturnType<typeof reelClickController> | null>(null);
+  useEffect(() => {
+    const controller = reelClickController({ open: () => { window.open(href, '_blank', 'noopener,noreferrer'); }, queue: () => enqueueRef.current() });
+    clicks.current = controller;
+    return () => { controller.dispose(); clicks.current = null; };
+  }, [href]);
+  const onIconClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.stopPropagation();
+    // Keyboard activation and modified clicks retain ordinary link behaviour.
+    if (!isAdmin || event.detail === 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    clicks.current?.click(event.detail);
+  };
+  const jobLabel = jobStatus === 'queued' ? 'В очереди Дитера' : jobStatus === 'working' ? 'Дитер работает' : jobStatus === 'published' ? 'Опубликовано нами' : '';
   const kind = mediaKind(item);
   const confirmed=contentConfirmed(item);
   const status = !confirmed ? 'Ожидает проверки Дианы: автор и наш товар не подтверждены' : item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Проверено Дианой';
@@ -788,8 +822,9 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   // Only a reel whose 10 days are over carries a number; a younger one shows its day instead.
   const er = confirmed && item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? (item.engagement_rate >= 100 ? String(Math.round(item.engagement_rate)) : item.engagement_rate.toFixed(1)) : '';
   const watchDay = 0;
-  return <span className="ugc-pub" data-state={state} data-net={net || undefined}>
-    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
+  return <span className="ugc-pub" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
+    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={[jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
+    {jobError ? <span role="alert" className="ugc-reel-error" title={jobError}><AlertCircle aria-hidden="true" /><span className="sr-only">{jobError}</span></span> : null}
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>

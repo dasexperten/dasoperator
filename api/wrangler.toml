@@ -341,3 +341,8 @@ class_name = "DianaWake"
 [[migrations]]
 tag = "diana-wake-v1"
 new_sqlite_classes = ["DianaWake"]
+
+# Owner 2026-11-07: a selected ERP reel wakes Dieter without a new clock.
+[[services]]
+binding = "SEAT_DIETER_VFX"
+service = "dieter-vfx"

@@ -524,3 +524,10 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-er, .ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-er { border-color: var(--ugc-network-light-blue); }
 .ugc-pub[data-net="facebook"][data-state="live"] .ugc-pub-er { border-color: var(--ugc-network-blue); }
 .ugc-pub[data-net="instagram"][data-state="live"] .ugc-pub-er { border-color: var(--brand-rot); }
+
+/* Owner 2026-11-07: the frame is independent of Diana's network/link colour. */
+.ugc-pub[data-reel-status] .ugc-pub-link { outline: 3px solid var(--status-error); outline-offset: -1px; touch-action: manipulation; }
+.ugc-pub[data-reel-status="working"] .ugc-pub-link { outline-color: var(--brand-gold); box-shadow: 0 0 0 1px var(--fg-1); }
+.ugc-pub[data-reel-status="published"] .ugc-pub-link { outline-color: var(--status-success); }
+.ugc-reel-error { color: var(--status-error); }
+.ugc-reel-error svg { width: 16px; height: 16px; }

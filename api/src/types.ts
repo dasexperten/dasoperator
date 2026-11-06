@@ -86,6 +86,7 @@ export interface Env {
   /** Shared secret for agent/harness → POST /api/email/resend-send | archive-sent */
   EMAILER_SERVICE_SECRET?: string;
   DASORG_API_KEY?: string;   // org board — learning and Owner bot notifications
+  SEAT_DIETER_VFX?: Fetcher; // selected UGC reel task delivery to the existing Dieter seat
   ORGANIZATION?: Fetcher;   // authenticated @dasexpertenbot delivery through organizacia
   /** Konsol Payment Service key — UGC payouts over SBP (card SECRETS/konsol.md). Never logged. */
   KONSOL_API_KEY?: string;

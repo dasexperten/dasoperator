@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { dispatchReel } from '../lib/ugc-reel-store';
 import { contentEngagement } from '../lib/ugc-content-metrics.mjs';
 import { reviewContent } from '../lib/ugc-content-review';
 import type { Env } from '../types';
@@ -235,6 +236,22 @@ ugc.patch('/profiles/:id/availability', async (c) => {
   return ok(c, { id, availability_status: body.status, availability_checked_at: checkedAt });
 });
 
+// Owner 2026-11-07: the Owner's double click selects a single reel once.
+ugc.post('/content/:id/reel-job', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'owner_only', message: 'Отбор роликов доступен владельцу' }]);
+  const id = c.req.param('id');
+  const content = await c.env.DB.prepare('SELECT content_url,content_type FROM ugc_content WHERE id=?').bind(id).first<{ content_url: string; content_type: string }>();
+  if (!content) return fail(c, 404, [{ code: 'not_found', message: 'Ролик не найден' }]);
+  if (!content.content_url || !/^https:\/\//i.test(content.content_url) || /^(?:image|photo|carousel)$/i.test(content.content_type ?? '')) return fail(c, 422, [{ code: 'video_required', message: 'Выберите видеоролик' }]);
+  const now = new Date().toISOString();
+  const result = await c.env.DB.prepare(`INSERT OR IGNORE INTO ugc_reel_jobs (content_id,status,requested_by,requested_at,updated_at) VALUES (?,'queued',?,?,?)`).bind(id, access.id, now, now).run();
+  const job = await c.env.DB.prepare('SELECT content_id,status,requested_at,started_at,published_at,last_error,publications FROM ugc_reel_jobs WHERE content_id=?').bind(id).first();
+  if (result.meta.changes) c.executionCtx.waitUntil(dispatchReel(c.env, id, new URL(c.req.url).origin));
+  return ok(c, { job, created: Boolean(result.meta.changes) });
+});
+
 ugc.get('/', async (c) => {
   const access = await requireAccess(c);
   if (access instanceof Response) return access;
@@ -272,14 +289,16 @@ ugc.get('/', async (c) => {
   ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0, inactiveOnly ? 1 : 0).all<Record<string, any>>();
 
   const metricRows = await c.env.DB.prepare(
-    `SELECT id, creator_id, creator_platform_id, content_url, content_type,
-            published_at, views, likes, comments, engagement_rate, metrics_checked_at, product_codes, source_sheet,
+    `SELECT c.id, c.creator_id, c.creator_platform_id, c.content_url, c.content_type,
+            c.published_at, views, likes, comments, engagement_rate, metrics_checked_at, product_codes, source_sheet,
             source_row, imported_at, link_status, link_checked_at,
             link_http_status, link_final_url, link_check_note,
             product_status, product_source, product_confidence,
-            product_evidence, product_checked_at
-     FROM ugc_content
-     ORDER BY COALESCE(published_at, '') DESC, imported_at DESC,
+            product_evidence, product_checked_at,
+            j.status reel_status,j.requested_at reel_requested_at,j.started_at reel_started_at,
+            j.published_at reel_published_at,j.last_error reel_error,j.publications reel_publications
+     FROM ugc_content c LEFT JOIN ugc_reel_jobs j ON j.content_id=c.id
+     ORDER BY COALESCE(c.published_at, '') DESC, imported_at DESC,
               source_sheet DESC, source_row DESC`
   ).all<Record<string, any>>();
 
@@ -351,6 +370,9 @@ ugc.get('/', async (c) => {
       id: row.id,
       content_url: row.content_url,
       content_type: row.content_type,
+      reel_status: row.reel_status ?? null,
+      reel_error: row.reel_error ?? null,
+      reel_publications: JSON.parse(row.reel_publications ?? '[]'),
       published_at: row.published_at,
       views: row.views,
       likes: row.likes,

@@ -101,7 +101,7 @@ export interface HumanSendParams {
 }
 
 export type HumanSendResult =
-  | { success: true; messageId: string; archived: boolean }
+  | { success: true; messageId: string; archived: boolean; archiveError?: string }
   | { success: false; error: string };
 
 function asList(v: string | string[] | undefined): string[] {
@@ -327,6 +327,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   }
 
   let archived = true;
+  let archiveError: string | undefined;
   try {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(messageId));
   const recordId = 'outbox-' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -368,9 +369,11 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     }, { strict: true, recordId, timestamp });
   }
 
-  } catch {
+  } catch (error) {
     archived = false;
+    archiveError = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ scope: 'inbox-archive', stage: 'sent', messageId, error: archiveError }));
   }
   if (archived && !params.archive_only) await env.ARCHIVE.delete(`MailOutbox/${outboxId}.json`).catch(() => {});
-  return { success: true, messageId, archived };
+  return { success: true, messageId, archived, ...(archiveError ? { archiveError } : {}) };
 }

@@ -133,6 +133,7 @@ route.post('/resend-send', async (c) => {
     success: true,
     messageId: result.messageId,
     archived: result.archived,
+    ...(result.archiveError ? { archiveError: result.archiveError } : {}),
     mailbox: extractEmailAddr(d.from),
   });
 });
@@ -191,7 +192,7 @@ route.post('/archive-sent', async (c) => {
       trigger: item.trigger || 'archive-backfill',
     });
     if (result.success && result.archived) ok++;
-    else errors.push({ messageId: item.messageId, error: result.success ? 'Archive storage did not complete; retry archiving only' : result.error });
+    else errors.push({ messageId: item.messageId, error: result.success ? (result.archiveError || 'Archive storage did not complete; retry archiving only') : result.error });
   }
 
   return c.json({ success: true, archived: ok, failed: errors.length, errors });

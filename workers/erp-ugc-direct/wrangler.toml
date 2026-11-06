@@ -1,7 +1,4 @@
-# erp-ugc-direct — Diana's Instagram Direct (Owner 2026-10-15/16): every minute the timer
-# asks the ERP; the 3 / 15 / 30-minute rule inside decides whether the lane runs.
-# The ERP reads new messages, then answers under Diana's rules (the answer is written in
-# dasoperator-api; this worker holds no model and no key besides ERP_RUN_SECRET).
+# Metadata-only alarm: every three minutes, 06:00?02:00 Asia/Yerevan. No model or text processing.
 name = "erp-ugc-direct"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -19,4 +16,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/3 2-21 * * *"]

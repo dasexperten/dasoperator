@@ -6,7 +6,6 @@ import type { Env } from '../types';
 import { HARD_ASK } from './ig-dm-reply-guard.mjs';
 import { sendOwnerQuestion } from './owner-telegram';
 import { dianaCompose } from './diana-compose';
-import { sendIgDirect } from './ig-dm-watch';
 
 export const HARD_REASON = 'return or money back, Owner decides';
 const QUESTION_KEY = (messageId: number) => `ig_hard:${messageId}`;
@@ -70,22 +69,12 @@ export async function answerHardQuestion(env: Env, messageId: number, choice: st
     await env.DB.prepare(`UPDATE crm_sync_state SET value=?2, updated_at=?3 WHERE key=?1`).bind(QUESTION_KEY(messageId), JSON.stringify(q), Date.now()).run();
   };
   if (!parts) { await save(); return { handled: true, note: `@${q.handle}: ничего не отправляю, разговор ждёт вас в ERP.` }; }
-  const humanAgent = Date.now() - Date.parse(q.at) > 23.5 * 3_600_000;
-  // Owner 2026-10-18: the button carries the decision; Diana writes the words in her voice.
-  const written = await dianaCompose(env, q.handle, `Владелец решил по вопросу блогера: «${choice}». Смысл ответа:\n${parts.join('\n')}`).catch(() => null);
-  if (!written || !written.length) return { handled: true, note: `@${q.handle}: Диана не смогла написать ответ, ничего не отправлено. Нажмите ещё раз позже.` };
-  const first = await sendIgDirect(env, q.handle, written[0] ?? '', { humanAgent });
-  if (!first.ok) return { handled: true, note: `@${q.handle}: Instagram не принял сообщение, ответ не отправлен. Нажмите ещё раз позже.` };
-  for (const part of written.slice(1)) {
-    await new Promise((r) => setTimeout(r, 1500));
-    if (!(await sendIgDirect(env, q.handle, part, { humanAgent })).ok) break;
-  }
-  await save();
-  // The conversation is answered: the auto-reply lane closes it (keys of ig-dm-reply.ts).
-  await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-    .bind(`ig_reply:${q.cid}`, q.at, Date.now()).run();
-  await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`ig_reply_escalated:${q.cid}`).run();
-  return { handled: true, note: `Отправила @${q.handle}:\n${parts.join('\n')}` };
+  // Store only the Owner's selection. Native Diana reads it and writes the reply herself.
+  const decision = { ...q, choice, decision_at: new Date().toISOString() };
+  await env.DB.prepare(`UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1`)
+    .bind(QUESTION_KEY(messageId), JSON.stringify(decision), Date.now()).run();
+  await dianaCompose(env, q.handle, '');
+  return { handled: true, note: `@${q.handle}: ??????? ????????? ? ???????? ?????. ???????? ??? ?? ????????????.` };
 }
 
 // Owner 2026-11-05: «Где мультиопцион?» — an open incident waiting for the Owner (Diana does not know what to

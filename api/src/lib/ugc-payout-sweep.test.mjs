@@ -70,20 +70,19 @@ test('partial refresh failures are reported after successful rows, without relea
   assert.deepEqual(f.applied, ['good']); assert.deepEqual([...f.claims], ['protected']); assert.equal(f.released.length, 0);
 });
 
-test('failed paid and failed notices fail the sweep; successful, queued and preclaimed notices keep their claims', async t => {
+test('notices stay pending for native Diana; ERP never sends or marks their claims as delivered', async t => {
   const f = fixture(t, { paid: ['paid-good', 'paid-bad', 'queued', 'claimed'], failed: ['failed-good', 'failed-bad'], claims: new Set(['claimed']), noticeResults: {
     'paid-bad': { ok: false, error: 'temporary failure' }, 'failed-bad': new Error('send failed'), queued: { ok: false, error: 'outside allowed window' }
   } });
-  await assert.rejects(ugcPayoutSweep(f.env), error => /paid_notice=1/.test(error.message) && /failed_notice=1/.test(error.message));
-  assert.deepEqual([...f.claims].sort(), ['claimed', 'failed-good', 'paid-good', 'queued']);
-  assert.deepEqual(f.released.sort(), ['failed-bad', 'paid-bad']); assert.deepEqual(f.queued, ['queued']);
-  assert.equal(f.sent.filter(h => h === 'paid-bad').length, 2); // Existing immediate send repeat only.
-  assert.ok(!f.sent.includes('claimed'));
+  await assert.rejects(ugcPayoutSweep(f.env), error => /paid_notice=3/.test(error.message) && /failed_notice=2/.test(error.message));
+  assert.deepEqual([...f.claims], ['claimed']);
+  assert.deepEqual(f.released.sort(), ['failed-bad', 'failed-good', 'paid-bad', 'paid-good', 'queued']);
+  assert.deepEqual(f.sent, []); assert.deepEqual(f.queued, []);
 });
 
 test('successful progress retains the numeric interface; no registry match is not a failure', async t => {
-  const f = fixture(t, { registry: [{ id: 'legacy' }], pending: ['good'], paid: ['paid', 'queued'], noticeResults: { queued: { ok: false, error: 'outside allowed window' } } });
-  assert.equal(await ugcPayoutSweep(f.env), 3); assert.deepEqual(f.applied, ['good']); assert.deepEqual([...f.claims].sort(), ['paid', 'queued']);
+  const f = fixture(t, { registry: [{ id: 'legacy' }], pending: ['good'] });
+  assert.equal(await ugcPayoutSweep(f.env), 1); assert.deepEqual(f.applied, ['good']); assert.deepEqual([...f.claims], []);
 });
 
 test('explicit registry failure or throw and thrown reminders are aggregated after other progress', async t => {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
+import dianaWakeRoutes from './routes/diana-wake';
 import { mailArchiveEnv } from './lib/mail-archive-recovery';
 import { errorHandler } from './middleware/error';
 import { requestLogger } from './middleware/logger';
@@ -212,6 +213,7 @@ app.get('/api/_llm-diag', async (c) => {
 
 app.route('/health', healthRoutes);
 app.route('/internal/cron', internalCronRoutes);  // erp-* timer workers start their ERP job (ERP_RUN_SECRET)
+app.route('/internal/diana', dianaWakeRoutes);
 app.route('/internal/wb', internalWbRoutes); // protected read-only return reports
 app.route('/internal/ugc', internalUgcRoutes); // Diana hard-question buttons from Telegram (Owner 2026-10-17)
 app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
@@ -356,3 +358,4 @@ export default {
 
 // Private service entrypoint: no public proxy URL.
 export { WbGateway } from './wb-entrypoint';
+export { DianaWake } from './diana-wake';

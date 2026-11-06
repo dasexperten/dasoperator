@@ -112,49 +112,11 @@ function deps(env: Env) {
   };
 }
 
-async function notifyBloggerOnce(env: Env, row: Record<string, any>, text: string, kind: 'paid' | 'failed') {
-      const handle = String(row.creator_handle || row.handle || '');
-      // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
-      const head = kind === 'failed' ? 'Выплата не прошла, Консоль подтвердила. Смысл сообщения:' : 'Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:';
-      let parts = await dianaCompose(env, handle, `${head}\n${text}`).catch(() => null);
-      // Owner 2026-10-19: a failed payout never falls back to the paid wording; no words — retried next check.
-      if (kind === 'failed' && (!parts || !parts.length)) return { ok: false, error: 'Диана не написала текст о неудачной выплате' };
-      // Owner 2026-10-18: «нужно моментальное реагирование… в этот же момент». If Diana's three drafts do not
-      // pass, the Owner's own approved paid wording goes at once instead of waiting for the next run.
-      if (!parts || !parts.length) {
-        const amount = Number(row.amount_minor);
-        if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Диана не написала текст (JEV или контролёр голоса)' };
-        parts = [`Перевели ${formatRub(amount)} по СБП.`, 'Проверьте, пожалуйста, должно быть уже дошло.', 'Оформите, пожалуйста, заказ и пришлите скрин.'];
-      }
-      const [first, ...rest] = parts;
-      // Owner 2026-10-19: «отправляется» until Instagram answers; only its answer sets the final status.
-      const setNotice = (status: string, error: string | null, messageId: string | null) => env.DB.prepare(
-        `UPDATE ugc_payouts SET notice_status=?2, notice_error=?3, notice_message_id=COALESCE(?4, notice_message_id), notice_at=?5 WHERE id=?1`
-      ).bind(String(row.id), status, error, messageId, new Date().toISOString()).run().catch(() => undefined);
-      await setNotice('sending', null, null);
-      // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's
-      // silence Instagram takes a message only with the human-agent tag (7-day window).
-      const lastIn = await env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1`).bind(handle.toLowerCase()).first<{ t: string | null }>();
-      const humanAgent = !lastIn?.t || Date.now() - Date.parse(lastIn.t) > 23.5 * 3_600_000;
-      let sent = await sendIgDirect(env, handle, first!, { humanAgent });
-      // One immediate repeat when Instagram refuses for a reason other than the closed window.
-      if (!sent.ok && !/allowed window/i.test(String(sent.error ?? ''))) sent = await sendIgDirect(env, handle, first!, { humanAgent });
-      for (const part of sent.ok ? rest : []) {
-        await new Promise((r) => setTimeout(r, 1500));
-        if (!(await sendIgDirect(env, handle, part, { humanAgent })).ok) break;
-      }
-      // Owner 2026-10-18: closed window — Diana's words wait for the browser and count as delivered here.
-      if (!sent.ok && /allowed window/i.test(String(sent.error ?? ''))) {
-        const { queueForBrowser } = await import('./ig-dm-reply');
-        await queueForBrowser(env, handle, kind === 'failed' ? 'failed_notice' : 'paid_notice', parts.join('\n'));
-        await setNotice('queued', 'Окно Instagram 7 дней закрыто. Сообщение ждёт отправки из браузера', null);
-        return { ok: true, queued: true };
-      }
-      await setNotice(sent.ok ? 'delivered' : 'failed', sent.ok ? null : String(sent.error ?? 'неизвестно').slice(0, 300), sent.ok ? (sent.messageId ?? null) : null);
-      // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
-      // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
-      if (!sent.ok) await alertMina(env, { payoutId: String(row.id), handle, error: String(sent.error ?? 'неизвестно'), kind }).catch(() => false);
-      return sent;
+async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: string, _kind: 'paid' | 'failed') {
+  const handle = String(row.creator_handle || row.handle || '');
+  await dianaCompose(env, handle, '');
+  // No template, model or send here. Diana verifies payment and sends in her own session.
+  return { ok: false, error: '???????? ?????: ????????? ??????? ?? ?????? ? ??????????? ????????' };
 }
 
 export async function executeUgcPayout(env: Env, id: string) {

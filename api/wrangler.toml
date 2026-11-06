@@ -3,6 +3,7 @@
 # =============================================================================
 
 name = "dasoperator-api"
+
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -332,3 +333,11 @@ entrypoint = "InferenceService"
 # Owner 2026-11-06: keep worker logs so an outage has its cause on record.
 [observability]
 enabled = true
+
+[[durable_objects.bindings]]
+name = "DIANA_WAKE"
+class_name = "DianaWake"
+
+[[migrations]]
+tag = "diana-wake-v1"
+new_sqlite_classes = ["DianaWake"]

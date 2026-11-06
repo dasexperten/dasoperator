@@ -17,6 +17,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta
       const call = name => globalThis.__ugcCron.call(name);
       export const cronPollPerfReports=()=>call('unused');
       export const runPromoRefillSweep=()=>call('refill');
+      export const detectDianaMessages=()=>call('detect');
       export const igDmWatch=()=>call('read'), igDmHasNew=()=>call('probe'), igDmReply=()=>call('reply');
       export const ugcPayoutSweep=()=>call('payout'), ugcPayoutEvening=()=>call('unused');
       export const incidentControl=()=>call('incidents'), captureDmLinks=()=>call('links'), refreshContentMetrics=()=>call('content');
@@ -44,25 +45,17 @@ async function failsInThreeMinutes(t, worker, overrides, pattern) {
   const s = JSON.parse(f.state); assert.equal(s.delay_min, 3); assert.equal(s.next_at, Date.now() + 180_000);
   return f;
 }
-test('Direct reported read failure remains failed even if an archived reply succeeds', async t => {
-  await failsInThreeMinutes(t, 'erp-ugc-direct', { read: { ok: false, activity: true, stored: 2, incoming: 1, error: 'conversations unreadable' }, reply: { replied: 1, escalated: 0, errors: 0 } }, /conversations unreadable/);
-});
-test('Direct reply exception and partial processing failures fail the lane', async t => {
-  await failsInThreeMinutes(t, 'erp-ugc-direct', { reply: new Error('provider unavailable') }, /reply.*provider unavailable/);
-  await failsInThreeMinutes(t, 'erp-ugc-direct', { reply: { replied: 1, escalated: 0, errors: 2 } }, /reply.*2/);
-});
-test('Direct read exception is failed and never reaches the reply writer', async t => {
-  const f = await failsInThreeMinutes(t, 'erp-ugc-direct', { read: new Error('D1 unavailable') }, /D1 unavailable/);
-  assert.ok(!f.calls.includes('reply'));
-});
-test('ordinary review escalation, idle and not-due are successful', async t => {
-  const f = fixture(t, { reply: { replied: 0, escalated: 1, errors: 0 } }); assert.match(await STEPS['erp-ugc-direct'](f.env), /"ok":true/);
-  assert.equal(JSON.parse(f.state).delay_min, 15);
-  const g = fixture(t, {}, { next_at: Date.now() + 60_000 }); assert.match(await STEPS['erp-ugc-direct'](g.env), /not due/); assert.ok(!g.calls.includes('read'));
+test('Direct only detects metadata; it never reads bodies, calls a reply model or changes adaptive cadence', async t => {
+  const f = fixture(t, { detect: { detected: 3, dispatched: true } });
+  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true });
+  assert.deepEqual(f.calls, ['detect']); assert.equal(f.state, null);
+  const g = fixture(t, { detect: new Error('metadata unavailable') });
+  await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
+  assert.deepEqual(g.calls, ['detect']);
 });
 test('payout link exception and content exception or partial error fail the lane', async t => {
-  const f = await failsInThreeMinutes(t, 'erp-ugc-payouts', { links: new Error('link D1 failure') }, /links.*link D1 failure/);
-  assert.ok(f.calls.includes('content'));
+  const f = fixture(t, { links: new Error('the payout timer must not parse chat text') });
+  await STEPS['erp-ugc-payouts'](f.env); assert.ok(!f.calls.includes('links')); assert.ok(f.calls.includes('content'));
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: new Error('browser unavailable') }, /content.*browser unavailable/);
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: new Error('') }, /content.*Error/);
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: { read: 2, removed: 1, error: 'browser partial failure' } }, /content.*browser partial failure/);
@@ -72,7 +65,6 @@ test('payout idle is success; sweep exception is failure', async t => {
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { payout: new Error('Konsol unavailable') }, /Konsol unavailable/);
 });
 test('required waiting and payout count reads cannot report unknown as zero and succeed', async t => {
-  await failsInThreeMinutes(t, 'erp-ugc-direct', { countFailure: new Error('D1 read unavailable') }, /waiting replies.*D1 read unavailable/);
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { countFailure: new Error('D1 read unavailable') }, /open payouts.*D1 read unavailable/);
 });
 
@@ -82,5 +74,3 @@ test('promo refill errors are failures even when other rules succeeded', async t
   const g = fixture(t, { refill: { rules_checked: 36, refills_triggered: 0, errors: [] } });
   assert.equal(JSON.parse(await STEPS['erp-promo-refill'](g.env)).rules_checked, 36);
 });
-
-test('host-budget deferred Direct work keeps the next adaptive tick in3minutes',async t=>{const f=fixture(t,{reply:{replied:0,escalated:0,errors:0,deferred:2}});const result=await STEPS['erp-ugc-direct'](f.env);assert.match(result,/deferred/);const state=JSON.parse(f.state);assert.equal(state.delay_min,3);});

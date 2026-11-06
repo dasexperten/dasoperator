@@ -52,34 +52,11 @@ export const STEPS: Record<string, Step> = {
     const renames = await checkInstagramRenames(env).then(({ results, ...counts }) => counts).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
     return JSON.stringify({ ...profiles, renames });
   },
-  // Owner 2026-10-16: the UGC routines are ERP workers of their own («должно быть ERP-UGC worker»).
-  // Each timer fires every minute; runAdaptiveLane keeps the 3 / 15 / 30-minute rule (DH-LAW-261015-01).
-  // Direct: read new messages, then Diana's answers (the model runs here in the ERP, never in the worker).
+  // Owner 2026-11-06: metadata detector only, fixed three-minute clock, 06:00?02:00 Yerevan.
+  // No message body, generation, image interpretation, reply or model client in ERP Direct.
   'erp-ugc-direct': async (env) => {
-    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
-    const { igDmWatch, igDmHasNew } = await import('./lib/ig-dm-watch');
-    const { igDmReply } = await import('./lib/ig-dm-reply');
-    return runAdaptiveLane(env, 'ig_dm', async (e) => {
-      const read = await igDmWatch(e).catch((err) => { throw new Error(ugcStepError('read', err)); });
-      const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: ugcStepError('reply', err) }));
-      try { await (await import('./lib/ugc-decision-options')).warmDecisionOptions(e); } catch { /* warming is best effort */ }
-      const failures: string[] = [];
-      if (!read.ok) failures.push(ugcStepError('read', read.error ?? 'incomplete'));
-      // Escalations are business review, not execution failures. A partial
-      // reply pass with errors is still failed even if other replies succeeded.
-      if (answered.errors > 0) failures.push('error' in answered ? answered.error : ugcStepError('reply', `${answered.errors} processing failures`));
-      // Owner 2026-10-19: «если активность на чате была, каждые 3 минуты». A blogger waiting for us
-      // (an answer to retry, requisites with no payout yet) is activity, not silence.
-      const waiting = await e.DB.prepare(
-        `SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'ig_reply_escalated:%' AND json_extract(value,'$.status')='retry' AND updated_at > ?1`
-      ).bind(Date.now() - 2 * 3_600_000).first<{ n: number }>().catch((err) => { throw new Error(ugcStepError('waiting replies', err)); });
-      const deferred = 'deferred' in answered ? Number(answered.deferred) : 0;
-      const waitingOnUs = Math.max(Number(waiting?.n ?? 0), deferred);
-      // Put the diagnostic first: the run journal keeps only the first 1000 characters.
-      return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
-        activity: read.activity || answered.replied > 0 || waitingOnUs > 0,
-        stored: read.stored, incoming: read.incoming, replied: answered.replied, escalated: answered.escalated, errors: answered.errors, waitingOnUs, deferred };
-    }, Date.now(), igDmHasNew);
+    const { detectDianaMessages } = await import('./lib/diana-alarm');
+    return JSON.stringify(await detectDianaMessages(env));
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
   'erp-ugc-payouts': async (env) => {
@@ -90,11 +67,10 @@ export const STEPS: Record<string, Step> = {
       const refreshed = await ugcPayoutSweep(e);
       // Owner 2026-10-19: the incident control runs inside this tick, gated to once an hour; its work is not lane activity.
       await import('./lib/ugc-incident-control').then((m) => m.incidentControl(e)).catch(() => undefined);
-      const { captureDmLinks } = await import('./lib/ugc-dm-links');
-      const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: ugcStepError('links', err) }));
+      // Diana, not the payout timer, opens messages and recognises video links.
+      const links = { added: 0 };
       const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: err instanceof Error ? (err.message || err.name) : (String(err) || 'failed') }));
       const failures: string[] = [];
-      if ('error' in links) failures.push(links.error);
       // The metrics reader may return some successful rows plus an error.
       if (content.error) failures.push(ugcStepError('content', content.error));
       // Owner 2026-10-19: a payout waiting to go out keeps the payouts lane on 3 minutes too.

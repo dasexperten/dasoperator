@@ -1,7 +1,7 @@
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
-import { reelPublicationProof } from '../lib/ugc-reel-jobs.mjs';
+import { reelPublicationProof, appendPublicationProofs, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
 import { dispatchReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
@@ -57,6 +57,28 @@ route.post('/reel-jobs/:id/complete', async (c) => {
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`).bind(JSON.stringify(proofs), now, now, id, body.claim_id).run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'claim_mismatch_or_not_working' }, 409);
   return c.json({ ok: true, content_id: id, status: 'published', publications: proofs });
+});
+// UGC Selection: later verified placements append without reopening the job or
+// replacing its first publication timestamp. Compare-and-swap prevents lost updates.
+route.post('/reel-jobs/:id/publications', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as { publications?: unknown } | null;
+  const job = await c.env.DB.prepare(`SELECT j.status,j.publications,j.started_at,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?`).bind(id).first<{ status: string; publications: string; started_at: string; content_url: string }>();
+  if (!job) return c.json({ ok: false, error: 'not_found' }, 404);
+  if (job.status !== 'published') return c.json({ ok: false, error: 'published_job_required' }, 409);
+  const proofs = reelPublicationProof(body?.publications, job.content_url);
+  if (!proofs || proofs.some((proof) => Date.parse(proof.verified_at) < Date.parse(job.started_at))) return c.json({ ok: false, error: 'verified_publication_required' }, 422);
+  let existing: ReelPublication[];
+  try { existing = JSON.parse(job.publications); if (!Array.isArray(existing)) throw new Error('not_array'); }
+  catch { return c.json({ ok: false, error: 'existing_publications_invalid' }, 409); }
+  let publications: ReelPublication[];
+  try { publications = appendPublicationProofs(existing, proofs); }
+  catch { return c.json({ ok: false, error: 'existing_publications_invalid' }, 409); }
+  const added = publications.length - existing.length;
+  if (!added) return c.json({ ok: true, content_id: id, status: 'published', added: 0, publications: existing });
+  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET publications=?,updated_at=? WHERE content_id=? AND status='published' AND publications=?`).bind(JSON.stringify(publications), new Date().toISOString(), id, job.publications).run();
+  if (!result.meta.changes) return c.json({ ok: false, error: 'publication_conflict_read_again' }, 409);
+  return c.json({ ok: true, content_id: id, status: 'published', added, publications });
 });
 route.post('/reel-jobs/:id/release', async (c) => {
   const id = c.req.param('id');

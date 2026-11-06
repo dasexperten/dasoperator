@@ -80,4 +80,18 @@ test('real Owner endpoint authorizes selection and persists one job/wake for rep
   assert.equal(row().status,'queued');assert.equal(row().requested_by,'owner');assert.equal(calls.length,1);
   assert.equal(sqlite.prepare('SELECT COUNT(*) n FROM ugc_reel_jobs').get().n,1);
 });
+test('later verified platform URLs append idempotently without changing original published status/date or proofs',async()=>{
+  sqlite.exec('DELETE FROM ugc_reel_jobs');insert();
+  const original={platform:'instagram',url:'https://www.instagram.com/reel/FIRSTPOST/',account:'dasexperten',verified:true,verified_at:new Date().toISOString(),evidence:'Original checked Instagram post'};
+  sqlite.prepare(`UPDATE ugc_reel_jobs SET status='published',started_at='2026-11-06T00:00:00.000Z',published_at='2026-11-07T00:10:00.000Z',publications=?`).run(JSON.stringify([original]));
+  const later={...original,platform:'youtube',url:'https://youtu.be/AbC123def_0',account:'channel',evidence:'Opened and checked uploaded full video'};
+  assert.equal((await request('/reel-jobs/reel1/publications',{publications:[later]},false)).status,401);
+  let res=await request('/reel-jobs/reel1/publications',{publications:[later]});assert.equal(res.status,200);assert.equal((await res.json()).added,1);
+  assert.equal(row().status,'published');assert.equal(row().published_at,'2026-11-07T00:10:00.000Z');assert.deepEqual(JSON.parse(row().publications)[0],original);
+  res=await request('/reel-jobs/reel1/publications',{publications:[{...later,url:'https://www.youtube.com/watch?v=AbC123def_0'}]});assert.equal((await res.json()).added,0);
+  assert.equal(JSON.parse(row().publications).length,2);
+  assert.equal((await request('/reel-jobs/reel1/publications',{publications:[{...later,verified:false}]})).status,422);
+  sqlite.exec(`UPDATE ugc_reel_jobs SET status='queued'`);
+  assert.equal((await request('/reel-jobs/reel1/publications',{publications:[later]})).status,409);
+});
 test.after(()=>{sqlite.close();rmSync(temp,{recursive:true,force:true});});

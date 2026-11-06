@@ -38,7 +38,7 @@ test('later Wednesday not-due receipt proves transport only, never actual work o
   assert.equal(r.last_ok, null); assert.equal(r.verdict, 'quiet');
 });
 test('business failure is not recovered by not-due, running, held-lease, dry or unfinished receipts', async t => {
-  const name = 'erp-ugc-direct', notes = ['ig_dm: not due', 'ig_dm: taken by another run', 'ig_dm: running',
+  const name = 'erp-ugc-payouts', notes = ['ig_dm: not due', 'ig_dm: taken by another run', 'ig_dm: running',
     'SKIPPED — WB sync already running'];
   for (const note of notes) {
     const r = find(await guard(t, '2026-11-11T06:20:00Z', [receipt(name, '2026-11-11T04:00:00Z', { ok: 0 }),
@@ -63,7 +63,7 @@ test('real failures stay red even on a calendar date when no work was expected',
 });
 
 test('healthy adaptive idle ticks stay green transport without claiming business work', async t => {
-  const name = 'erp-ugc-direct', start = Date.parse('2026-11-10T06:00:00Z');
+  const name = 'erp-ugc-payouts', start = Date.parse('2026-11-10T06:00:00Z');
   const rows = Array.from({ length: 1440 }, (_, i) => receipt(name, new Date(start + i * 60_000).toISOString(), { note: 'ig_dm: not due' }));
   const r = find(await guard(t, '2026-11-11T06:20:00Z', rows), name);
   assert.equal(r.expected, 1440); assert.equal(r.journal_ok, 1440); assert.equal(r.idle, 1440);
@@ -75,4 +75,9 @@ test('first Wednesday idle receipt cannot stand in for a required actual rebuild
     { note: 'site_sales_rebuild: not due' })]));
   assert.equal(r.expected, 1); assert.equal(r.transport_missed, 0); assert.equal(r.work_ok, 0);
   assert.equal(r.missed, 1); assert.equal(r.verdict, 'red');
+});
+
+test('Direct metadata detector expects 400 three-minute ticks in the Yerevan 06:00?02:00 window', async t => {
+  const r = find(await guard(t, '2026-11-11T06:20:00Z', []), 'erp-ugc-direct');
+  assert.equal(r.expected, 400);
 });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const require=createRequire(import.meta.url);
 const {transformSync}=require(require.resolve('esbuild',{paths:[process.cwd(),process.cwd()+'/workers']}));
-const source=readFileSync(new URL('./scheduled.ts',import.meta.url),'utf8');
+const source=readFileSync(new URL('./scheduled.ts',import.meta.url),'utf8').replaceAll('\r\n','\n');
 // Execute the production dispatch body with isolated service adapters. Only module
 // loading is replaced; branches, HTTP checks and catch/finally logic are unchanged.
 const start=source.indexOf('export async function handleScheduled('),end=source.indexOf('\n// =============================================================================\n// Marketplace STOCKS sync',start);

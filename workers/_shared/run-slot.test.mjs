@@ -13,7 +13,7 @@ await build({ stdin: { contents: `export * from './run-slot'; export * from './r
 const { slotRunKey, minuteSlot, currentHttpSlot, currentHttpSchedule, dueScheduledSlot, hasScheduledDoor,
   isLocalScheduledWorker, erpTriggerWorker, erpWorker, runLogged, runApiStep, claimLocalRun, finishTimerRun } = await import(pathToFileURL(join(dir, 'slots.mjs')));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
-const workerName = 'erp-ugc-direct', cron = '* * * * *', now = Date.parse('2026-10-23T20:00:30Z'), slot = minuteSlot(now);
+const workerName = 'erp-ugc-payouts', cron = '* * * * *', now = Date.parse('2026-10-23T20:00:30Z'), slot = minuteSlot(now);
 let seq = 0;
 function fixture(t, { name = workerName, at = now, failure = {} } = {}) {
   const dbPath = join(dir, `${seq++}.sqlite`);

@@ -2678,6 +2678,12 @@ operations.get('/_alloc-debug/:opId', async (c) => {
 //
 // Idempotent — already-attached payments are not re-counted.
 // =============================================================================
+// Read-only financial preview: no allocations or bank status updates.
+operations.get('/_sweep-marketplace-allocator/preview', async (c) => {
+  const { planMarketplaceFifoAll } = await import('../lib/marketplace-fifo-allocator');
+  return ok(c, { read_only: true, plans: await planMarketplaceFifoAll(c.env) });
+});
+
 operations.post('/_sweep-marketplace-allocator', async (c) => {
   const { runMarketplaceFifoAll } = await import('../lib/marketplace-fifo-allocator');
   const results = await runMarketplaceFifoAll(c.env);

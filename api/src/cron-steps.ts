@@ -168,6 +168,6 @@ export const STEPS: Record<string, Step> = {
   'erp-marketplace-fifo': async (env) => {
     const { runMarketplaceFifoAll } = await import('./lib/marketplace-fifo-allocator');
     const res = await runMarketplaceFifoAll(env);
-    return res.map((r) => `${r.partner_id}: ${r.payments_processed} pmts → ${r.allocations_created} allocs`).join('; ') || 'nothing to allocate';
+    return res.map((r) => `${r.partner_id}: ${r.payments_processed} pmts → ${r.allocations_created} allocs; review ${r.review_transactions} tx / ${r.review_operations} ops`).join('; ') || 'nothing to allocate';
   },
 };

@@ -25,7 +25,7 @@ const container='17990000000000000001';
 const caption='Автор видео: Ксения @kseniya_obzor_wb_ozon';
 const permalink='https://www.instagram.com/reel/DfahVHDCjCY/';
 const input={account:'dasexperten',source_sha256:'a'.repeat(64),caption};
-const verification={id:media,username:'dasexperten',caption,media_type:'VIDEO',media_product_type:'REELS',permalink,checked_at:'2026-11-07T10:00:00Z'};
+const verification={id:media,username:'dasexperten',caption,media_type:'VIDEO',media_product_type:'REELS',permalink,checked_at:new Date(Date.now()-1000).toISOString()};
 function seed(id,status='working',proofs=[]){
   sql.prepare('INSERT INTO ugc_content VALUES(?,?)').run(id,'https://www.youtube.com/watch?v=gQazkM1tBxw&access_token=never_store_this');
   sql.prepare(`INSERT INTO ugc_reel_jobs(content_id,status,claim_id,requested_by,requested_at,published_at,publications,updated_at) VALUES(?,?,?,'owner','2026-11-07T00:00:00Z',?,?,?)`).run(id,status,'test-claim',status==='published'?'2026-11-07T01:00:00Z':null,JSON.stringify(proofs),'2026-11-07T01:00:00Z');
@@ -79,6 +79,8 @@ test('historical reconciliation imports exact IDs and real readback without chan
   const proof={platform:'instagram',account:'dasexperten',url:permalink,verified:true};
   seed('history','published',[proof]);const before=sql.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?').get('history');
   const request={...input,mode:'reconcile_existing',container_id:container,media_id:media,verification};
+  assert.equal((await call(base('history'),{...request,verification:{...verification,checked_at:'2099-01-01T00:00:00Z'}})).status,422);
+  assert.equal((await call(base('history'),{...request,verification:{...verification,permalink:'https://www.instagram.com:444/reel/DfahVHDCjCY/'}})).status,422);
   const response=await call(base('history'),request);assert.equal(response.status,200);
   const op=(await response.json()).operation;assert.equal(op.state,'verified');assert.equal(op.container_id,container);assert.equal(op.media_id,media);
   const snapshot=await(await call(base('history'))).json();assert.equal(snapshot.events.length,1);assert.equal(snapshot.events[0].kind,'reconciled_existing');

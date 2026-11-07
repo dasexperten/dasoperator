@@ -23,13 +23,13 @@ export function publicSource(value) {
 export function instagramPermalink(value) {
   try {
     const url = new URL(value);
-    if(url.protocol!=='https:' || !['instagram.com','www.instagram.com'].includes(url.hostname) || !/^\/(reel|p)\/[A-Za-z0-9_-]+\/?$/.test(url.pathname) || url.username || url.password || url.search || url.hash) return null;
+    if(url.protocol!=='https:' || url.port || !['instagram.com','www.instagram.com'].includes(url.hostname) || !/^\/(reel|p)\/[A-Za-z0-9_-]+\/?$/.test(url.pathname) || url.username || url.password || url.search || url.hash) return null;
     return `https://www.instagram.com${url.pathname.replace(/\/$/,'')}/`;
   } catch { return null; }
 }
 export function noCredentials(value) {
   const text = JSON.stringify(value);
-  return !/(?:EAA[A-Za-z0-9]{30,}|Bearer\s+[A-Za-z0-9._-]+|access_token|client_secret|EMAILER_SERVICE_SECRET|X-Emailer-Service-Secret)/i.test(text);
+  return !/(?:EAA[A-Za-z0-9]{30,}|Bearer\s+[A-Za-z0-9._-]+|access_token|client_secret|EMAILER_SERVICE_SECRET|X-Emailer-Service-Secret|[?&](?:token|auth|signature|x-amz-signature|x-amz-credential|sig)=)/i.test(text);
 }
 export async function sha256(value) {
   const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
@@ -40,7 +40,7 @@ export function prepareInput(body) {
   return {account:INSTAGRAM_ACCOUNT,caption:body.caption,source_sha256:body.source_sha256};
 }
 export function verifiedGraph(value, operation) {
-  if(!value || typeof value.id!=='string' || !ID.test(value.id) || value.username!==INSTAGRAM_ACCOUNT || value.caption!==operation.caption || value.media_type!=='VIDEO' || value.media_product_type!=='REELS' || !instagramPermalink(value.permalink) || !Number.isFinite(Date.parse(value.checked_at ?? '')) || !noCredentials(value)) return null;
+  if(!value || typeof value.id!=='string' || !ID.test(value.id) || value.username!==INSTAGRAM_ACCOUNT || value.caption!==operation.caption || value.media_type!=='VIDEO' || value.media_product_type!=='REELS' || !instagramPermalink(value.permalink) || !Number.isFinite(Date.parse(value.checked_at ?? '')) || Date.parse(value.checked_at)>Date.now() || !noCredentials(value)) return null;
   return {id:value.id,username:value.username,caption:value.caption,media_type:value.media_type,media_product_type:value.media_product_type,permalink:instagramPermalink(value.permalink),checked_at:value.checked_at};
 }
 export function nextEvent(operation,body) {

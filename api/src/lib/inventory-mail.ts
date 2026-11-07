@@ -4,7 +4,7 @@
 // A warehouse without an API (Saransk) sends its stock list by mail every one or two
 // weeks. The letter arrives at worker erp-inventory, which archives it and hands it here.
 // Owner 2026-11-07: every readable letter, including Mery's fixed sheet, is recognised
-// by DeepSeek Pro -> OpenAI Terra -> Sonnet. One attempt per model, at most three total.
+// by OpenAI Terra -> Sonnet -> DeepSeek Pro. One attempt per model, at most three total.
 //
 // Owner 2026-11-02: every letter starts a match against the ERP at once. A letter never moves
 // stock: it may cover only part of a warehouse, and committing it would erase real goods.
@@ -175,15 +175,22 @@ export async function readInventoryLetter(
 
   const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }];
   const providers = [
-    { model: 'deepseek-v4-pro', run: () => callPro(messages,
-      { apiKey: env.DEEPSEEK_API_KEY ?? '', maxTokens: 16000, temperature: 0, jsonMode: true }) },
     { model: 'gpt-6.1-terra', run: () => subscriptionInfer(env, 'context')(messages, { model: 'gpt-6.1-terra' }) },
     { model: 'claude-sonnet-4-6', run: () => callSonnet(messages,
       { oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '', maxTokens: 16000, temperature: 0 }) },
+    { model: 'deepseek-v4-pro', run: () => callPro(messages,
+      { apiKey: env.DEEPSEEK_API_KEY ?? '', maxTokens: 16000, temperature: 0, jsonMode: true }) },
   ];
   for (const provider of providers) {
+    let result: { text: string };
     try {
-      const result = await provider.run();
+      result = await provider.run();
+      if (!result.text?.trim()) throw new Error('Empty provider response');
+    } catch {
+      console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'unavailable' }));
+      continue;
+    }
+    try {
       const out = parseInventoryJson(result.text);
       if (!out.rows.length) throw new Error('No recognised rows');
       // Invented identifiers are a failed reading, not an accepted stock comparison.
@@ -196,11 +203,12 @@ export async function readInventoryLetter(
       console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'accepted' }));
       return { out, skipped, model: provider.model };
     } catch {
-      // No letter, credential or provider body in logs; the next provider sees the original input.
-      console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'failed' }));
+      // Owner 2026-11-07: fallback is availability, not a vote between conflicting readings.
+      console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'invalid_reading' }));
+      throw new Error(`Inventory reading invalid from ${provider.model}; no stock written`);
     }
   }
-  throw new Error('Inventory recognition failed: DeepSeek Pro, OpenAI Terra and Sonnet; no stock written');
+  throw new Error('Inventory recognition failed: OpenAI Terra, Sonnet and DeepSeek Pro; no stock written');
 }
 
 export async function processInventoryLetter(
@@ -234,7 +242,7 @@ export async function processInventoryLetter(
   } catch (e) {
     const reason = `Распознавание не завершено: ${String(e).slice(0, 200)}`;
     await log({ status: 'failed', reason });
-    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано моделями DeepSeek Pro, OpenAI Terra и Sonnet. Нужна проверка исходного файла.`);
+    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано моделями OpenAI Terra, Sonnet и DeepSeek Pro. Нужна проверка исходного файла.`);
     return { status: 'failed', note: reason };
   }
   if ('empty' in r) {

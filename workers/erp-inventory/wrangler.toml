@@ -1,4 +1,4 @@
-# erp-inventory — inventory@dasexperten.com: stock lists by mail (Saransk, no API) recognised by DeepSeek Pro -> Terra -> Sonnet in ERP, then compared with stock.
+# erp-inventory — inventory@dasexperten.com: stock lists by mail (Saransk, no API) recognised by Terra -> Sonnet -> DeepSeek Pro in ERP, then compared with stock.
 # Mail worker, not a timer (Owner 2026-09-18). Email Routing sends inventory@ here.
 name = "erp-inventory"
 main = "src/index.ts"

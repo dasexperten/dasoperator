@@ -51,28 +51,35 @@ function readerEnv() {
     ? [{ id: 'fixture', pieces_per_case: 1 }] : [{ id: 'fixture-warehouse' }] }; } }; } } };
 }
 const letter = { text: 'fixture 0', from: 'fixture', subject: 'fixture', messageId: 'fixture-message' };
-test('DeepSeek succeeds first; fallback models are not called', async () => {
+test('Terra succeeds first; fallback models are not called', async () => {
   const calls=[];
-  globalThis.__inventoryRead=async(provider,_messages,opts)=>{calls.push(provider);assert.equal(opts.jsonMode,true);return {text:JSON.stringify(valid)};};
+  globalThis.__inventoryRead=async(provider,_messages,opts)=>{calls.push(provider);assert.equal(opts.model,'gpt-6.1-terra');return {text:JSON.stringify(valid)};};
   const result=await readInventoryLetter(readerEnv(),letter);
-  assert.deepEqual(result.out,valid);assert.equal(result.model,'deepseek-v4-pro');assert.deepEqual(calls,['deepseek']);
+  assert.deepEqual(result.out,valid);assert.equal(result.model,'gpt-6.1-terra');assert.deepEqual(calls,['terra']);
 });
-test('provider failure, malformed JSON and invented identifiers escalate in the required order', async () => {
-  for(const first of [Error('offline'),'{broken',JSON.stringify({...valid,warehouse_id:'invented'}),JSON.stringify({...valid,rows:[{source:'unreadable',product_id:null,qty_pieces:null}]})]) {
+test('Terra quota/outage or empty answer falls back to Sonnet', async () => {
+  for(const first of [Error('quota exhausted'),Error('offline'),'   ']) {
     const calls=[];
-    globalThis.__inventoryRead=async(provider,_messages,opts)=>{calls.push(provider);if(provider==='deepseek'){if(first instanceof Error)throw first;return {text:first};}assert.equal(opts.model,'gpt-6.1-terra');return {text:JSON.stringify(valid)};};
-    const result=await readInventoryLetter(readerEnv(),letter);assert.equal(result.model,'gpt-6.1-terra');assert.deepEqual(calls,['deepseek','terra']);
+    globalThis.__inventoryRead=async(provider)=>{calls.push(provider);if(provider==='terra'){if(first instanceof Error)throw first;return {text:first};}return {text:JSON.stringify(valid)};};
+    const result=await readInventoryLetter(readerEnv(),letter);assert.equal(result.model,'claude-sonnet-4-6');assert.deepEqual(calls,['terra','sonnet']);
   }
 });
-test('Sonnet is the last fallback, each provider sees the same original letter', async () => {
+test('DeepSeek is the last fallback after Terra and Sonnet are unavailable or empty', async () => {
   const calls=[];let original;
-  globalThis.__inventoryRead=async(provider,messages)=>{calls.push(provider);original??=messages;assert.deepEqual(messages,original);if(provider!=='sonnet')throw Error('offline');return {text:JSON.stringify(valid)};};
-  assert.equal((await readInventoryLetter(readerEnv(),letter)).model,'claude-sonnet-4-6');assert.deepEqual(calls,['deepseek','terra','sonnet']);
+  globalThis.__inventoryRead=async(provider,messages,opts)=>{calls.push(provider);original??=messages;assert.deepEqual(messages,original);if(provider==='terra')throw Error('quota');if(provider==='sonnet')return {text:''};assert.equal(opts.jsonMode,true);return {text:JSON.stringify(valid)};};
+  assert.equal((await readInventoryLetter(readerEnv(),letter)).model,'deepseek-v4-pro');assert.deepEqual(calls,['terra','sonnet','deepseek']);
 });
-test('three failed providers stop with no fourth call', async () => {
-  const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);return {text:'{broken'};};
-  await assert.rejects(readInventoryLetter(readerEnv(),letter),/no stock written/);assert.deepEqual(calls,['deepseek','terra','sonnet']);
+test('invalid readings stop without asking another model to overrule them', async () => {
+  for(const text of ['{broken',JSON.stringify({...valid,warehouse_id:'invented'}),JSON.stringify({...valid,rows:[{source:'unreadable',product_id:null,qty_pieces:null}]})]) {
+    const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);return {text};};
+    await assert.rejects(readInventoryLetter(readerEnv(),letter),/reading invalid/);assert.deepEqual(calls,['terra']);
+  }
 });
+test('three unavailable providers stop with no fourth call', async () => {
+  const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);throw Error('offline');};
+  await assert.rejects(readInventoryLetter(readerEnv(),letter),/no stock written/);assert.deepEqual(calls,['terra','sonnet','deepseek']);
+});
+
 function journalEnv() {
   const claims=new Set(),writes=[],messages=[];
   globalThis.__inventoryMessage=async(_env,text)=>messages.push(text);
@@ -86,13 +93,13 @@ function journalEnv() {
 test('failure is recorded once and redelivery cannot restart the three-model chain', async () => {
   const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);throw Error('offline')};
   const {env,writes,messages}=journalEnv();assert.equal((await processInventoryLetter(env,letter)).status,'failed');
-  assert.equal((await processInventoryLetter(env,letter)).status,'duplicate');assert.deepEqual(calls,['deepseek','terra','sonnet']);
+  assert.equal((await processInventoryLetter(env,letter)).status,'duplicate');assert.deepEqual(calls,['terra','sonnet','deepseek']);
   assert.equal(messages.length,1);assert.equal(writes.filter(w=>w.sql.includes('OR REPLACE'))[0].args[7],'failed');
 });
 test('concurrent delivery claims before recognition; comparison never writes stock', async () => {
   const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);return {text:JSON.stringify(valid)}};
   const {env,messages}=journalEnv();const results=await Promise.all([processInventoryLetter(env,letter),processInventoryLetter(env,letter)]);
-  assert.deepEqual(results.map(r=>r.status).sort(),['compared','duplicate']);assert.deepEqual(calls,['deepseek']);assert.equal(messages.length,1);
+  assert.deepEqual(results.map(r=>r.status).sort(),['compared','duplicate']);assert.deepEqual(calls,['terra']);assert.equal(messages.length,1);
 });
 
 const sheet = [[], [], ['', '', '', 'шт', '', 'шт'],
@@ -118,7 +125,7 @@ test('Mery XLSX always goes through a model, even when the deterministic parser 
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sheet),'Stock');
   const base64=XLSX.write(wb,{type:'base64',bookType:'xlsx'});const calls=[];
   globalThis.__inventoryRead=async(provider,messages)=>{calls.push(provider);assert.match(messages[1].content,/DE120/);return {text:JSON.stringify(valid)}};
-  await readInventoryLetter(readerEnv(),{...letter,attachments:[{filename:'stock.xlsx',base64}]});assert.deepEqual(calls,['deepseek']);
+  await readInventoryLetter(readerEnv(),{...letter,attachments:[{filename:'stock.xlsx',base64}]});assert.deepEqual(calls,['terra']);
 });
 
 test('mail worker delegates original bytes once; it never starts recognition or resubmits a failed chain', async () => {

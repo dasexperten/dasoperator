@@ -1,5 +1,5 @@
 // inventory@ is a mail trigger. Archive, deduplication and the single mandatory
-// DeepSeek Pro -> Terra -> Sonnet recognition chain run inside ERP before comparison.
+// Terra -> Sonnet -> DeepSeek Pro recognition chain run inside ERP before comparison.
 import { runLogged, type BaseEnv } from '../../_shared/run';
 import { bytesToB64 } from '../../../api/src/lib/inventory-mail';
 
@@ -31,7 +31,7 @@ export default {
 
   async fetch(req: Request, env: Env): Promise<Response> {
     if (new URL(req.url).pathname === '/health') {
-      return Response.json({ ok: true, worker: 'erp-inventory', mailbox: 'inventory@dasexperten.com', recognition: 'ERP: DeepSeek Pro -> OpenAI Terra -> Sonnet' });
+      return Response.json({ ok: true, worker: 'erp-inventory', mailbox: 'inventory@dasexperten.com', recognition: 'ERP: OpenAI Terra -> Sonnet -> DeepSeek Pro' });
     }
     return new Response('not found', { status: 404 });
   },

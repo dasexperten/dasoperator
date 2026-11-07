@@ -34,7 +34,7 @@ interface ModelRow {
   source: string;
   product_id: string | null;
   qty_pieces: number | null;
-  note?: string | undefined;
+  note?: string | null | undefined;
 }
 interface ModelOut {
   warehouse_id: string | null;
@@ -98,7 +98,7 @@ const inventoryReadingSchema = z.object({
     source: z.string(),
     product_id: z.string().nullable(),
     qty_pieces: z.number().int().nonnegative().safe().nullable(),
-    note: z.string().optional(),
+    note: z.string().nullable().optional(),
   })),
 });
 

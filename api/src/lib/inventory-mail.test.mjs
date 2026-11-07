@@ -136,3 +136,5 @@ test('mail worker delegates original bytes once; it never starts recognition or 
   assert.equal(copies,1);assert.equal(calls.length,1);assert.equal(Buffer.from(calls[0].input.raw_b64,'base64').toString(),raw);
   assert.deepEqual(Object.keys(calls[0].input).sort(),['envelope_from','raw_b64']);
 });
+
+test('nullable model comment is optional information, not a failed count',()=>{const out={...valid,rows:[{...valid.rows[0],note:null}]};assert.deepEqual(parseInventoryJson(JSON.stringify(out)),out);});

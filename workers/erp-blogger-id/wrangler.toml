@@ -1,4 +1,4 @@
-# Owner 2026-10-17: independent gradual blogger-profile refresh; the weekly pass at 06:00 Yerevan (Owner 2026-10-19).
+# Owner 2026-11-07: every 3h, 08:00 through 02:00 Yerevan; weekly refresh at 08:00.
 name = "erp-blogger-id"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -16,4 +16,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 4,7,10,13,16,19,22 * * *"]

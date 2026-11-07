@@ -267,8 +267,8 @@ app.route('/api/auth', authRoutes);
 app.route('/api/activity', activityRoutes);
 
 // Manual trigger for the auto-delivery sweep (same code path as cron).
-// Useful for ops: hit this when you've just imported stock and want to
-// fast-forward any pending shipments without waiting for the next cron tick.
+// Reports shipments awaiting confirmed receipt. Imported stock balances are
+// never proof of arrival; the current integrations require human confirmation.
 app.post('/api/cron/auto-delivery', async (c) => {
   const { runAutoDeliverySweep } = await import('./auto-delivery');
   const result = await runAutoDeliverySweep(c.env);

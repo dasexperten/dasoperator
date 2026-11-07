@@ -91,6 +91,9 @@ jobs:
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs workers/erp-site-sales-rebuild/src/index.test.mjs
 
+      - name: Test shipment receipt requirement
+        run: node --test api/src/auto-delivery.test.mjs
+
       - name: Test adaptive background job leases
         run: node --test api/src/lib/adaptive-cadence.test.mjs api/src/lib/adaptive-runner.test.mjs
 
@@ -106,7 +109,7 @@ jobs:
         run: node --test api/src/routes/cron-runs.test.mjs workers/_shared/run.test.mjs workers/_shared/run-journal.test.mjs workers/_shared/run-slot.test.mjs api/src/lib/erp-cron-failures.test.mjs api/src/scheduled-strict.test.mjs api/src/lib/crm-website-poll.test.mjs
 
       - name: Test inventory JSON and delivery business outcomes
-        run: node --test api/src/lib/inventory-mail.test.mjs api/src/lib/site-order-sync.test.mjs api/src/lib/deepseek.test.mjs
+        run: node --test api/src/lib/inventory-mail.test.mjs api/src/lib/site-order-sync.test.mjs api/src/lib/deepseek.test.mjs api/src/auto-delivery.test.mjs
 
       - name: Test independent ERP transport clock
         run: python3 -m unittest discover -s scripts/erp-clock -p 'test_*.py'

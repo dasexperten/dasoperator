@@ -13,7 +13,6 @@ export function dianaBatch(pending: any[]) {
     .slice(0, DIANA_BATCH)
     .map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
       cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, at: item.at, reason: item.reason, queue_key: item.queue_key,
-      ...(Array.isArray(item.jev_tried) && item.jev_tried.length ? { jev_tried: item.jev_tried } : {}),
     }));
 }
 
@@ -40,27 +39,16 @@ export class DianaWake {
     if (url.pathname === '/status') return Response.json({ connections: this.state.getWebSockets().map(ws => ws.deserializeAttachment()) });
     const peers = this.state.getWebSockets().filter(ws => ws.readyState === 1 && Date.now() - ((ws.deserializeAttachment() as Peer).seen ?? Date.now()) < 180_000)
       .sort((a,b) => RANK.indexOf((a.deserializeAttachment() as Peer).role) - RANK.indexOf((b.deserializeAttachment() as Peer).role));
+    const peer = peers[0];
     const pending = await pendingDianaMessages(this.env);
-    if (!peers.length) return Response.json({ pending: pending.length, dispatched: false, reason: 'no_machine_connected' });
-    // Owner 2026-11-07: a stuck chat whose picture one machine's Jev could not open goes to the next machine
-    // in order M1 -> PC -> M5 (the runner writes jev_tried). Everything else goes to the highest machine.
-    const role = (ws: WebSocket) => (ws.deserializeAttachment() as Peer).role;
-    const groups = new Map<WebSocket, any[]>();
-    for (const item of pending) {
-      const tried: string[] = Array.isArray(item.jev_tried) ? item.jev_tried : [];
-      const target = peers.find(ws => !tried.includes(role(ws))) ?? peers[0];
-      if (!groups.has(target)) groups.set(target, []);
-      groups.get(target)!.push(item);
-    }
-    let dispatched = 0, working = false;
-    for (const [peer, items] of groups) {
-      if ((peer.deserializeAttachment() as Peer).busy) { working = true; continue; }
+    if (!peer) return Response.json({ pending: pending.length, dispatched: false, reason: 'no_machine_connected' });
+    if ((peer.deserializeAttachment() as Peer).busy) return Response.json({ pending: pending.length, dispatched: false, reason: 'diana_working' });
+    if (pending.length) {
       peer.serializeAttachment({ ...(peer.deserializeAttachment() as Peer), busy: true });
-      try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(items) })); dispatched += items.length; }
-      catch { peer.close(1011, 'delivery failed'); }
+      try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(pending) })); }
+      catch { peer.close(1011, 'delivery failed'); return Response.json({ pending: pending.length, dispatched: false }); }
     }
-    if (!dispatched && working) return Response.json({ pending: pending.length, dispatched: false, reason: 'diana_working' });
-    return Response.json({ pending: pending.length, dispatched: dispatched > 0 });
+    return Response.json({ pending: pending.length, dispatched: pending.length > 0 });
   }
   webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
     try {

@@ -470,7 +470,7 @@ export async function handleScheduled(
 
   // Moved to their own erp-* workers (workers/, Owner 2026-09-18): FX + pricing rates
   // (erp-fx-rates), partner status (erp-partner-status), mail relink (erp-mail-relink),
-  // mail scenario stamps (erp-mail-scenarios), nightly bank match (erp-bank-match).
+  // nightly bank match (erp-bank-match).
 
   // NOTE: the automatic Ozon → RUB price sync cron was removed by owner request.
   // RUB prices are OWNER-MANAGED and static — like every other currency, the

@@ -30,9 +30,6 @@
   "erp-mail-relink": [
     "35 * * * *"
   ],
-  "erp-mail-scenarios": [
-    "23 */3 * * *"
-  ],
   "erp-mail-snapshot": [
     "42 * * * *"
   ],

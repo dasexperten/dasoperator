@@ -72,3 +72,23 @@ test('dispatch carries the newest 50 identifiers only', async t => {
   const batch = dianaBatch(many);
   assert.equal(batch.length, 50); assert.equal(batch[0].cid, 'c299'); assert.ok(!('text' in batch[0]));
 });
+
+test('stuck chat tried by M1 Jev goes to the PC; untried ones stay with M1', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  f.state.set('diana_round_alarm:pic', JSON.stringify({ cid: 'pic', message_id: 'p', event_id: 'message:p', jev_tried: ['primary'] }));
+  f.state.set('diana_round_alarm:txt', JSON.stringify({ cid: 'txt', message_id: 't', event_id: 'message:t' }));
+  const peer = role => ({ readyState: 1, meta: { role, busy: false }, sent: [], deserializeAttachment() { return this.meta }, serializeAttachment(v) { this.meta = v }, send(v) { this.sent.push(JSON.parse(v)) } });
+  const primary = peer('primary'), backup = peer('backup');
+  await new DianaWake({ getWebSockets: () => [backup, primary] }, f.env).fetch(new Request('https://wake/dispatch'));
+  assert.deepEqual(primary.sent[0].messages.map(m => m.cid), ['txt']);
+  assert.deepEqual(backup.sent[0].messages.map(m => m.cid), ['pic']);
+  assert.deepEqual(backup.sent[0].messages[0].jev_tried, ['primary']);
+});
+test('when every connected machine tried, the chat returns to the highest one', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  f.state.set('diana_round_alarm:pic', JSON.stringify({ cid: 'pic', message_id: 'p', event_id: 'message:p', jev_tried: ['primary', 'backup'] }));
+  const peer = role => ({ readyState: 1, meta: { role, busy: false }, sent: [], deserializeAttachment() { return this.meta }, serializeAttachment(v) { this.meta = v }, send(v) { this.sent.push(JSON.parse(v)) } });
+  const primary = peer('primary'), backup = peer('backup');
+  await new DianaWake({ getWebSockets: () => [backup, primary] }, f.env).fetch(new Request('https://wake/dispatch'));
+  assert.equal(primary.sent[0].messages[0].cid, 'pic'); assert.equal(backup.sent.length, 0);
+});

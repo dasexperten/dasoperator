@@ -37,11 +37,13 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   if (!token) throw new Error('instagram_metadata_token_missing');
   const page = await graph(`/${PAGE}?fields=access_token`, token);
   if (!page.access_token) throw new Error('instagram_page_token_missing');
-  const records = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE 'diana_metadata_seen:v2:%' OR key LIKE 'diana_metadata_message_seen:%' OR key LIKE 'diana_message_done:%' OR key LIKE 'diana_metadata_incomplete:%'").all<{key:string;value:string}>()).results ?? [];
+  const records = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE 'diana_message_done:%'").all<{key:string;value:string}>()).results ?? [];
   const known = new Map(records.map(row => [row.key,row.value]));
-  // Owner 2026-11-07: ERP is only an alarm. Every tick it looks at the newest 100 chats (4 pages of 25), nothing deeper,
-  // and no historical backfill. A chat raises the alarm only when its newest message is incoming and unseen; a chat
-  // whose newest message is ours has nothing waiting, so its alarm is cleared.
+  // Owner 2026-11-07: ERP is only an alarm, and the alarm is a check of STATE, not of news. Every tick it looks at the
+  // newest 100 chats (4 pages of 25), nothing deeper. A chat is waiting when its newest message is the blogger's and
+  // Diana has no verified receipt (diana_message_done) for exactly that message. A waiting chat always has an alarm,
+  // however long ago its message came and whatever an earlier tick saw, so nothing missed once can stay missed.
+  // A chat whose newest message is ours has nothing waiting, so its alarm is cleared.
   const scanned: string[] = [];
   let after = '';
   for (let pageNo = 0; pageNo < DIANA_SCAN_PAGES; pageNo++) {
@@ -52,26 +54,23 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       inspected++;
       scanned.push(String(conversation.id));
       try {
-        if (known.get('diana_metadata_seen:v3:' + conversation.id) === conversation.updated_time) continue; // nothing new in this chat
         const newest = conversation.messages?.data?.[0];
         if (newest?.id && newest.created_time && newest.from?.id) {
           if ([BRAND, PAGE].includes(String(newest.from.id))) {
             // Our message is last: nothing is waiting in this chat.
             await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(ALARM_PREFIX + conversation.id).run();
-          } else if (known.get('diana_message_done:' + conversation.id) !== newest.id && known.get('diana_metadata_message_seen:' + conversation.id) !== newest.id) {
+          } else if (known.get('diana_message_done:' + conversation.id) !== newest.id) {
             const participant = (conversation.participants?.data ?? []).find((p: any) => String(p.id) === String(newest.from.id));
             const handle = String(newest.from.username ?? participant?.username ?? '').toLowerCase();
             const alarm = { handle, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
-            await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-              ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-              .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now).run();
-            detected++;
+            // An alarm already ringing for this very message is left as it is (its first ring time stays).
+            const raised = await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+              WHERE NOT json_valid(crm_sync_state.value) OR json_extract(crm_sync_state.value,'$.message_id') IS NOT ?4`)
+              .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now, String(newest.id)).run();
+            if (raised.meta.changes) detected++;
           }
-          await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('diana_metadata_message_seen:' + conversation.id, String(newest.id), now).run();
         }
-        await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-          ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('diana_metadata_seen:v3:' + conversation.id, String(conversation.updated_time), now).run();
       } catch { errors++; }
     }
     after = list.paging?.next ? String(list.paging?.cursors?.after ?? '') : '';

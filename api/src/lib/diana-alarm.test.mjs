@@ -72,3 +72,20 @@ test('dispatch carries the newest 50 identifiers only', async t => {
   const batch = dianaBatch(many);
   assert.equal(batch.length, 50); assert.equal(batch[0].cid, 'c299'); assert.ok(!('text' in batch[0]));
 });
+
+test('state, not news: a waiting chat missed once is raised again; a receipt for that message closes it', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  // Old event markers from the news-based alarm must not hide a chat that is still waiting.
+  f.state.set('diana_metadata_message_seen:old', 'mold');
+  f.state.set('diana_message_done:closed', 'mclosed');
+  t.mock.method(globalThis, 'fetch', chatsFetch(f, [chat('old', 'them', '2026-11-05T10:00:00+0000'), chat('closed', 'them')]));
+  const r = await detectDianaMessages(f.env, at(12));
+  assert.equal(r.detected, 1); assert.ok(f.state.get('diana_round_alarm:old')); assert.equal(f.state.get('diana_round_alarm:closed'), undefined);
+  const first = JSON.parse(f.state.get('diana_round_alarm:old')).rang_at;
+  f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run('diana_metadata_tick_v2');
+  const again = await detectDianaMessages(f.env, at(12, 4));
+  assert.equal(again.detected, 0); assert.equal(JSON.parse(f.state.get('diana_round_alarm:old')).rang_at, first);
+  f.state.set('diana_round_alarm:old', 'gone'); f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run('diana_round_alarm:old');
+  f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run('diana_metadata_tick_v2');
+  assert.equal((await detectDianaMessages(f.env, at(12, 8))).detected, 1); // lost alarm comes back while the chat waits
+});

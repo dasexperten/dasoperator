@@ -551,7 +551,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-reel-error { color: var(--status-error); }
 .ugc-reel-error svg { width: 16px; height: 16px; }
 
-/* Phone posts as compact chips (Owner 2026-11-07, Marika mock-up approved): five to a row.
+/* Phone posts as compact chips (Owner 2026-11-07, Marika mock-up approved): five to a row; top-right tag = likes + comments.
    Views inside the frame, a tiny platform tag bottom-left in the network colour, ER as a tiny
    tag top-right, the date very small underneath. Likes and comments stay in the tooltip. */
 .ugc-mobile-publications .ugc-media-track,

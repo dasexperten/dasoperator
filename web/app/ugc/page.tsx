@@ -811,15 +811,17 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
   const er = confirmed && item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? (item.engagement_rate >= 100 ? String(Math.round(item.engagement_rate)) : item.engagement_rate.toFixed(1)) : '';
   const watchDay = 0;
   // Owner 2026-11-07 (Marika, approved mock-up): on the phone each post is one compact chip —
-  // views inside the frame, a tiny platform tag bottom-left in the network colour, ER as a
+  // views inside the frame, a tiny platform tag bottom-left in the network colour, likes + comments as a
   // tiny tag top-right, the date very small underneath; five chips to a row.
   if (compact) {
+    // Owner 2026-11-07: the top-right tag is likes + comments, not ER.
+    const reactions = item.likes == null && item.comments == null ? null : (Number(item.likes) || 0) + (Number(item.comments) || 0);
     const tag = net === 'instagram' ? <Instagram aria-hidden="true" /> : net === 'youtube' ? <svg viewBox="0 0 8 8" aria-hidden="true"><path fill="currentColor" d="M1.5 0.5v7l6-3.5z" /></svg> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'telegram' ? <Send aria-hidden="true" /> : net === 'facebook' ? <Facebook aria-hidden="true" /> : net === 'vk' ? <span aria-hidden="true">VK</span> : <Link aria-hidden="true" />;
     return <span className="ugc-pub ugc-chip" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
-      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${er ? ` · ER ${er}` : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
+      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${reactions != null ? ` · лайки и комментарии ${formatCount(reactions)}` : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
         <span className="ugc-chip-views">{formatCount(item.views)}</span>
         <span className="ugc-chip-net">{tag}</span>
-        {er ? <span className="ugc-chip-er">{er}</span> : null}
+        {reactions != null ? <span className="ugc-chip-er" aria-hidden="true">{formatCount(reactions)}</span> : null}
       </a>
       <span className="ugc-chip-date" title={postedAt ? `Опубликовано ${postedAt.toLocaleDateString('ru-RU')}` : undefined}>{posted || '\u00a0'}</span>
       {jobError ? <span role="alert" className="sr-only">{jobError}</span> : null}

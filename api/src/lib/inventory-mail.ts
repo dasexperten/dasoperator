@@ -3,8 +3,8 @@
 //
 // A warehouse without an API (Saransk) sends its stock list by mail every one or two
 // weeks. The letter arrives at worker erp-inventory, which archives it and hands it here.
-// DeepSeek V4 Pro reads the list (machine reader, §3j; the Owner asked for the best model) and names the warehouse and, per line,
-// the product and the quantity in pieces. Mery's fixed spreadsheet is read without the model.
+// Owner 2026-11-07: every readable letter, including Mery's fixed sheet, is recognised
+// by DeepSeek Pro -> OpenAI Terra -> Sonnet. One attempt per model, at most three total.
 //
 // Owner 2026-11-02: every letter starts a match against the ERP at once. A letter never moves
 // stock: it may cover only part of a warehouse, and committing it would erase real goods.
@@ -16,6 +16,8 @@ import { z } from 'zod';
 import { archiveEmail } from './inbox-archive';
 import type { Env } from '../types';
 import { callPro } from './deepseek';
+import { callPro as callSonnet } from './anthropic';
+import { subscriptionInfer } from './diana-subscription.mjs';
 import { sendOwnerTelegram } from './owner-telegram';
 
 export interface InventoryLetter {
@@ -144,27 +146,12 @@ export function readStockSheet(grid: unknown[][]): ModelRow[] | null {
   return rows;
 }
 
-function sheetReading(l: InventoryLetter): InventoryReading | null {
-  for (const a of l.attachments ?? []) {
-    if (!/\.(xlsx|xls)$/i.test(a.filename || '')) continue;
-    const wb = XLSX.read(b64ToBytes(a.base64), { type: 'array' });
-    for (const name of wb.SheetNames) {
-      const ws = wb.Sheets[name];
-      const rows = ws ? readStockSheet(XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })) : null;
-      if (rows) return { out: { warehouse_id: DEFAULT_WAREHOUSE, warehouse_certain: false, rows }, skipped: [] };
-    }
-  }
-  return null;
-}
-
-/** The model step: DeepSeek reads the letter against the live product and warehouse lists. */
-export interface InventoryReading { out: ModelOut; skipped: string[] }
+/** Recognition always uses a model; comparing its counts with the book does not. */
+export interface InventoryReading { out: ModelOut; skipped: string[]; model: string }
 export async function readInventoryLetter(
-  env: { DB: D1Database; DEEPSEEK_API_KEY?: string },
+  env: Pick<Env, 'DB' | 'DEEPSEEK_API_KEY' | 'CLAUDE_CODE_OAUTH_TOKEN'> & Partial<Pick<Env, 'DIANA_SUBSCRIPTION'>>,
   l: InventoryLetter,
 ): Promise<InventoryReading | { empty: true; skipped: string[] }> {
-  const sheet = sheetReading(l);
-  if (sheet) return sheet;
   const { text, skipped } = letterText(l);
   if (!text) return { empty: true, skipped };
   const [products, warehouses] = await Promise.all([
@@ -186,28 +173,39 @@ export async function readInventoryLetter(
 - warehouse_certain = true только если склад прямо назван в письме, вложении или адресе отправителя.`;
   const user = `СКЛАДЫ:\n${JSON.stringify(warehouses.results)}\n\nТОВАРЫ:\n${JSON.stringify(products.results)}\n\nОТ: ${l.from}\nТЕМА: ${l.subject}\n\n${text}`;
 
-  // Strongest DeepSeek model (Owner: "the best model for identification"); a letter a week, so cost is no issue.
-  // JSON mode prevents free-form output; schema validation prevents strings such
-  // as "false" from authorizing a stock commit. Retry malformed output once,
-  // against the original letter, before any session or stock mutation.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await callPro(
-      [{ role: 'system', content: system }, { role: 'user', content: user }],
-      { apiKey: env.DEEPSEEK_API_KEY as string, maxTokens: 16000, temperature: 0, jsonMode: true },
-    );
+  const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }];
+  const providers = [
+    { model: 'deepseek-v4-pro', run: () => callPro(messages,
+      { apiKey: env.DEEPSEEK_API_KEY ?? '', maxTokens: 16000, temperature: 0, jsonMode: true }) },
+    { model: 'gpt-6.1-terra', run: () => subscriptionInfer(env, 'context')(messages, { model: 'gpt-6.1-terra' }) },
+    { model: 'claude-sonnet-4-6', run: () => callSonnet(messages,
+      { oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '', maxTokens: 16000, temperature: 0 }) },
+  ];
+  for (const provider of providers) {
     try {
-      return { out: parseInventoryJson(r.text), skipped };
+      const result = await provider.run();
+      const out = parseInventoryJson(result.text);
+      if (!out.rows.length) throw new Error('No recognised rows');
+      // Invented identifiers are a failed reading, not an accepted stock comparison.
+      const productIds = new Set((products.results as Array<{ id: string }>).map(p => p.id));
+      const warehouseIds = new Set((warehouses.results as Array<{ id: string }>).map(w => w.id));
+      if (out.warehouse_id && !warehouseIds.has(out.warehouse_id)) throw new Error('Unknown warehouse');
+      if (out.rows.some(row => row.product_id && !productIds.has(row.product_id))) throw new Error('Unknown product');
+      if (!out.rows.some(row => row.product_id && productIds.has(row.product_id) && row.qty_pieces !== null))
+        throw new Error('No product counts recognised');
+      console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'accepted' }));
+      return { out, skipped, model: provider.model };
     } catch {
-      if (attempt === 1) throw new Error('Inventory JSON invalid after two readings; no stock written');
+      // No letter, credential or provider body in logs; the next provider sees the original input.
+      console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'failed' }));
     }
   }
-  throw new Error('Inventory reading unavailable');
+  throw new Error('Inventory recognition failed: DeepSeek Pro, OpenAI Terra and Sonnet; no stock written');
 }
 
 export async function processInventoryLetter(
   env: Env,
   l: InventoryLetter,
-  given?: InventoryReading | null,
 ): Promise<{ status: string; note: string }> {
   const receivedAt = l.receivedAt ?? new Date().toISOString();
   const log = async (row: Record<string, unknown>) => {
@@ -223,31 +221,29 @@ export async function processInventoryLetter(
     ).run();
   };
 
-  const seen = await env.DB.prepare('SELECT status FROM inventory_mail_log WHERE message_id = ?')
-    .bind(l.messageId).first<{ status: string }>();
-  if (seen && seen.status !== 'failed') return { status: 'duplicate', note: `letter already handled (${seen.status})` };
+  // Claim before any model call. Concurrent/repeated mail delivery cannot repeat the chain.
+  const claimed = await env.DB.prepare(`INSERT OR IGNORE INTO inventory_mail_log
+    (received_at, from_addr, subject, message_id, status) VALUES (?, ?, ?, ?, 'reading')`)
+    .bind(receivedAt, l.from, l.subject, l.messageId).run();
+  if (!claimed.meta.changes) return { status: 'duplicate', note: 'letter already received; recognition not repeated' };
 
   let reading: InventoryReading;
-  if (given?.out) {
-      reading = { out: inventoryReadingSchema.parse(given.out), skipped: given.skipped };
-  } else {
-    let r: Awaited<ReturnType<typeof readInventoryLetter>>;
-    try {
-      r = await readInventoryLetter(env, l);
-    } catch (e) {
-      const reason = `DeepSeek не разобрал письмо: ${String(e).slice(0, 200)}`;
-      await log({ status: 'failed', reason });
-      await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано — модель не ответила. Можно переслать снова.`);
-      return { status: 'failed', note: reason };
-    }
-    if ('empty' in r) {
-      const reason = `в письме нечего читать${r.skipped.length ? `; не читаю вложения: ${r.skipped.join(', ')}` : ''}`;
-      await log({ status: 'failed', reason });
-      await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» от ${l.from} не разобрано — ${reason}.`);
-      return { status: 'failed', note: reason };
-    }
-    reading = r;
+  let r: Awaited<ReturnType<typeof readInventoryLetter>>;
+  try {
+    r = await readInventoryLetter(env, l);
+  } catch (e) {
+    const reason = `Распознавание не завершено: ${String(e).slice(0, 200)}`;
+    await log({ status: 'failed', reason });
+    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано моделями DeepSeek Pro, OpenAI Terra и Sonnet. Нужна проверка исходного файла.`);
+    return { status: 'failed', note: reason };
   }
+  if ('empty' in r) {
+    const reason = `в письме нечего читать${r.skipped.length ? `; не читаю вложения: ${r.skipped.join(', ')}` : ''}`;
+    await log({ status: 'failed', reason });
+    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» от ${l.from} не разобрано — ${reason}.`);
+    return { status: 'failed', note: reason };
+  }
+  reading = r;
   const out = reading.out;
   const [products, warehouses] = await Promise.all([
     env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all(),
@@ -281,7 +277,7 @@ export async function processInventoryLetter(
   ).bind(warehouseId).all();
   const gaps = compareWithBook(counts, book.results as Array<{ product_id: string; on_hand: number }>);
   const whName = warehouseIds.get(warehouseId);
-  const reason = `расхождений ${gaps.length}, строк без товара ${unmatched.length}`;
+  const reason = `расхождений ${gaps.length}, строк без товара ${unmatched.length}; модель ${reading.model}`;
   await log({ warehouse_id: warehouseId, status: 'compared', rows_total: rowsTotal, rows_matched: counts.size,
     unmatched: unmatched.length ? JSON.stringify(unmatched.slice(0, 50)) : null, reason });
   const lines = gaps.slice(0, MAX_GAPS_IN_MESSAGE)
@@ -316,7 +312,7 @@ export function bytesToB64(buf: ArrayBuffer | Uint8Array | string): string {
 export const INVENTORY_BOX = 'inventory@dasexperten.com';
 
 /** The raw letter from worker erp-inventory: archive it like any inbound mail (§6.4), then read it. */
-export async function receiveInventoryMail(env: Env, input: { raw_b64: string; envelope_from?: string; reading?: InventoryReading | null }) {
+export async function receiveInventoryMail(env: Env, input: { raw_b64: string; envelope_from?: string }) {
   const raw = b64ToBytes(input.raw_b64);
   const parsed = await PostalMime.parse(raw);
   const from = parsed.from?.address || input.envelope_from || 'unknown';
@@ -343,5 +339,5 @@ export async function receiveInventoryMail(env: Env, input: { raw_b64: string; e
       mimeType: a.mimeType,
       base64: bytesToB64(a.content as ArrayBuffer),
     })),
-  }, input.reading ?? null);
+  });
 }

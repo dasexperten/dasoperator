@@ -98,6 +98,19 @@ route.post('/:worker', async (c) => {
       return c.json({ ok: ready, receipt: result.receipt, image_check: imageCheck, ms: Date.now() - started }, ready ? 200 : 503);
     } catch { return c.json({ ok: false, error: 'diana_context_unavailable' }, 503); }
   }
+  // Fixed read-only recognition fixture: checks the same chain without an email,
+  // archive writes, notifications, inventory sessions or stock changes.
+  if (worker === 'inventory-recognition-check') {
+    try {
+      const product = await c.env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL ORDER BY id LIMIT 1').first<{ id: string }>();
+      if (!product) return c.json({ ok: false, error: 'inventory_fixture_product_missing' }, 503);
+      const { readInventoryLetter } = await import('../lib/inventory-mail');
+      const result = await readInventoryLetter(c.env, { from: 'internal-readiness-check', subject: 'Recognition fixture, no stock writes',
+        messageId: 'inventory-recognition-check', text: `Склад srn. Проверочная строка: артикул ${product.id}, остаток 0 штук. Это проверка чтения, не реальный пересчёт.` });
+      const ok = !('empty' in result) && result.out.rows.some(row => row.product_id === product.id && row.qty_pieces === 0);
+      return c.json({ ok, model: 'empty' in result ? null : result.model, stock_writes: 0, ms: Date.now() - started }, ok ? 200 : 503);
+    } catch { return c.json({ ok: false, error: 'inventory_recognition_unavailable', stock_writes: 0 }, 503); }
+  }
   // erp-inventory hands over one letter (JSON body) instead of starting a timer job.
   if (worker === 'erp-inventory') {
     try {

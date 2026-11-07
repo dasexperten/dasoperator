@@ -1,4 +1,4 @@
-# erp-inventory — inventory@dasexperten.com: stock lists by mail (Saransk, no API) read by DeepSeek into an inventory session.
+# erp-inventory — inventory@dasexperten.com: stock lists by mail (Saransk, no API) recognised by DeepSeek Pro -> Terra -> Sonnet in ERP, then compared with stock.
 # Mail worker, not a timer (Owner 2026-09-18). Email Routing sends inventory@ here.
 name = "erp-inventory"
 main = "src/index.ts"
@@ -17,6 +17,6 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "ERP"
 service = "dasoperator-api"
 
-# Keys (secrets): ERP_RUN_SECRET, DEEPSEEK_API_KEY (Owner: the worker holds its own).
+# ERP_RUN_SECRET authorises intake. Model credentials and subscription binding stay on ERP.
 [triggers]
 crons = []

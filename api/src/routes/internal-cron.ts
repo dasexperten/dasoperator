@@ -106,8 +106,8 @@ route.post('/:worker', async (c) => {
       if (!product) return c.json({ ok: false, error: 'inventory_fixture_product_missing' }, 503);
       const { readInventoryLetter } = await import('../lib/inventory-mail');
       const result = await readInventoryLetter(c.env, { from: 'internal-readiness-check', subject: 'Recognition fixture, no stock writes',
-        messageId: 'inventory-recognition-check', text: `Склад srn. Проверочная строка: артикул ${product.id}, остаток 0 штук. Это проверка чтения, не реальный пересчёт.` });
-      const ok = !('empty' in result) && result.out.rows.some(row => row.product_id === product.id && row.qty_pieces === 0);
+        messageId: 'inventory-recognition-check', text: `Остатки склада srn\nАртикул;Количество, шт\n${product.id};7` });
+      const ok = !('empty' in result) && result.out.rows.some(row => row.product_id === product.id && row.qty_pieces === 7);
       return c.json({ ok, model: 'empty' in result ? null : result.model, stock_writes: 0, ms: Date.now() - started }, ok ? 200 : 503);
     } catch (error) { return c.json({ ok: false, error: 'inventory_recognition_unavailable', attempts: (error as {attempts?: unknown}).attempts ?? [], stock_writes: 0 }, 503); }
   }

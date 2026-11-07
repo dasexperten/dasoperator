@@ -1,9 +1,9 @@
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
+import { ALARM, freshSignal } from '../lib/diter-ugc-alarm.mjs';
 import { reelPublicationProof, appendPublicationProofs, reelTaskText, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
-import { ALARM, ROUND, CLAIM_SQL, START_GAP_MS, SIGNAL_TTL_MS, freshSignal, inMoscowWindow } from '../lib/diter-ugc-alarm.mjs';
-import { dispatchReel } from '../lib/ugc-reel-store';
+import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
 
@@ -34,29 +34,52 @@ route.use('*', async (c, next) => {
   return next();
 });
 
+// Legacy PC consumer sees a preflight signal only; the next call accepts this
+// exact content_id before it starts the tool-capable round. Never /adhoc.
 route.get('/reel-alarm', async (c) => {
-  const stored = await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
-  const signal = freshSignal(stored?.value ?? '');
-  const job = signal ? await c.env.DB.prepare(`SELECT j.content_id,j.publications,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3 AND j.dispatch_attempts<3`).bind(signal.content_id).first<Record<string,any>>() : null;
-  return c.json({ok:true,name:ALARM,target:ROUND,ready:Boolean(job),
-    signal: stored ? JSON.parse(stored.value) : null,
-    job: job ? {...job,task:reelTaskText(job,new URL(c.req.url).origin)} : null});
+  const stored=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
+  const signal=freshSignal(stored?.value ?? '');
+  const row=signal ? await c.env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3`).bind(signal.content_id).first<{content_id:string;content_url:string;handle:string;required_destinations:string;publications:string}>() : null;
+  return c.json({ok:true,name:ALARM,target:'diter-ugc-round',ready:Boolean(row),signal:stored?JSON.parse(stored.value):null,
+    job:row?{...row,task:`Preflight only. Accept this exact post once, then use the ACTUAL returned claim_id in every callback. ${reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}`}:null});
 });
 route.get('/reel-jobs', async (c) => {
   const jobs = await c.env.DB.prepare(`SELECT j.*,c.content_url,c.content_type,p.handle,p.platform FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id ORDER BY j.requested_at`).all();
   // claim_id is returned only to the executor that claims the job.
   return c.json({ ok: true, jobs: (jobs.results ?? []).map((row) => { const { claim_id: _claim, ...job } = row; return job; }) });
 });
+// Backward-compatible installed PC: its real tool preflight precedes this
+// exact acceptance. It cannot choose another post or bypass the one alarm.
 route.post('/reel-jobs/:id/claim', async (c) => {
-  const id = c.req.param('id');
-  const claim = crypto.randomUUID();
-  const clock = new Date();
-  const now = clock.toISOString();
-  if (!inMoscowWindow(clock)) return c.json({ok:false,error:'outside_moscow_window'},409);
-  const result = await c.env.DB.prepare(CLAIM_SQL).bind(claim,now,id,
-    new Date(clock.getTime()-START_GAP_MS).toISOString(),new Date(clock.getTime()-SIGNAL_TTL_MS).toISOString()).run();
-  if (!result.meta.changes) return c.json({ ok: false, error: 'alarm_not_ready_busy_cooldown_or_attempt_limit' }, 409);
-  return c.json({ ok: true, content_id: id, status: 'working', claim_id: claim });
+  const assignment=await acceptLegacyReel(c.env,c.req.param('id'),new URL(c.req.url).origin);
+  if (!assignment) return c.json({ok:false,error:'alarm_not_ready_busy_cooldown_or_consumer_owned'},409);
+  return c.json({ok:true,...assignment});
+});
+route.get('/alarm/status', async (c) => {
+  const state = await c.env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
+  const jobs = await c.env.DB.prepare("SELECT status,COUNT(*) count FROM ugc_reel_jobs GROUP BY status").all();
+  return c.json({ok:true,alarm:'diter-ugc-alarm',runner:'diter-ugc-round',consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
+});
+route.post('/alarm/pulse', async (c) => {
+  const body = await c.req.json().catch(() => null) as {consumer_id?:string;ready?:boolean;capabilities?:string[]} | null;
+  const id = body?.consumer_id ?? '';
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{8,120}$/.test(id) || typeof body?.ready !== 'boolean' || !Array.isArray(body?.capabilities) || !body.capabilities.includes('diter-ugc-round')) return c.json({ok:false,error:'valid_consumer_ready_capability_required'},422);
+  const now=Date.now();
+  const changed=await c.env.DB.prepare(`UPDATE ugc_reel_alarm SET consumer_id=?,heartbeat_at=?,ready=? WHERE id=1
+    AND (consumer_id IS NULL OR consumer_id=? OR (heartbeat_at<? AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working')))`)
+    .bind(id,now,body.ready ? 1:0,id,now-CONSUMER_TTL_MS).run();
+  return c.json({ok:Boolean(changed.meta.changes),consumer_id:id,heartbeat_at:now},changed.meta.changes?200:409);
+});
+route.get('/alarm/assignment', async (c) => {
+  const id=c.req.query('consumer_id') ?? '';
+  if (!id) return c.json({ok:false,error:'consumer_id_required'},422);
+  return c.json({ok:true,assignment:await reelAssignment(c.env,id,new URL(c.req.url).origin)});
+});
+route.post('/alarm/ack', async (c) => {
+  const body=await c.req.json().catch(()=>null) as {consumer_id?:string;content_id?:string;claim_id?:string} | null;
+  if (!body?.consumer_id || !body.content_id || !body.claim_id) return c.json({ok:false,error:'exact_assignment_required'},422);
+  const result=await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET acknowledged_at=COALESCE(acknowledged_at,?),updated_at=? WHERE content_id=? AND claim_id=? AND consumer_id=? AND status='working'`).bind(new Date().toISOString(),new Date().toISOString(),body.content_id,body.claim_id,body.consumer_id).run();
+  return c.json({ok:Boolean(result.meta.changes)},result.meta.changes?200:409);
 });
 // Persist each verified placement while remaining yellow until the task is done.
 route.post('/reel-jobs/:id/progress', async (c) => {
@@ -66,7 +89,7 @@ route.post('/reel-jobs/:id/progress', async (c) => {
   const job = await c.env.DB.prepare(`SELECT j.status,j.claim_id,j.publications,j.started_at,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?`).bind(id).first<{status:string;claim_id:string;publications:string;started_at:string;content_url:string}>();
   if (!job || job.status!=='working' || job.claim_id!==body.claim_id) return c.json({ok:false,error:'claim_mismatch_or_not_working'},409);
   const proofs = reelPublicationProof(body.publications,job.content_url);
-  if (!proofs || proofs.some(proof=>Date.parse(proof.verified_at)<Date.parse(job.started_at))) return c.json({ok:false,error:'verified_publication_required'},422);
+  if (!proofs) return c.json({ok:false,error:'verified_publication_required'},422);
   let existing: ReelPublication[], publications: ReelPublication[];
   try { existing=JSON.parse(job.publications); if(!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
   catch { return c.json({ok:false,error:'existing_publications_invalid'},409); }
@@ -79,14 +102,17 @@ route.post('/reel-jobs/:id/complete', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => null) as { claim_id?: string; publications?: unknown } | null;
   if (!body?.claim_id) return c.json({ ok: false, error: 'claim_id_required' }, 422);
-  const content = await c.env.DB.prepare('SELECT c.content_url,j.started_at,j.publications FROM ugc_content c JOIN ugc_reel_jobs j ON j.content_id=c.id WHERE c.id=?').bind(id).first<{ content_url: string; started_at: string; publications:string }>();
+  const content = await c.env.DB.prepare('SELECT c.content_url,j.started_at,j.required_destinations,j.publications FROM ugc_content c JOIN ugc_reel_jobs j ON j.content_id=c.id WHERE c.id=?').bind(id).first<{ content_url: string; started_at: string; required_destinations: string; publications: string }>();
   const proofs = reelPublicationProof(body.publications, content?.content_url ?? '');
-  if (!proofs || proofs.some((proof) => Date.parse(proof.verified_at) < Date.parse(content?.started_at ?? ''))) return c.json({ ok: false, error: 'verified_publication_required' }, 422);
-  const now = new Date().toISOString();
+  if (!proofs) return c.json({ ok: false, error: 'verified_publication_required' }, 422);
   let publications: ReelPublication[];
-  try { const existing=JSON.parse(content?.publications ?? '[]'); if(!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
+  try { const existing=JSON.parse(content?.publications ?? '[]'); if (!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
   catch { return c.json({ok:false,error:'existing_publications_invalid'},409); }
-  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=?`).bind(JSON.stringify(publications), now, now, id, body.claim_id,content?.publications ?? '[]').run();
+  const required: string[] = JSON.parse(content?.required_destinations ?? '[]');
+  const missing = required.filter(platform => !publications.some(proof => proof.platform === platform));
+  if (missing.length) return c.json({ok:false,error:'required_destinations_missing',missing},422);
+  const now = new Date().toISOString();
+  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=? AND (consumer_id IS NULL OR acknowledged_at IS NOT NULL)`).bind(JSON.stringify(publications), now, now, id, body.claim_id,content?.publications ?? '[]').run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'claim_mismatch_or_not_working' }, 409);
   return c.json({ ok: true, content_id: id, status: 'published', publications });
 });
@@ -120,13 +146,11 @@ route.post('/reel-jobs/:id/release', async (c) => {
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL,last_error=?,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`).bind(error, new Date().toISOString(), id, body.claim_id).run();
   return c.json({ ok: Boolean(result.meta.changes), status: 'queued' }, result.meta.changes ? 200 : 409);
 });
-// Explicit operator retry only: no loop, maximum three dispatch attempts in the row.
+// Wake only the alarm; it still enforces windows, spacing and live consumer.
 route.post('/reel-jobs/:id/dispatch', async (c) => {
-  const id = c.req.param('id');
-  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET dispatched_at=NULL WHERE content_id=? AND status='queued' AND dispatch_attempts<3`).bind(id).run();
-  if (!result.meta.changes) return c.json({ ok: false, error: 'not_queued_or_attempt_limit' }, 409);
-  c.executionCtx.waitUntil(dispatchReel(c.env, id, new URL(c.req.url).origin));
-  return c.json({ ok: true, status: 'queued' });
+  const job=await c.env.DB.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').bind(c.req.param('id')).first<{status:string}>();
+  if (job?.status!=='queued') return c.json({ok:false,error:'queued_job_required'},409);
+  return c.json(await tickDiterAlarm(c.env,Date.now(),c.req.param('id')));
 });
 
 export default route;

@@ -431,7 +431,7 @@ export async function handleScheduled(
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
     // Owner 2026-11-07: ERP owns diter-ugc-alarm; the local tool-capable
-    // diter-ugc-round claims actual work, never a cloud model acknowledgement.
+    // diter-ugc-round receives the exact accepted job from a live consumer.
     try {
       const { tickDiterUgcAlarm } = await import('./lib/ugc-reel-store');
       await tickDiterUgcAlarm(env);

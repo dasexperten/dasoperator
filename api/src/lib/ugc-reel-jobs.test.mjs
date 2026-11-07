@@ -19,13 +19,16 @@ test('Threads and VK proofs accept concrete post/video links and reject lookalik
   assert.equal(reelPublicationProof([{...proof,platform:'vk',url:'https://vk.com/dasexperten'}], ''),null);
 });
 test('task states exact Owner scope and real worker callbacks without a raw credential', () => {
-  const text = reelTaskText({content_id:'id/1',content_url:'https://instagram.com/reel/ABC/',handle:'author'},'https://erp.test');
-  assert.match(text,/двойным кликом/);
-  assert.match(text,/reel-jobs\/id%2F1\/claim/);
+  const text = reelTaskText({content_id:'id/1',content_url:'https://instagram.com/reel/ABC/',handle:'author',claim_id:'claim-exact',required_destinations:['instagram','threads','vk','youtube','tiktok']},'https://erp.test');
+  assert.match(text,/РОВНО ОДИН/);
+  assert.match(text,/reel-jobs\/id%2F1\/complete/);
+  assert.match(text,/claim-exact/);
+  assert.match(text,/Юридическую маркировку/);
+  assert.match(text,/Марикой/);
   assert.match(text,/EMAILER_SERVICE_SECRET/);
-  assert.match(text,/минимальное|Минимальное/);
+  assert.match(text,/минимальная правка/);
   assert.match(text,/HeyGen/);
-  assert.ok(text.length < 4000, 'shell seat-call payload ceiling');
+  assert.doesNotMatch(text,/POST .*\/claim /);
 });
 
 test('YouTube concrete URLs retain video identity and TikTok requires the matching account', () => {

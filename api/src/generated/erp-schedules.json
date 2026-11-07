@@ -11,7 +11,6 @@
   "erp-daily-digest": [
     "0 3 * * *"
   ],
-  "erp-fbo-sync": [],
   "erp-fx-rates": [
     "0 12 * * *"
   ],

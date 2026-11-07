@@ -25,9 +25,36 @@ async function pages(first: string, token: string): Promise<any[] | null> {
   return out;
 }
 
-export async function syncCollabStatus(env: Env): Promise<{ confirmed: number; requested: number; changed: number; error?: string }> {
+// Owner 2026-11-07 («Next» after the offer to accept invites automatically): an open invite is
+// accepted only when its blogger is in our UGC programme with at least one Instagram post where
+// our product is confirmed (product_status='identified'). Anyone else stays for manual review.
+// Graph allows 50 accepts a day; one hourly run accepts at most 15.
+const ACCEPT_PER_RUN = 15;
+
+async function acceptQualifiedInvites(env: Env, token: string): Promise<{ accepted: number; failed: number }> {
+  const invites = await pages(`${G}/${IG_USER}/collaboration_invites?fields=media_id,media_owner_username`, token);
+  if (!invites?.length) return { accepted: 0, failed: 0 };
+  const ours = new Set(((await env.DB.prepare(
+    `SELECT DISTINCT p.normalized_handle h FROM ugc_creator_platforms p JOIN ugc_content c ON c.creator_platform_id = p.id
+      WHERE p.platform = 'instagram' AND c.product_status = 'identified'`
+  ).all<{ h: string }>()).results ?? []).map((r) => String(r.h).toLowerCase()));
+  let accepted = 0, failed = 0;
+  for (const invite of invites) {
+    if (accepted + failed >= ACCEPT_PER_RUN) break;
+    if (!invite.media_id || !ours.has(String(invite.media_owner_username ?? '').toLowerCase())) continue;
+    try {
+      const res = await fetch(`${G}/${IG_USER}/collaboration_invites?media_id=${encodeURIComponent(String(invite.media_id))}&accept=true`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+      const body = await res.json() as any;
+      if (res.ok && body?.success) accepted++; else failed++;
+    } catch { failed++; }
+  }
+  return { accepted, failed };
+}
+
+export async function syncCollabStatus(env: Env): Promise<{ confirmed: number; requested: number; changed: number; accepted?: number; acceptFailed?: number; error?: string }> {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
   if (!token) return { confirmed: 0, requested: 0, changed: 0, error: 'META_IG_MESSAGING_TOKEN not set' };
+  const accept = await acceptQualifiedInvites(env, token).catch(() => ({ accepted: 0, failed: 0 }));
   const [media, invites] = await Promise.all([
     pages(`${G}/${IG_USER}/collaborative_media?fields=permalink`, token),
     pages(`${G}/${IG_USER}/collaboration_invites?fields=media_owner_username`, token),
@@ -57,5 +84,5 @@ export async function syncCollabStatus(env: Env): Promise<{ confirmed: number; r
     }
   }
   for (let i = 0; i < statements.length; i += 50) await env.DB.batch(statements.slice(i, i + 50));
-  return { confirmed, requested, changed: statements.length };
+  return { confirmed, requested, changed: statements.length, accepted: accept.accepted, acceptFailed: accept.failed };
 }

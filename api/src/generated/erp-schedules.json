@@ -73,7 +73,6 @@
   "erp-ozon-stocks": [
     "30 20 * * *"
   ],
-  "erp-ozon-week": [],
   "erp-partner-status": [
     "0 12 * * *"
   ],

@@ -579,3 +579,8 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-mobile-pay .ugc-payout-cell { display: flex; justify-content: center; width: 76px; }
   .ugc-mobile-pay .ugc-payout { box-sizing: border-box; }
 }
+/* Collab mark, bottom-right of the chip (Owner 2026-11-07): handshake black = we are an accepted
+   co-author; grey = the creator invited us, the invite is not accepted yet. No mark = no Collab. */
+.ugc-chip-collab { position: absolute; right: -4px; bottom: -6px; display: flex; align-items: center; justify-content: center; width: 14px; height: 12px; border-radius: 4px; background: #1A1A1A; color: #FFFFFF; }
+.ugc-chip-collab[data-collab="requested"] { background: #8A8278; }
+.ugc-chip .ugc-chip-collab svg { width: 10px; height: 10px; stroke-width: 2.4; }

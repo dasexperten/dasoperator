@@ -50,7 +50,10 @@ export const STEPS: Record<string, Step> = {
     // Owner 2026-11-04: every hour the greyed Instagram creators are checked for a changed account name.
     const { checkInstagramRenames } = await import('./lib/ugc-rename-check');
     const renames = await checkInstagramRenames(env).then(({ results, ...counts }) => counts).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-    return JSON.stringify({ ...profiles, renames });
+    // Owner 2026-11-07 (Marika): hourly Collab marks — accepted co-author black, open invite grey.
+    const { syncCollabStatus } = await import('./lib/ugc-collab-sync');
+    const collab = await syncCollabStatus(env).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return JSON.stringify({ ...profiles, renames, collab });
   },
   // Owner 2026-11-06: metadata detector only, fixed three-minute clock, 06:00?02:00 Yerevan.
   // No message body, generation, image interpretation, reply or model client in ERP Direct.

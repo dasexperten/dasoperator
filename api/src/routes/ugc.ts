@@ -294,7 +294,7 @@ ugc.get('/', async (c) => {
             source_row, imported_at, link_status, link_checked_at,
             link_http_status, link_final_url, link_check_note,
             product_status, product_source, product_confidence,
-            product_evidence, product_checked_at,
+            product_evidence, product_checked_at, c.collab_status,
             j.status reel_status,j.requested_at reel_requested_at,j.started_at reel_started_at,
             j.published_at reel_published_at,j.last_error reel_error,j.publications reel_publications
      FROM ugc_content c LEFT JOIN ugc_reel_jobs j ON j.content_id=c.id
@@ -371,6 +371,7 @@ ugc.get('/', async (c) => {
       content_url: row.content_url,
       content_type: row.content_type,
       reel_status: row.reel_status ?? null,
+      collab_status: row.collab_status ?? null,
       reel_error: row.reel_error ?? null,
       reel_publications: JSON.parse(row.reel_publications ?? '[]'),
       published_at: row.published_at,

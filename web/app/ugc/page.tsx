@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, ArrowUpDown, CheckCheck, Clock, Star, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowUpDown, CheckCheck, Clock, Star, ExternalLink, Eye, Facebook, Globe, Hand, Handshake, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
@@ -52,6 +52,7 @@ type ContentObservation = {
   content_url: string | null;
   content_type: string | null;
   reel_status?: 'queued' | 'working' | 'published' | null;
+  collab_status?: 'requested' | 'confirmed' | null;
   reel_error?: string | null;
   reel_publications?: { platform: string; url: string }[];
   published_at: string | null;
@@ -818,10 +819,11 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
     const reactions = item.likes == null && item.comments == null ? null : (Number(item.likes) || 0) + (Number(item.comments) || 0);
     const tag = net === 'instagram' ? <Instagram aria-hidden="true" /> : net === 'youtube' ? <svg viewBox="0 0 8 8" aria-hidden="true"><path fill="currentColor" d="M1.5 0.5v7l6-3.5z" /></svg> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'telegram' ? <Send aria-hidden="true" /> : net === 'facebook' ? <Facebook aria-hidden="true" /> : net === 'vk' ? <span aria-hidden="true">VK</span> : <Link aria-hidden="true" />;
     return <span className="ugc-pub ugc-chip" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
-      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${reactions != null ? ` · лайки и комментарии ${formatCount(reactions)}` : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
+      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${reactions != null ? ` · лайки и комментарии ${formatCount(reactions)}` : ''}${item.collab_status === 'confirmed' ? ' · Collab подтверждён' : item.collab_status === 'requested' ? ' · приглашение в Collab ждёт ответа' : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
         <span className="ugc-chip-views">{formatCount(item.views)}</span>
         <span className="ugc-chip-net">{tag}</span>
         {reactions != null ? <span className="ugc-chip-er" aria-hidden="true">{formatCount(reactions)}</span> : null}
+        {item.collab_status ? <span className="ugc-chip-collab" data-collab={item.collab_status} title={item.collab_status === 'confirmed' ? 'Collab: мы соавтор публикации' : 'Collab: блогер пригласил нас, приглашение не принято'}><Handshake aria-hidden="true" /></span> : null}
       </a>
       <span className="ugc-chip-date" title={postedAt ? `Опубликовано ${postedAt.toLocaleDateString('ru-RU')}` : undefined}>{posted || '\u00a0'}</span>
       {jobError ? <span role="alert" className="sr-only">{jobError}</span> : null}

@@ -6,10 +6,13 @@ import { runInboxIngestion, classifyViaClaude, deepseekClassify, fetchPdf, inser
 import { findMatchingOperation, thresholdFor, applyMatchToInbox } from '../lib/inbox-auto-match';
 import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 import { reconcileInboxRowAgainstBankTx } from '../lib/invoice-amount-reconcile';
+import { serveInboxFile } from '../lib/inbox-file';
 
 import { backfillYandexReports } from '../lib/yandex-pay-sale';
 
 const inbox = new Hono<{ Bindings: Env }>();
+
+inbox.get('/:id/file', (c) => serveInboxFile(c.env, c.req.param('id')));
 
 // POST /api/inbox/backfill-yandex — build a sale op per Yandex Pay report.
 inbox.post('/backfill-yandex', async (c) => {

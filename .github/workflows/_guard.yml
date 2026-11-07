@@ -111,6 +111,11 @@ jobs:
       - name: Test inventory JSON and delivery business outcomes
         run: node --test api/src/lib/inventory-mail.test.mjs api/src/lib/site-order-sync.test.mjs api/src/lib/deepseek.test.mjs api/src/auto-delivery.test.mjs
 
+      - name: Test F4 invoice identity, money units, file links and idempotency
+        run: |
+          node --test workers/_f4/lubertsy-invoices.test.mjs api/src/lib/inbox-file.test.mjs
+          python3 -m unittest discover -s scripts -p 'test_repair_f4_attachments.py'
+
       - name: Test independent ERP transport clock
         run: python3 -m unittest discover -s scripts/erp-clock -p 'test_*.py'
 

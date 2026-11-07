@@ -14,3 +14,8 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 [triggers]
 crons = ["15 * * * *"]
+
+# Check actual archived invoice bytes before resolving an inbox document.
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "das-erp-docs-dev"

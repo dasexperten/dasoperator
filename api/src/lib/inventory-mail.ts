@@ -206,10 +206,11 @@ export async function readInventoryLetter(
         throw new Error('No product counts recognised');
       console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'accepted' }));
       return { out, skipped, model: provider.model };
-    } catch {
+    } catch (error) {
+      const detail = error instanceof z.ZodError ? error.issues.map(issue => `${issue.path.join('.')}:${issue.code}`).join(',') : error instanceof SyntaxError ? 'invalid_json' : error instanceof Error ? error.message : 'invalid_reading';
       // Owner 2026-11-07: fallback is availability, not a vote between conflicting readings.
       console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'invalid_reading' }));
-      throw Object.assign(new Error(`Inventory reading invalid from ${provider.model}; no stock written`), { attempts: [...attempts, {model:provider.model,outcome:'invalid_reading'}] });
+      throw Object.assign(new Error(`Inventory reading invalid from ${provider.model}; no stock written`), { attempts: [...attempts, {model:provider.model,outcome:'invalid_reading',detail}] });
     }
   }
   throw Object.assign(new Error('Inventory recognition failed: OpenAI Terra, Sonnet and DeepSeek Pro; no stock written'), {attempts});

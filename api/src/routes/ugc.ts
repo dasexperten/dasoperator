@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { contentEngagement } from '../lib/ugc-content-metrics.mjs';
 import { reviewContent } from '../lib/ugc-content-review';
+import { recordPayoutNotice } from '../lib/ugc-payout-notice';
 import type { Env } from '../types';
 import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
@@ -1217,6 +1218,16 @@ ugc.patch('/payouts/:id', async (c) => {
     keep('bank_ref', 200), keep('note', 1000), now, id,
   ).run();
   return ok(c, { id, amount_minor: amountMinor, payout_date: day, updated_at: now });
+});
+
+// Explicit original-message proof only; never sends a message or repeats a payment.
+ugc.post('/payouts/:id/notice', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json().catch(() => null);
+  if (!body) return fail(c, 400, [{code:'invalid_json',message:'Body must be JSON'}]);
+  try { return ok(c, await recordPayoutNotice(c.env, c.req.param('id'), body)); }
+  catch (e) { return fail(c, 422, [{code:'notice_verification_failed',message:e instanceof Error ? e.message : 'notice_verification_failed'}]); }
 });
 
 ugc.post('/payouts/:id/status', async (c) => {

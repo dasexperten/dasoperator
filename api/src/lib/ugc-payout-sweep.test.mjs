@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -27,7 +28,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', impor
       export const queueForBrowser=async(_e,handle)=>{globalThis.__sweep.queued.push(handle)};
     ` }));
   } }] });
-const { ugcPayoutSweep } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
+const { ugcPayoutSweep, payoutStore } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
 
 const row = id => ({ id, handle: id, creator_id: 'c-' + id, konsol_payment_id: 'k-' + id, amount_minor: 40000 });
 function fixture(t, options = {}) {
@@ -92,4 +93,18 @@ test('explicit registry failure or throw and thrown reminders are aggregated aft
     await assert.rejects(ugcPayoutSweep(f.env), error => /registry=1/.test(error.message) && /reminders=1/.test(error.message));
     assert.deepEqual(f.applied, ['good']);
   }
+});
+
+
+test('a notice claim persists visible sending state atomically and cannot claim twice',async()=>{
+  const db=new DatabaseSync(':memory:');
+  db.exec("CREATE TABLE ugc_payouts(id TEXT,paid_notice_at TEXT,notice_status TEXT,notice_error TEXT,notice_at TEXT);INSERT INTO ugc_payouts VALUES('p1',NULL,NULL,'old error',NULL)");
+  const DB={prepare(sql){return{bind(...args){return{async run(){return{meta:{changes:Number(db.prepare(sql).run(...args).changes)}}}}}}}};
+  const store=payoutStore({DB});
+  assert.equal(await store.claimNotice('p1','2026-11-07T13:00:00Z'),true);
+  const row=db.prepare('SELECT * FROM ugc_payouts').get();
+  assert.equal(row.notice_status,'sending');assert.equal(row.notice_error,null);
+  assert.equal(row.notice_at,row.paid_notice_at);
+  assert.equal(await store.claimNotice('p1','2026-11-07T13:01:00Z'),false);
+  db.close();
 });

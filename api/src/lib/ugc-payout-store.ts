@@ -82,7 +82,7 @@ export function payoutStore(env: Env) {
       `UPDATE ugc_payouts SET konsol_status=?2, updated_at=?3 WHERE id=?1`
     ).bind(id, status, touch()).run(),
     async claimNotice(id: string, at: string) {
-      const r = await db.prepare(`UPDATE ugc_payouts SET paid_notice_at=?2 WHERE id=?1 AND paid_notice_at IS NULL`).bind(id, at).run();
+      const r = await db.prepare(`UPDATE ugc_payouts SET paid_notice_at=?2,notice_status='sending',notice_error=NULL,notice_at=?2 WHERE id=?1 AND paid_notice_at IS NULL`).bind(id, at).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     releaseNotice: (id: string) => db.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL,

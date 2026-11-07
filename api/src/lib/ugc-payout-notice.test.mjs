@@ -52,3 +52,15 @@ test('unpaid row and a conflicting prior delivery stay unchanged',async()=>{
     assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_sync_state').get().n,0);db.close();
   }
 });
+
+
+test('Diana can close an obsolete historical notice by original conversation proof without claiming delivery',async()=>{
+  const {db,env}=fixture();
+  const result=await recordPayoutNotice(env,'p1',{...proof,outcome:'reviewed',message_id:'in1',evidence:'Original conversation confirms the order; a historical notice would duplicate the completed step.'});
+  assert.equal(result.notice_status,'reviewed');
+  const row=db.prepare('SELECT * FROM ugc_payouts').get();
+  assert.equal(row.notice_status,'reviewed');assert.equal(row.notice_message_id,null);
+  assert.equal(row.paid_notice_at,null);assert.equal(row.status,'paid');
+  assert.equal(JSON.parse(db.prepare('SELECT value FROM crm_sync_state').get().value).outcome,'reviewed');
+  db.close();
+});

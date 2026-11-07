@@ -82,7 +82,7 @@ export function payoutStore(env: Env) {
       `UPDATE ugc_payouts SET konsol_status=?2, updated_at=?3 WHERE id=?1`
     ).bind(id, status, touch()).run(),
     async claimNotice(id: string, at: string) {
-      const r = await db.prepare(`UPDATE ugc_payouts SET paid_notice_at=?2,notice_status='sending',notice_error=NULL,notice_at=?2 WHERE id=?1 AND paid_notice_at IS NULL`).bind(id, at).run();
+      const r = await db.prepare(`UPDATE ugc_payouts SET paid_notice_at=?2,notice_status='sending',notice_error=NULL,notice_at=?2 WHERE id=?1 AND paid_notice_at IS NULL AND COALESCE(notice_status,'') NOT IN ('delivered','reviewed')`).bind(id, at).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     releaseNotice: (id: string) => db.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL,
@@ -227,7 +227,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
   const unsent = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='paid' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
-       AND COALESCE(notice_status,'') <> 'queued' AND paid_at > ?1 ORDER BY paid_at LIMIT 5`
+       AND COALESCE(notice_status,'') NOT IN ('queued','reviewed','delivered') AND paid_at > ?1 ORDER BY paid_at LIMIT 5`
   ).bind(new Date(Date.now() - 6 * 86_400_000).toISOString()).all<Record<string, any>>();
   const d = deps(env);
   for (const row of unsent.results ?? []) {
@@ -248,7 +248,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   // this rule on (older ones were already handled by hand: madifood_, eseniya__oo3__).
   const unsentFailed = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='failed' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
-       AND COALESCE(notice_status,'') <> 'queued' AND failed_at > ?1 ORDER BY failed_at LIMIT 5`
+       AND COALESCE(notice_status,'') NOT IN ('queued','reviewed','delivered') AND failed_at > ?1 ORDER BY failed_at LIMIT 5`
   ).bind('2026-10-19T09:30:00.000Z').all<Record<string, any>>();
   for (const row of unsentFailed.results ?? []) {
     if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;

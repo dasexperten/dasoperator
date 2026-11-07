@@ -124,7 +124,7 @@ type Payout = {
   execute_claim?: string | null;
   has_requisites?: number | boolean;
   over_limit?: boolean;
-  notice_status?: 'sending' | 'delivered' | 'failed' | 'queued' | null;
+  notice_status?: 'sending' | 'delivered' | 'failed' | 'queued' | 'reviewed' | null;
   notice_error?: string | null;
   notice_at?: string | null;
 };
@@ -609,6 +609,7 @@ function NoticeChip({ payout }: { payout: Payout | null | undefined }) {
   if (!payout || !st) return null;
   const time = payout.notice_at ? new Date(payout.notice_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Yerevan', hour: '2-digit', minute: '2-digit' }) : '';
   const view = st === 'delivered' ? { icon: <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />, text: time, title: `Сообщение о переводе доставлено${time ? ` в ${time}` : ''}` }
+    : st === 'reviewed' ? { icon: <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />, text: 'проверено', title: payout.notice_error || 'История проверена Дианой. Повторное уведомление не требуется.' }
     : st === 'queued' ? { icon: <Clock className="h-3.5 w-3.5" aria-hidden="true" />, text: 'очередь', title: payout.notice_error || 'Ждёт отправки из браузера' }
     : st === 'failed' ? { icon: <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />, text: 'нет', title: `Сообщение не доставлено: ${payout.notice_error || 'причина неизвестна'}` }
     : { icon: <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />, text: '', title: 'Сообщение отправляется' };

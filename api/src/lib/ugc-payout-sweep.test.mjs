@@ -106,5 +106,7 @@ test('a notice claim persists visible sending state atomically and cannot claim 
   assert.equal(row.notice_status,'sending');assert.equal(row.notice_error,null);
   assert.equal(row.notice_at,row.paid_notice_at);
   assert.equal(await store.claimNotice('p1','2026-11-07T13:01:00Z'),false);
+  db.prepare("UPDATE ugc_payouts SET paid_notice_at=NULL,notice_status='reviewed'").run();
+  assert.equal(await store.claimNotice('p1','2026-11-07T13:02:00Z'),false,'completed review must not trigger a historic notification');
   db.close();
 });

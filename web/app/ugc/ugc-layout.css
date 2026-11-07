@@ -550,3 +550,32 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-pub[data-reel-status="published"] .ugc-pub-link { outline-color: var(--status-success); }
 .ugc-reel-error { color: var(--status-error); }
 .ugc-reel-error svg { width: 16px; height: 16px; }
+
+/* Phone posts as compact chips (Owner 2026-11-07, Marika mock-up approved): five to a row.
+   Views inside the frame, a tiny platform tag bottom-left in the network colour, ER as a tiny
+   tag top-right, the date very small underneath. Likes and comments stay in the tooltip. */
+.ugc-mobile-publications .ugc-media-track,
+.ugc-mobile-publications .ugc-content-carousel[data-sliding="true"] .ugc-media-track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 6px; width: 100%; min-width: 0; padding: 8px 4px 2px; box-sizing: border-box; }
+.ugc-mobile-publications .ugc-content-carousel[data-sliding="true"] .ugc-media { overflow: hidden; scroll-snap-type: none; }
+.ugc-chip { display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 0; }
+.ugc-chip .ugc-chip-link { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: auto; height: 34px; box-sizing: border-box; border: 2px solid #9C9283; border-radius: 8px; background: var(--bg-surface); text-decoration: none; }
+.ugc-chip[data-net="youtube"] .ugc-chip-link { border-radius: 12px; }
+.ugc-chip[data-state="pending"] .ugc-chip-link { border-style: dashed; }
+.ugc-chip-views { font-size: 13px; line-height: 16px; font-weight: 900; color: var(--fg-1); letter-spacing: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ugc-chip-net { position: absolute; left: -4px; bottom: -6px; display: flex; align-items: center; justify-content: center; min-width: 12px; height: 12px; padding: 0 2px; box-sizing: border-box; border-radius: 4px; background: #231F20; color: #FFFFFF; font-size: 7px; line-height: 12px; font-weight: 900; letter-spacing: 0; }
+.ugc-chip .ugc-chip-net svg { width: 8px; height: 8px; stroke-width: 3; }
+.ugc-chip[data-net="instagram"] .ugc-chip-net { background: #A3195B; }
+.ugc-chip[data-net="youtube"] .ugc-chip-net { background: #CC0000; }
+.ugc-chip[data-net="tiktok"] .ugc-chip-net { background: #000000; }
+.ugc-chip[data-net="vk"] .ugc-chip-net { background: #0057B8; }
+.ugc-chip[data-net="telegram"] .ugc-chip-net { background: #1A6FA0; }
+.ugc-chip[data-net="facebook"] .ugc-chip-net { background: #1459B8; }
+.ugc-chip-er { position: absolute; top: -7px; right: -4px; padding: 0 3px; border-radius: 4px; background: var(--brand-rot); color: #FFFFFF; font-size: 9px; line-height: 12px; font-weight: 900; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.ugc-chip-date { display: block; text-align: center; font-size: 9px; line-height: 10px; font-style: italic; font-weight: 700; color: var(--fg-1); letter-spacing: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Payment always in one column for every account (Owner 2026-11-07): fixed 76 px slot, empty when none. */
+@media (max-width: 700px) {
+  .ugc-mobile-row > .ugc-mobile-pay { width: 76px; justify-self: end; }
+  .ugc-mobile-pay .ugc-payout-cell { display: flex; justify-content: center; width: 76px; }
+  .ugc-mobile-pay .ugc-payout { box-sizing: border-box; }
+}

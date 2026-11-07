@@ -760,7 +760,7 @@ function instagramPostedAt(url: string | null): Date | null {
   return ms > 1314220021721 && ms < Date.now() + 86_400_000 ? new Date(ms) : null;
 }
 
-function Publication({ item, href }: { item: ContentObservation; href: string }) {
+function Publication({ item, href, compact = false }: { item: ContentObservation; href: string; compact?: boolean }) {
   const { isAdmin } = useContext(PayContext);
   const [jobStatus, setJobStatus] = useState(item.reel_status ?? null);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -810,6 +810,21 @@ function Publication({ item, href }: { item: ContentObservation; href: string })
   // Only a reel whose 10 days are over carries a number; a younger one shows its day instead.
   const er = confirmed && item.engagement_rate != null && Number.isFinite(item.engagement_rate) && (!postedAt || age >= 5) ? (item.engagement_rate >= 100 ? String(Math.round(item.engagement_rate)) : item.engagement_rate.toFixed(1)) : '';
   const watchDay = 0;
+  // Owner 2026-11-07 (Marika, approved mock-up): on the phone each post is one compact chip —
+  // views inside the frame, a tiny platform tag bottom-left in the network colour, ER as a
+  // tiny tag top-right, the date very small underneath; five chips to a row.
+  if (compact) {
+    const tag = net === 'instagram' ? <Instagram aria-hidden="true" /> : net === 'youtube' ? <svg viewBox="0 0 8 8" aria-hidden="true"><path fill="currentColor" d="M1.5 0.5v7l6-3.5z" /></svg> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'telegram' ? <Send aria-hidden="true" /> : net === 'facebook' ? <Facebook aria-hidden="true" /> : net === 'vk' ? <span aria-hidden="true">VK</span> : <Link aria-hidden="true" />;
+    return <span className="ugc-pub ugc-chip" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
+      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${er ? ` · ER ${er}` : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
+        <span className="ugc-chip-views">{formatCount(item.views)}</span>
+        <span className="ugc-chip-net">{tag}</span>
+        {er ? <span className="ugc-chip-er">{er}</span> : null}
+      </a>
+      <span className="ugc-chip-date" title={postedAt ? `Опубликовано ${postedAt.toLocaleDateString('ru-RU')}` : undefined}>{posted || '\u00a0'}</span>
+      {jobError ? <span role="alert" className="sr-only">{jobError}</span> : null}
+    </span>;
+  }
   return <span className="ugc-pub" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
     <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
     {jobError ? <span role="alert" className="ugc-reel-error" title={jobError}><AlertCircle aria-hidden="true" /><span className="sr-only">{jobError}</span></span> : null}
@@ -1185,7 +1200,7 @@ export default function UgcPage() {
               <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-profile-copy"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><ProfileAvailability profile={profile} /></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCountShort(profile.followers)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
-              {linked.length ? <div className="ugc-mobile-publications"><PublicationCarousel count={linked.length} label={name}>{linked.map(({ item, href }) => <Publication key={item.id} item={item} href={href} />)}</PublicationCarousel></div> : null}
+              {linked.length ? <div className="ugc-mobile-publications"><PublicationCarousel count={linked.length} label={name}>{linked.map(({ item, href }) => <Publication key={item.id} item={item} href={href} compact />)}</PublicationCarousel></div> : null}
             </div>;
           })}
         </div>

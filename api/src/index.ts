@@ -100,7 +100,6 @@ import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
 import activityRoutes from './routes/activity';
 import chatRoutes from './routes/chat';
-import dailyDigestRoutes from './routes/daily-digest';
 import seoRoutes from './routes/seo';
 import analyticsRoutes from './routes/analytics';
 import knowledgeRoutes from './routes/knowledge';
@@ -345,7 +344,6 @@ app.route('/api/cron-runs', cronRunsRoutes);
 app.route('/api/loyalty', loyaltyRoutes);
 app.route('/api/chat', chatRoutes);
 app.route('/api/analytics', analyticsRoutes);
-app.route('/api/daily-digest', dailyDigestRoutes);
 app.route('/api/seo', seoRoutes);
 app.route('/api/knowledge', knowledgeRoutes);  // graph over the organizacia corpus (cache of GitHub, never a second truth)
 app.route('/api/ugc', ugcRoutes);

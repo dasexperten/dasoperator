@@ -789,23 +789,6 @@ export async function handleScheduled(
     return;
   }
 
-  // Daily digest — 03:00 UTC (06:00 MSK), generates morning briefing
-  if (cron === '0 3 * * *') {
-    console.log('[cron:daily-digest] starting');
-    try {
-      const r = await env.SELF.fetch(new Request(
-        'https://internal/api/daily-digest',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
-      ));
-      if (strict && !r.ok) throw new Error(`Daily digest HTTP ${r.status}`);
-      const text = await r.text();
-      console.log(`[cron:daily-digest] HTTP ${r.status} body=${text.slice(0, 300)}`);
-    } catch (e) { recordFailure(e);
-      console.error('[cron:daily-digest] failed:', e);
-    }
-    return;
-  }
-
   // Сторож обвала заказов витрины .ru — 04:00 UTC (08:00 Ереван), раз в сутки.
   // Утренний слот выбран намеренно: Владелец должен увидеть обвал за завтраком,
   // а не через 75 дней, как это вышло с рекламой 18.06.2026.

@@ -18,10 +18,10 @@ function fixture(t){
  t.mock.method(console,'log',()=>{});t.mock.method(console,'error',()=>{});t.mock.method(console,'warn',()=>{});
  const run=(cron,env={},strict=true)=>handleScheduled({cron,scheduledTime:Date.now()},env,{},strict);return {deps,run};
 }
-test('daily digest non-2xx is a failed run, legacy direct dispatch behavior is preserved',async t=>{
- const {run}=fixture(t),env={SELF:{fetch:async()=>new Response('failed',{status:503})}};
- await assert.rejects(run('0 3 * * *',env),/Daily digest HTTP503|Daily digest HTTP 503/);
- await run('0 3 * * *',env,false);
+test('retired daily digest cannot generate or cache a briefing',async t=>{
+ const {run}=fixture(t);let calls=0;
+ await assert.rejects(run('0 3 * * *',{SELF:{fetch:async()=>{calls++;return new Response('done')}}}),/No scheduled handler/);
+ assert.equal(calls,0);
 });
 test('an earlier site ingestion failure does not skip the independent abandoned-cart sweep',async t=>{
  const {run,deps}=fixture(t);let swept=0;
@@ -57,7 +57,7 @@ test('pulse rejects missing result instead of reporting three cached endpoints',
  await assert.rejects(run('0 1 * * *',{SELF:{fetch:async()=>Response.json({success:true})},CACHE:{put:async()=>{cached++}}}),/Pulse response incomplete/);assert.equal(cached,0);
 });
 test('successful dispatch resolves and unknown strict dispatch fails',async t=>{
- const {run}=fixture(t);await run('0 3 * * *',{SELF:{fetch:async()=>new Response('done')}});
+ const {run,deps}=fixture(t);deps.modules['./auto-delivery']={runAutoDeliverySweep:async()=>({scanned:0,delivered:[],skipped:[]})};await run('0 */4 * * *');
  await assert.rejects(run('unknown'),/No scheduled handler/);
 });
 test('retired retention dispatch cannot delete records',async t=>{const {run}=fixture(t);await assert.rejects(run('0 3 1 * *'),/No scheduled handler/);});

@@ -8,9 +8,6 @@
   "erp-blogger-id": [
     "0 4,7,10,13,16,19,22 * * *"
   ],
-  "erp-daily-digest": [
-    "0 3 * * *"
-  ],
   "erp-fx-rates": [
     "0 12 * * *"
   ],

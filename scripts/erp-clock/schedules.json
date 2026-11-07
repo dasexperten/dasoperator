@@ -2,7 +2,6 @@
   "erp-auto-delivery": { "crons": ["0 */4 * * *"] },
   "erp-bank-match": { "crons": ["0 2 * * *"], "execution": "local" },
   "erp-blogger-id": { "crons": ["0 4,7,10,13,16,19,22 * * *"] },
-  "erp-daily-digest": { "crons": ["0 3 * * *"] },
   "erp-fx-rates": { "crons": ["0 12 * * *"], "execution": "local" },
   "erp-geo-snapshot": { "crons": ["45 0 * * *"], "execution": "local" },
   "erp-inbox-reconcile": { "crons": ["40 0 * * *"] },

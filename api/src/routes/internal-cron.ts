@@ -16,7 +16,6 @@ import { runApiStep } from '../../../workers/_shared/run-journal';
 
 const MOVED: Record<string, string> = {
   'erp-skladbot-sync': '30 */6 * * *',
-  'erp-daily-digest': '0 3 * * *',
   'erp-pulse-warm': '0 1 * * *',
   'erp-web-analytics': '30 2 * * *',
   'erp-wb-weekly-report': '0 4 * * 4',

@@ -1,6 +1,15 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
 
+// Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 20 identifiers
+// (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
+export const DIANA_BATCH = 20;
+export function dianaBatch(pending: any[]) {
+  return pending.slice(0, DIANA_BATCH).map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
+    cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, at: item.at, reason: item.reason, queue_key: item.queue_key,
+  }));
+}
+
 type Peer = { role: string; busy: boolean; seen?: number };
 const RANK = ['primary', 'backup', 'secondary'];
 
@@ -30,7 +39,7 @@ export class DianaWake {
     if ((peer.deserializeAttachment() as Peer).busy) return Response.json({ pending: pending.length, dispatched: false, reason: 'diana_working' });
     if (pending.length) {
       peer.serializeAttachment({ ...(peer.deserializeAttachment() as Peer), busy: true });
-      try { peer.send(JSON.stringify({ type: 'messages', messages: pending })); }
+      try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(pending) })); }
       catch { peer.close(1011, 'delivery failed'); return Response.json({ pending: pending.length, dispatched: false }); }
     }
     return Response.json({ pending: pending.length, dispatched: pending.length > 0 });

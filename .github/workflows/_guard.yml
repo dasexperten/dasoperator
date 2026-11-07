@@ -112,7 +112,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/erp-clock -p 'test_*.py'
 
       - name: Test UGC reel selection, truthful publication status and double click
-        run: node --test api/src/lib/ugc-reel-jobs.test.mjs api/src/lib/ugc-reel-route.test.mjs api/src/lib/diter-ugc-alarm.test.mjs web/lib/ugc-reel-click.test.mjs
+        run: node --test api/src/lib/ugc-reel-jobs.test.mjs api/src/lib/ugc-reel-route.test.mjs api/src/lib/diter-ugc-alarm.test.mjs api/src/lib/ugc-instagram-operation.test.mjs web/lib/ugc-reel-click.test.mjs
 
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs

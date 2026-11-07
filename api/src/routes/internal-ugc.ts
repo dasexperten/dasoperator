@@ -6,6 +6,7 @@ import { reelPublicationProof, appendPublicationProofs, reelTaskText, type ReelP
 import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
+import instagramOperationRoutes from './internal-ugc-instagram';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -153,4 +154,5 @@ route.post('/reel-jobs/:id/dispatch', async (c) => {
   return c.json(await tickDiterAlarm(c.env,Date.now(),c.req.param('id')));
 });
 
+route.route('/', instagramOperationRoutes);
 export default route;

@@ -310,3 +310,15 @@ test('failed payout: Diana writes the blogger at once, once', async () => {
   assert.equal(again.noticed, false);
   assert.equal(sent.length, 1);
 });
+
+
+test('paid and failed handoffs queue Diana without reporting delivery or releasing as failure', async () => {
+  for (const status of ['executed', 'failed']) {
+    const w = world({ rows: [{ id: 'p1', status: 'sent', konsol_payment_id: 'pay-1', amount_minor: 39200 }] });
+    w.deps.notifyBlogger = async () => ({ ok: true, queued: true });
+    const result = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status }, w.deps);
+    assert.equal(result.noticed, false);
+    assert.equal(w.db.get('p1').status, status === 'executed' ? 'paid' : 'failed');
+    assert.ok(w.db.get('p1').paid_notice_at, 'handoff must not enter the failure-release branch');
+  }
+});

@@ -7,7 +7,7 @@ import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
-import { dianaCompose } from './diana-compose';
+import { dianaCompose, queueDianaAction } from './diana-compose';
 import { alertMina } from './mina-alert';
 import { followPayoutStage } from './ugc-payout-stage.mjs';
 
@@ -114,9 +114,15 @@ function deps(env: Env) {
 
 async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: string, _kind: 'paid' | 'failed') {
   const handle = String(row.creator_handle || row.handle || '');
-  await dianaCompose(env, handle, '', `payout:${row.id}:${_kind}`);
-  // No template, model or send here. Diana verifies payment and sends in her own session.
-  return { ok: false, error: '???????? ?????: ????????? ??????? ?? ?????? ? ??????????? ????????' };
+  const action = await queueDianaAction(env, handle, '', `payout:${row.id}:${_kind}`);
+  if (!action.ok) throw new Error(action.error);
+  // A handoff is pending work, never proof of sending or an Instagram failure.
+  // paid_notice_at is reserved for Diana's verified delivery, not a queue claim.
+  await env.DB.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL,
+    notice_status='queued', notice_error=?2, notice_at=NULL
+    WHERE id=?1 AND COALESCE(notice_status,'') <> 'delivered'`)
+    .bind(String(row.id), 'Задача Диане: проверить выплату и отправить сообщение').run();
+  return { ok: true, queued: true };
 }
 
 export async function executeUgcPayout(env: Env, id: string) {
@@ -221,7 +227,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
   const unsent = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='paid' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
-       AND paid_at > ?1 ORDER BY paid_at LIMIT 5`
+       AND COALESCE(notice_status,'') <> 'queued' AND paid_at > ?1 ORDER BY paid_at LIMIT 5`
   ).bind(new Date(Date.now() - 6 * 86_400_000).toISOString()).all<Record<string, any>>();
   const d = deps(env);
   for (const row of unsent.results ?? []) {
@@ -242,7 +248,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   // this rule on (older ones were already handled by hand: madifood_, eseniya__oo3__).
   const unsentFailed = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='failed' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
-       AND failed_at > ?1 ORDER BY failed_at LIMIT 5`
+       AND COALESCE(notice_status,'') <> 'queued' AND failed_at > ?1 ORDER BY failed_at LIMIT 5`
   ).bind('2026-10-19T09:30:00.000Z').all<Record<string, any>>();
   for (const row of unsentFailed.results ?? []) {
     if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;

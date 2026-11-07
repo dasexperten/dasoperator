@@ -213,7 +213,7 @@ export async function applyKonsolPayment(row, payment, deps) {
     if (await store.claimNotice(row.id, new Date(now).toISOString())) {
       // Owner 2026-10-19 (mama_instgramaa: green at 14:24, no message): a send that throws must not keep the lock.
       const sent = await deps.notifyBlogger(row, bloggerPaidText(row)).catch((e) => ({ ok: false, error: String(e) }));
-      if (sent && sent.ok) noticed = true;
+      if (sent && sent.ok) noticed = !sent.queued;
       else await store.releaseNotice(row.id);
     }
   }
@@ -222,7 +222,7 @@ export async function applyKonsolPayment(row, payment, deps) {
   if (changed && target === 'failed' && deps.notifyBlogger) {
     if (await store.claimNotice(row.id, new Date(now).toISOString())) {
       const sent = await deps.notifyBlogger(row, bloggerFailedText(row, payment.error_message), 'failed').catch((e) => ({ ok: false, error: String(e) }));
-      if (sent && sent.ok) noticed = true;
+      if (sent && sent.ok) noticed = !sent.queued;
       else await store.releaseNotice(row.id);
     }
   }

@@ -21,7 +21,8 @@ await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', impor
       export const executePayout=async()=>{throw Error('unexpected payment')};
       export const matchRegistryPayment=()=>({reason:'no match'}), REGISTRY_LINK_IDS=['legacy'];
       export const sendIgDirect=(_e,handle)=>globalThis.__sweep.send(handle);
-      export const dianaCompose=async(_e,handle)=>['notice '+handle];
+      export const dianaCompose=async()=>null;
+      export const queueDianaAction=async(_e,handle)=>{const f=globalThis.__sweep;f.queued.push(handle);const r=f.noticeResults[handle];if(r instanceof Error)throw r;return r?.ok===false?r:{ok:true,queued:true}};
       export const alertMina=async()=>true;
       export const queueForBrowser=async(_e,handle)=>{globalThis.__sweep.queued.push(handle)};
     ` }));
@@ -74,10 +75,10 @@ test('notices stay pending for native Diana; ERP never sends or marks their clai
   const f = fixture(t, { paid: ['paid-good', 'paid-bad', 'queued', 'claimed'], failed: ['failed-good', 'failed-bad'], claims: new Set(['claimed']), noticeResults: {
     'paid-bad': { ok: false, error: 'temporary failure' }, 'failed-bad': new Error('send failed'), queued: { ok: false, error: 'outside allowed window' }
   } });
-  await assert.rejects(ugcPayoutSweep(f.env), error => /paid_notice=3/.test(error.message) && /failed_notice=2/.test(error.message));
+  await assert.rejects(ugcPayoutSweep(f.env), error => /paid_notice=2/.test(error.message) && /failed_notice=1/.test(error.message));
   assert.deepEqual([...f.claims], ['claimed']);
   assert.deepEqual(f.released.sort(), ['failed-bad', 'failed-good', 'paid-bad', 'paid-good', 'queued']);
-  assert.deepEqual(f.sent, []); assert.deepEqual(f.queued, []);
+  assert.deepEqual(f.sent, []); assert.deepEqual(f.queued, ['paid-good', 'paid-bad', 'queued', 'failed-good', 'failed-bad']);
 });
 
 test('successful progress retains the numeric interface; no registry match is not a failure', async t => {

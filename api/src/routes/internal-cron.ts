@@ -109,7 +109,7 @@ route.post('/:worker', async (c) => {
         messageId: 'inventory-recognition-check', text: `Склад srn. Проверочная строка: артикул ${product.id}, остаток 0 штук. Это проверка чтения, не реальный пересчёт.` });
       const ok = !('empty' in result) && result.out.rows.some(row => row.product_id === product.id && row.qty_pieces === 0);
       return c.json({ ok, model: 'empty' in result ? null : result.model, stock_writes: 0, ms: Date.now() - started }, ok ? 200 : 503);
-    } catch { return c.json({ ok: false, error: 'inventory_recognition_unavailable', stock_writes: 0 }, 503); }
+    } catch (error) { return c.json({ ok: false, error: 'inventory_recognition_unavailable', attempts: (error as {attempts?: unknown}).attempts ?? [], stock_writes: 0 }, 503); }
   }
   // erp-inventory hands over one letter (JSON body) instead of starting a timer job.
   if (worker === 'erp-inventory') {

@@ -181,12 +181,16 @@ export async function readInventoryLetter(
     { model: 'deepseek-v4-pro', run: () => callPro(messages,
       { apiKey: env.DEEPSEEK_API_KEY ?? '', maxTokens: 16000, temperature: 0, jsonMode: true }) },
   ];
+  const attempts: Array<{model: string; outcome: string; detail?: string}> = [];
   for (const provider of providers) {
     let result: { text: string };
     try {
       result = await provider.run();
       if (!result.text?.trim()) throw new Error('Empty provider response');
-    } catch {
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : '');
+      const detail = message.match(/(?:HTTP|http_)[ _]?(\d{3})/i)?.[1] ?? (/receipt/.test(message) ? 'invalid_receipt' : /configured/.test(message) ? 'not_configured' : /empty/i.test(message) ? 'empty' : 'transport_failed');
+      attempts.push({model:provider.model,outcome:'unavailable',detail});
       console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'unavailable' }));
       continue;
     }
@@ -205,10 +209,10 @@ export async function readInventoryLetter(
     } catch {
       // Owner 2026-11-07: fallback is availability, not a vote between conflicting readings.
       console.log(JSON.stringify({ scope: 'inventory-recognition', model: provider.model, outcome: 'invalid_reading' }));
-      throw new Error(`Inventory reading invalid from ${provider.model}; no stock written`);
+      throw Object.assign(new Error(`Inventory reading invalid from ${provider.model}; no stock written`), { attempts: [...attempts, {model:provider.model,outcome:'invalid_reading'}] });
     }
   }
-  throw new Error('Inventory recognition failed: OpenAI Terra, Sonnet and DeepSeek Pro; no stock written');
+  throw Object.assign(new Error('Inventory recognition failed: OpenAI Terra, Sonnet and DeepSeek Pro; no stock written'), {attempts});
 }
 
 export async function processInventoryLetter(
@@ -242,7 +246,7 @@ export async function processInventoryLetter(
   } catch (e) {
     const reason = `Распознавание не завершено: ${String(e).slice(0, 200)}`;
     await log({ status: 'failed', reason });
-    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано моделями OpenAI Terra, Sonnet и DeepSeek Pro. Нужна проверка исходного файла.`);
+    await sendOwnerTelegram(env, `Инвентаризация по почте: письмо «${l.subject}» не разобрано: распознавание недоступно либо ответ не прошёл проверку. Нужна проверка исходного файла.`);
     return { status: 'failed', note: reason };
   }
   if ('empty' in r) {

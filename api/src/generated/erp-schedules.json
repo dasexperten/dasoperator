@@ -21,7 +21,9 @@
     "40 0 * * *"
   ],
   "erp-inventory": [],
-  "erp-loyalty-keys": [],
+  "erp-loyalty-keys": [
+    "34 */3 * * *"
+  ],
   "erp-lubertsy-invoices": [
     "15 * * * *"
   ],

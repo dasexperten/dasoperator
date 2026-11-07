@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
@@ -17,10 +17,7 @@ function fixture(){
  return {env,state,calls,dispatched,fetch,db};
 }
 test('Yerevan window 06 inclusive to 02 exclusive',()=>{assert.ok(dianaWindow(at(6)));assert.ok(dianaWindow(at(1,59)));assert.ok(!dianaWindow(at(2)));assert.ok(!dianaWindow(at(5,59)))});
-test('metadata only, all dialogs one dispatch; adjacent slots survive jitter and old epoch tick',async t=>{const f=fixture();t.after(()=>f.db.close());f.state.set('diana_metadata_tick',String(at(19)));t.mock.method(globalThis,'fetch',f.fetch);assert.equal((await detectDianaMessages(f.env,at(19,0,2))).detected,3);for(const u of f.calls)assert.ok(!/attachments|shares|image|video|\bmessage\b/.test(new URL(u).searchParams.get('fields')));assert.equal(JSON.parse(f.state.get('diana_round_alarm:two')).event_id,'message:message-two');assert.ok((await detectDianaMessages(f.env,at(19,1))).not_due);await detectDianaMessages(f.env,at(19,3,1));assert.equal(f.dispatched.length,2)});
 test('outside window makes no request',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',f.fetch);assert.ok((await detectDianaMessages(f.env,at(3))).outside_window);assert.equal(f.calls.length,0)});
-test('Owner outgoing and read status cannot hide inbound; metadata pagination reaches it',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/messages'))return Response.json({data:[{id:'incoming',created_time:'now',from:{id:'person',username:'creator'}},{id:'old',from:{id:'person'}}]});if(p.pathname.endsWith('/one'))return Response.json({messages:{data:[{id:'owner-new',created_time:'now',from:{id:'17841466350261166'}}],paging:{next:'yes',cursors:{after:'next'}}}});return f.fetch(u)});f.state.set('diana_metadata_message_seen:one','old');await detectDianaMessages(f.env,at(19));assert.equal(JSON.parse(f.state.get('diana_round_alarm:one')).message_id,'incoming');assert.equal(f.state.get('diana_metadata_message_seen:one'),'owner-new')});
-test('more than 50 dialogs and an inaccessible dialog do not starve remaining signals',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/conversations')){const start=Number(p.searchParams.get('after')||0);return Response.json({data:Array.from({length:25},(_,i)=>({id:'c'+(start+i),updated_time:'new'})),...(start<50?{paging:{next:'yes',cursors:{after:String(start+25)}}}:{})})}if(p.pathname.endsWith('/c0'))return new Response('',{status:403});return f.fetch(u)});const r=await detectDianaMessages(f.env,at(19));assert.equal(r.inspected,75);assert.equal(r.detected,74);assert.equal(r.errors,1);assert.equal(f.dispatched.length,1);assert.equal(f.state.get('diana_metadata_seen:v2:c0'),undefined)});
 test('Graph outage still dispatches durable pending queue',async t=>{const f=fixture();t.after(()=>f.db.close());t.mock.method(globalThis,'fetch',async()=>new Response('',{status:503}));assert.equal((await detectDianaMessages(f.env,at(19))).errors,1);assert.equal(f.dispatched.length,1)});
 test('all pending go to highest peer once while busy',async t=>{const f=fixture();t.after(()=>f.db.close());for(const cid of ['one','two','three'])f.state.set('diana_round_alarm:'+cid,JSON.stringify({cid,message_id:cid,event_id:'message:'+cid}));const peer=role=>({readyState:1,meta:{role,busy:false},sent:[],deserializeAttachment(){return this.meta},serializeAttachment(v){this.meta=v},send(v){this.sent.push(JSON.parse(v))}});const backup=peer('backup'),primary=peer('primary');const o=new DianaWake({getWebSockets:()=>[backup,primary]},f.env);await o.fetch(new Request('https://wake/dispatch'));assert.equal(primary.sent[0].messages.length,3);assert.equal(backup.sent.length,0);assert.equal((await(await o.fetch(new Request('https://wake/dispatch'))).json()).reason,'diana_working')});
 test('ACK requires exact verified event proof; old reply cannot complete a new action',async t=>{const f=fixture();t.after(()=>f.db.close());const e={cid:'chat',message_id:'old',event_id:'action:payout'};const key='diana_action_pending:'+e.event_id;f.state.set(key,JSON.stringify(e));f.state.set('ig_reply:chat','2099');assert.equal(await acknowledgeDianaEvent(f.env,e),false);f.state.set('diana_event_done:'+e.event_id,JSON.stringify({...e,verified:true,proof:'reopened sent message'}));assert.equal(await acknowledgeDianaEvent(f.env,e),true);assert.equal(f.state.get(key),undefined);assert.equal(f.state.get('diana_message_done:chat'),undefined)});
@@ -30,7 +27,48 @@ test('legacy signals retain unknown IDs, get durable identity and cannot close n
 
 test('batch metadata avoids a Graph request per conversation; active scan prevents overlap',async t=>{const f=fixture();t.after(()=>f.db.close());let calls=0;t.mock.method(globalThis,'fetch',async u=>{calls++;const p=new URL(u);if(p.pathname.endsWith('/conversations'))return Response.json({data:Array.from({length:25},(_,i)=>({id:'b'+i,updated_time:'new',messages:{data:[{id:'m'+i,created_time:'now',from:{id:'p'+i,username:'u'+i}}]}}))});return f.fetch(u)});assert.equal((await detectDianaMessages(f.env,at(19))).detected,25);assert.equal(calls,2);f.state.set('diana_metadata_scan','other');f.db.prepare('UPDATE crm_sync_state SET updated_at=? WHERE key=?').run(Date.now(),'diana_metadata_scan');assert.ok((await detectDianaMessages(f.env,at(19,3))).scan_running);assert.equal(calls,2)});
 
-test('catch-up resumes stored tail while still checking the newest page first',async t=>{const f=fixture();t.after(()=>f.db.close());f.state.set('diana_metadata_scan_cursor','50');const pages=[];t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/conversations')){const cursor=p.searchParams.get('after')||'';pages.push(cursor);return Response.json({data:[],...(cursor?{}:{paging:{next:'yes',cursors:{after:'25'}}})})}return f.fetch(u)});await detectDianaMessages(f.env,at(19));assert.deepEqual(pages,['','50']);assert.equal(f.state.get('diana_metadata_scan_cursor'),'')});
-
-test('new pages beyond first25 are checked before historical resume; invalid tail resets',async t=>{const f=fixture();t.after(()=>f.db.close());f.state.set('diana_metadata_scan_cursor','tail');f.state.set('diana_metadata_seen:v2:known','same');const pages=[];t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(!p.pathname.endsWith('/conversations'))return f.fetch(u);const c=p.searchParams.get('after')||'';pages.push(c);if(c==='tail')return new Response('',{status:400});return Response.json({data:[{id:c==='50'?'known':'new'+c,updated_time:c==='50'?'same':'new',messages:{data:[]}}],paging:{next:'yes',cursors:{after:c===''?'25':'50'}}})});assert.equal((await detectDianaMessages(f.env,at(19))).errors,1);assert.deepEqual(pages,['','25','50','tail']);assert.equal(f.state.get('diana_metadata_scan_cursor'),undefined)});
-test('deep outgoing-only metadata pauses with exact continuation and no false checkpoint',async t=>{const f=fixture();t.after(()=>f.db.close());let clock=0;const cursors=[];t.mock.method(Date,'now',()=>clock);const out=(id,cursor)=>({data:[{id,created_time:'now',from:{id:'17841466350261166'}}],paging:{next:'yes',cursors:{after:cursor}}});t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.pathname.endsWith('/conversations'))return Response.json({data:[{id:'deep',updated_time:'new',messages:out('top','1')}]});if(p.pathname.endsWith('/messages')){const c=p.searchParams.get('after');cursors.push(c);clock+=45000;return Response.json(c==='3'?{data:[{id:'inbound',created_time:'now',from:{id:'person',username:'creator'}}]}:out('out'+c,String(Number(c)+1)))}return f.fetch(u)});await detectDianaMessages(f.env,at(19));assert.equal(f.state.get('diana_metadata_seen:v2:deep'),undefined);assert.equal(f.state.get('diana_metadata_message_seen:deep'),undefined);assert.equal(JSON.parse(f.state.get('diana_metadata_incomplete:deep')).cursor,'3');clock=180000;await detectDianaMessages(f.env,at(19,3));assert.deepEqual(cursors,['1','2','3']);assert.equal(JSON.parse(f.state.get('diana_round_alarm:deep')).message_id,'inbound');assert.equal(f.state.get('diana_metadata_incomplete:deep'),undefined)});
+// Owner 2026-11-07: ERP is only an alarm over the newest 100 chats.
+function chatsFetch(f, chats, seen = {}) {
+  return async u => {
+    f.calls.push(String(u)); const p = new URL(u);
+    if (p.searchParams.get('fields') === 'access_token') return Response.json({ access_token: 'fake' });
+    if (p.pathname.endsWith('/conversations')) {
+      const after = Number(p.searchParams.get('after') || 0); const page = chats.slice(after, after + 25);
+      return Response.json({ data: page, paging: after + 25 < chats.length ? { next: 'x', cursors: { after: String(after + 25) } } : {} });
+    }
+    return new Response('', { status: 404 });
+  };
+}
+const chat = (id, lastFrom, t = '2026-11-06T10:00:00+0000') => ({ id, updated_time: t, participants: { data: [{ id: 'u' + id, username: 'user' + id }] },
+  messages: { data: [{ id: 'm' + id, created_time: t, from: { id: lastFrom === 'us' ? '17841466350261166' : 'u' + id, username: lastFrom === 'us' ? 'dasexperten' : 'user' + id } }] } });
+test('scan looks at the newest 100 chats only, never deeper', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  const chats = Array.from({ length: 160 }, (_, i) => chat('c' + i, 'them'));
+  t.mock.method(globalThis, 'fetch', chatsFetch(f, chats));
+  const r = await detectDianaMessages(f.env, at(12));
+  assert.equal(r.inspected, 100); assert.equal(f.calls.filter(u => u.includes('/conversations')).length, 4);
+  assert.ok(!f.state.get('diana_round_alarm:c100')); assert.ok(f.state.get('diana_round_alarm:c99'));
+});
+test('alarm only when the newest message is incoming; our last message clears the alarm', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  f.state.set('diana_round_alarm:answered', JSON.stringify({ handle: 'a', cid: 'answered', message_id: 'old', event_id: 'message:old', at: 'x' }));
+  t.mock.method(globalThis, 'fetch', chatsFetch(f, [chat('waiting', 'them'), chat('answered', 'us')]));
+  const r = await detectDianaMessages(f.env, at(12));
+  assert.equal(r.detected, 1); assert.ok(f.state.get('diana_round_alarm:waiting')); assert.equal(f.state.get('diana_round_alarm:answered'), undefined);
+  assert.equal(JSON.parse(f.state.get('diana_round_alarm:waiting')).event_id, 'message:mwaiting');
+});
+test('stale alarms outside the newest 100 are dropped; nothing new in a chat raises nothing twice', async t => {
+  const f = fixture(); t.after(() => f.db.close());
+  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_round_alarm:ancient', JSON.stringify({ cid: 'ancient', event_id: 'message:z' }), 1);
+  t.mock.method(globalThis, 'fetch', chatsFetch(f, [chat('fresh', 'them')]));
+  await detectDianaMessages(f.env, at(12));
+  assert.equal(f.state.get('diana_round_alarm:ancient'), undefined); assert.ok(f.state.get('diana_round_alarm:fresh'));
+  const second = await detectDianaMessages(f.env, at(12, 4));
+  assert.equal(second.detected, 0);
+});
+test('dispatch carries the newest 50 identifiers only', async t => {
+  const { dianaBatch } = await load('../diana-wake.ts');
+  const many = Array.from({ length: 300 }, (_, i) => ({ cid: 'c' + i, message_id: 'm' + i, event_id: 'message:m' + i, handle: 'h', at: new Date(Date.UTC(2026, 10, 1, 0, 0, i)).toISOString(), reason: 'new_message', queue_key: 'k' + i, text: 'must not travel' }));
+  const batch = dianaBatch(many);
+  assert.equal(batch.length, 50); assert.equal(batch[0].cid, 'c299'); assert.ok(!('text' in batch[0]));
+});

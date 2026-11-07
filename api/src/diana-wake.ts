@@ -1,9 +1,9 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
 
-// Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 20 identifiers
+// Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 50 identifiers
 // (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
-export const DIANA_BATCH = 20;
+export const DIANA_BATCH = 50;
 // Newest first, never the oldest backlog (Owner 2026-11-07: "the last 20 chats with no answer from our side").
 // A chat whose newest message is ours (last_from_us === true) comes after every unanswered one.
 const dianaTime = (item: any) => { const t = Date.parse(String(item.at ?? '')); return Number.isFinite(t) ? t : 0; };

@@ -4,6 +4,7 @@ const GRAPH = 'https://graph.facebook.com/v21.0';
 const PAGE = '1697038263872226';
 const BRAND = '17841466350261166';
 export const ALARM_PREFIX = 'diana_round_alarm:';
+const DIANA_SCAN_PAGES = 4; // newest 100 chats, 25 per page
 
 export function dianaWindow(now: number): boolean {
   const hour = new Date(now + 4 * 3600_000).getUTCHours();
@@ -38,87 +39,50 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   if (!page.access_token) throw new Error('instagram_page_token_missing');
   const records = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE 'diana_metadata_seen:v2:%' OR key LIKE 'diana_metadata_message_seen:%' OR key LIKE 'diana_message_done:%' OR key LIKE 'diana_metadata_incomplete:%'").all<{key:string;value:string}>()).results ?? [];
   const known = new Map(records.map(row => [row.key,row.value]));
-  const resume = await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").first<{value:string}>();
-  let resumed = false;
+  // Owner 2026-11-07: ERP is only an alarm. Every tick it looks at the newest 100 chats (4 pages of 25), nothing deeper,
+  // and no historical backfill. A chat raises the alarm only when its newest message is incoming and unseen; a chat
+  // whose newest message is ours has nothing waiting, so its alarm is cleared.
+  const scanned: string[] = [];
   let after = '';
-  const cursors = new Set<string>();
-  scan: do {
-    const pageStart = after;
-    let pageChanged = false;
+  for (let pageNo = 0; pageNo < DIANA_SCAN_PAGES; pageNo++) {
     const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
     if (!renewed.meta.changes) throw new Error('metadata_scan_ownership_lost');
-    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(100){id,created_time,from}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
+    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(3){id,created_time,from}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
     for (const conversation of list.data ?? []) {
       inspected++;
+      scanned.push(String(conversation.id));
       try {
-      const bookmark = known.get('diana_metadata_seen:v2:' + conversation.id);
-      if (bookmark === conversation.updated_time) continue;
-      pageChanged = true;
-      if (Date.now()-scanStarted >= 90_000) {
-        await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(pageStart,Date.now()).run();
-        break scan;
-      }
-      // This endpoint explicitly requests metadata only. Diana reads the original content herself.
-      const detail = conversation.messages ? conversation : await graph(`/${encodeURIComponent(conversation.id)}?fields=participants,messages.limit(100){id,created_time,from}`, page.access_token);
-      const frontier = known.get('diana_metadata_message_seen:' + conversation.id);
-      let messagePage = detail.messages, message: any = null, reached = false;
-      const newestId = messagePage?.data?.[0]?.id;
-      const incompleteKey = 'diana_metadata_incomplete:' + conversation.id;
-      let saved: any;
-      try { saved = JSON.parse(known.get(incompleteKey) ?? 'null'); } catch { saved = null; }
-      const messageCursors = new Set<string>();
-      while (messagePage?.data?.length && !reached) {
-        for (const candidate of messagePage.data) {
-          if (candidate.id === frontier) { reached = true; break; }
-          if (!message && candidate.id && candidate.created_time && candidate.from?.id && ![BRAND, PAGE].includes(String(candidate.from.id))) message = candidate;
-        }
-        // Initial scan needs the newest incoming, including one followed by Owner's outgoing.
-        if (message) break; // The newest inbound is sufficient; Diana reads the entire original thread.
-        const cursor = saved?.newest_id === newestId ? saved.cursor : messagePage.paging?.next && messagePage.paging?.cursors?.after;
-        saved = null;
-        if (reached || !cursor || messageCursors.has(cursor)) break;
-        messageCursors.add(cursor);
-        await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(incompleteKey,JSON.stringify({newest_id:newestId,cursor}),Date.now()).run();
-        if (Date.now()-scanStarted >= 90_000) {
-          await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(pageStart,Date.now()).run();
-          break scan;
-        }
-        const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
-        if (!renewed.meta.changes) { ownershipLost = true; throw new Error('metadata_scan_ownership_lost'); }
-        try { messagePage = await graph(`/${encodeURIComponent(conversation.id)}/messages?fields=id,created_time,from&limit=100&after=${encodeURIComponent(cursor)}`, page.access_token); }
-        catch (error) { await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(incompleteKey).run(); throw error; }
-      }
-      if (message) {
-        const participant = (detail.participants?.data ?? []).find((p: any) => String(p.id) === String(message.from.id));
-        const handle = String(message.from.username ?? participant?.username ?? '').toLowerCase();
-        const handled = known.get('diana_message_done:' + conversation.id);
-        if (handled !== message.id) {
-          const alarm = { handle, cid: String(conversation.id), message_id: String(message.id), event_id: 'message:' + message.id, at: String(message.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
+        if (known.get('diana_metadata_seen:v3:' + conversation.id) === conversation.updated_time) continue; // nothing new in this chat
+        const newest = conversation.messages?.data?.[0];
+        if (newest?.id && newest.created_time && newest.from?.id) {
+          if ([BRAND, PAGE].includes(String(newest.from.id))) {
+            // Our message is last: nothing is waiting in this chat.
+            await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(ALARM_PREFIX + conversation.id).run();
+          } else if (known.get('diana_message_done:' + conversation.id) !== newest.id && known.get('diana_metadata_message_seen:' + conversation.id) !== newest.id) {
+            const participant = (conversation.participants?.data ?? []).find((p: any) => String(p.id) === String(newest.from.id));
+            const handle = String(newest.from.username ?? participant?.username ?? '').toLowerCase();
+            const alarm = { handle, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
+            await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+              .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now).run();
+            detected++;
+          }
           await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-            .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now).run();
-          detected++;
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('diana_metadata_message_seen:' + conversation.id, String(newest.id), now).run();
         }
-      }
-      if (newestId) await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-        .bind('diana_metadata_message_seen:' + conversation.id, String(newestId), now).run();
-      await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-        .bind('diana_metadata_seen:v2:' + conversation.id, String(conversation.updated_time), now).run();
-      await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind(incompleteKey).run();
-      } catch { errors++; if (ownershipLost) break scan; } // Leave failed checkpoints untouched.
+        await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
+          ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('diana_metadata_seen:v3:' + conversation.id, String(conversation.updated_time), now).run();
+      } catch { errors++; }
     }
     after = list.paging?.next ? String(list.paging?.cursors?.after ?? '') : '';
-    // Always inspect the newest page each tick, then resume the historical tail.
-    // Bound initial catch-up so the current signal is delivered before the next tick.
-    if (!pageChanged && !resumed && after && resume?.value) { after = resume.value; resumed = true; }
-    await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_metadata_scan_cursor',?1,?2)
-      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(after,Date.now()).run();
-    if (Date.now()-scanStarted >= 90_000) break;
-    if (cursors.has(after)) break;
-    cursors.add(after);
-  } while (after);
+    if (!after || Date.now() - scanStarted >= 90_000) break;
+  }
+  // Alarms for chats outside the newest 100 are old noise (the 3744-row backlog of 2026-11-06/07): drop them. A chat that
+  // comes back into the newest 100 with something unanswered is raised again by the scan above.
+  if (scanned.length) {
+    await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND updated_at < ?1 AND substr(key,${ALARM_PREFIX.length + 1}) NOT IN (SELECT value FROM json_each(?2))`)
+      .bind(now - 3600_000, JSON.stringify(scanned)).run();
+  }
   } catch {
     errors++;
     await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").run();

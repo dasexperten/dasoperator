@@ -4,10 +4,16 @@ import { pendingDianaMessages } from './lib/diana-alarm';
 // Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 20 identifiers
 // (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
 export const DIANA_BATCH = 20;
+// Newest first, never the oldest backlog (Owner 2026-11-07: "the last 20 chats with no answer from our side").
+// A chat whose newest message is ours (last_from_us === true) comes after every unanswered one.
+const dianaTime = (item: any) => { const t = Date.parse(String(item.at ?? '')); return Number.isFinite(t) ? t : 0; };
 export function dianaBatch(pending: any[]) {
-  return pending.slice(0, DIANA_BATCH).map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
-    cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, at: item.at, reason: item.reason, queue_key: item.queue_key,
-  }));
+  return [...pending]
+    .sort((a, b) => (a.last_from_us === true ? 1 : 0) - (b.last_from_us === true ? 1 : 0) || dianaTime(b) - dianaTime(a))
+    .slice(0, DIANA_BATCH)
+    .map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
+      cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, at: item.at, reason: item.reason, queue_key: item.queue_key,
+    }));
 }
 
 type Peer = { role: string; busy: boolean; seen?: number };

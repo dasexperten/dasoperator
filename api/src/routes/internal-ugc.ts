@@ -1,7 +1,8 @@
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
-import { reelPublicationProof, appendPublicationProofs, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
+import { reelPublicationProof, appendPublicationProofs, reelTaskText, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
+import { ALARM, ROUND, CLAIM_SQL, START_GAP_MS, SIGNAL_TTL_MS, freshSignal, inMoscowWindow } from '../lib/diter-ugc-alarm.mjs';
 import { dispatchReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
@@ -33,6 +34,14 @@ route.use('*', async (c, next) => {
   return next();
 });
 
+route.get('/reel-alarm', async (c) => {
+  const stored = await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
+  const signal = freshSignal(stored?.value ?? '');
+  const job = signal ? await c.env.DB.prepare(`SELECT j.content_id,j.publications,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3 AND j.dispatch_attempts<3`).bind(signal.content_id).first<Record<string,any>>() : null;
+  return c.json({ok:true,name:ALARM,target:ROUND,ready:Boolean(job),
+    signal: stored ? JSON.parse(stored.value) : null,
+    job: job ? {...job,task:reelTaskText(job,new URL(c.req.url).origin)} : null});
+});
 route.get('/reel-jobs', async (c) => {
   const jobs = await c.env.DB.prepare(`SELECT j.*,c.content_url,c.content_type,p.handle,p.platform FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id ORDER BY j.requested_at`).all();
   // claim_id is returned only to the executor that claims the job.
@@ -41,22 +50,45 @@ route.get('/reel-jobs', async (c) => {
 route.post('/reel-jobs/:id/claim', async (c) => {
   const id = c.req.param('id');
   const claim = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='working',claim_id=?,started_at=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE content_id=? AND status='queued' AND attempts<3`).bind(claim, now, now, id).run();
-  if (!result.meta.changes) return c.json({ ok: false, error: 'not_queued_or_attempt_limit' }, 409);
+  const clock = new Date();
+  const now = clock.toISOString();
+  if (!inMoscowWindow(clock)) return c.json({ok:false,error:'outside_moscow_window'},409);
+  const result = await c.env.DB.prepare(CLAIM_SQL).bind(claim,now,id,
+    new Date(clock.getTime()-START_GAP_MS).toISOString(),new Date(clock.getTime()-SIGNAL_TTL_MS).toISOString()).run();
+  if (!result.meta.changes) return c.json({ ok: false, error: 'alarm_not_ready_busy_cooldown_or_attempt_limit' }, 409);
   return c.json({ ok: true, content_id: id, status: 'working', claim_id: claim });
+});
+// Persist each verified placement while remaining yellow until the task is done.
+route.post('/reel-jobs/:id/progress', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as {claim_id?:string;publications?:unknown}|null;
+  if (!body?.claim_id) return c.json({ok:false,error:'claim_id_required'},422);
+  const job = await c.env.DB.prepare(`SELECT j.status,j.claim_id,j.publications,j.started_at,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?`).bind(id).first<{status:string;claim_id:string;publications:string;started_at:string;content_url:string}>();
+  if (!job || job.status!=='working' || job.claim_id!==body.claim_id) return c.json({ok:false,error:'claim_mismatch_or_not_working'},409);
+  const proofs = reelPublicationProof(body.publications,job.content_url);
+  if (!proofs || proofs.some(proof=>Date.parse(proof.verified_at)<Date.parse(job.started_at))) return c.json({ok:false,error:'verified_publication_required'},422);
+  let existing: ReelPublication[], publications: ReelPublication[];
+  try { existing=JSON.parse(job.publications); if(!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
+  catch { return c.json({ok:false,error:'existing_publications_invalid'},409); }
+  if(publications.length===existing.length) return c.json({ok:true,status:'working',added:0,publications:existing});
+  const result=await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET publications=?,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=?`).bind(JSON.stringify(publications),new Date().toISOString(),id,body.claim_id,job.publications).run();
+  if(!result.meta.changes) return c.json({ok:false,error:'publication_conflict_read_again'},409);
+  return c.json({ok:true,status:'working',added:publications.length-existing.length,publications});
 });
 route.post('/reel-jobs/:id/complete', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => null) as { claim_id?: string; publications?: unknown } | null;
   if (!body?.claim_id) return c.json({ ok: false, error: 'claim_id_required' }, 422);
-  const content = await c.env.DB.prepare('SELECT c.content_url,j.started_at FROM ugc_content c JOIN ugc_reel_jobs j ON j.content_id=c.id WHERE c.id=?').bind(id).first<{ content_url: string; started_at: string }>();
+  const content = await c.env.DB.prepare('SELECT c.content_url,j.started_at,j.publications FROM ugc_content c JOIN ugc_reel_jobs j ON j.content_id=c.id WHERE c.id=?').bind(id).first<{ content_url: string; started_at: string; publications:string }>();
   const proofs = reelPublicationProof(body.publications, content?.content_url ?? '');
   if (!proofs || proofs.some((proof) => Date.parse(proof.verified_at) < Date.parse(content?.started_at ?? ''))) return c.json({ ok: false, error: 'verified_publication_required' }, 422);
   const now = new Date().toISOString();
-  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`).bind(JSON.stringify(proofs), now, now, id, body.claim_id).run();
+  let publications: ReelPublication[];
+  try { const existing=JSON.parse(content?.publications ?? '[]'); if(!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
+  catch { return c.json({ok:false,error:'existing_publications_invalid'},409); }
+  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=?`).bind(JSON.stringify(publications), now, now, id, body.claim_id,content?.publications ?? '[]').run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'claim_mismatch_or_not_working' }, 409);
-  return c.json({ ok: true, content_id: id, status: 'published', publications: proofs });
+  return c.json({ ok: true, content_id: id, status: 'published', publications });
 });
 // UGC Selection: later verified placements append without reopening the job or
 // replacing its first publication timestamp. Compare-and-swap prevents lost updates.

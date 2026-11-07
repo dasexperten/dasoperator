@@ -9,7 +9,7 @@ const source=readFileSync(new URL('./scheduled.ts',import.meta.url),'utf8').repl
 // loading is replaced; branches, HTTP checks and catch/finally logic are unchanged.
 const start=source.indexOf('export async function handleScheduled('),end=source.indexOf('\n// =============================================================================\n// Marketplace STOCKS sync',start);
 const body=source.slice(start,end).replaceAll('await import(', 'await loadModule(');
-const names=['runEmailRetention','scheduleWbWeekly','scheduleOzonMonthly','rebuildPriorMonthDasexpertenCom','recordErpRecovery','reportCronFailure','runMarketplaceSync','cronCreatePerfReport'];
+const names=['scheduleWbWeekly','scheduleOzonMonthly','rebuildPriorMonthDasexpertenCom','recordErpRecovery','reportCronFailure','runMarketplaceSync','cronCreatePerfReport'];
 const prelude=`const loadModule=async path=>globalThis.__scheduledTest.modules[path]??{};\n`+names.map(n=>`const ${n}=(...args)=>globalThis.__scheduledTest.functions.${n}?.(...args);`).join('\n');
 const code=transformSync(prelude+body,{loader:'ts',format:'esm'}).code;
 const {handleScheduled}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
@@ -60,10 +60,7 @@ test('successful dispatch resolves and unknown strict dispatch fails',async t=>{
  const {run}=fixture(t);await run('0 3 * * *',{SELF:{fetch:async()=>new Response('done')}});
  await assert.rejects(run('unknown'),/No scheduled handler/);
 });
-test('returned mail-retention errors fail the scheduled run',async t=>{
- const {run,deps}=fixture(t);deps.functions.runEmailRetention=async()=>({errors:['archive unavailable']});
- await assert.rejects(run('0 3 1 * *'),/archive unavailable/);
-});
+test('retired retention dispatch cannot delete records',async t=>{const {run}=fixture(t);await assert.rejects(run('0 3 1 * *'),/No scheduled handler/);});
 test('nested importer partial failure cannot be reported as zero successful work',async t=>{
  const {run}=fixture(t);let calls=0;
  const env={SELF:{fetch:async()=>{calls++;return Response.json(calls===1?{success:true,result:{synced:[]}}:calls===2?{success:true,result:{synced:0,total:0,errors:[]}}:calls===3?{success:true,result:{processed:1,results:[{reason:'insert_failed_DB'}]}}:{ok:true,imported:1,units:2,results:[{reason:'imported'}]})}}};

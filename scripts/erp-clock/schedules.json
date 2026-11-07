@@ -9,7 +9,6 @@
   "erp-lubertsy-invoices": { "crons": ["15 * * * *"], "execution": "local" },
   "erp-mail-index": { "crons": ["15 * * * *"] },
   "erp-mail-relink": { "crons": ["35 * * * *"], "execution": "local" },
-  "erp-mail-retention": { "crons": ["0 3 1 * *"] },
   "erp-mail-scenarios": { "crons": ["23 */3 * * *"], "execution": "local" },
   "erp-mail-snapshot": { "crons": ["42 * * * *"] },
   "erp-marketplace-fifo": { "crons": ["50 0 * * *"] },

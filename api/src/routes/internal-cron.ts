@@ -26,7 +26,6 @@ const MOVED: Record<string, string> = {
   'erp-auto-delivery': '0 */4 * * *',
   'erp-watchdog': '*/10 * * * *',
   'erp-orders-drop-watch': '0 4 * * *',
-  'erp-mail-retention': '0 3 1 * *',
   'erp-ozon-ads-reports': '5 */6 * * *',
 };
 

@@ -11,7 +11,6 @@ import type { Env } from './types';
 import { salesPeriod, historicalCampaigns, mergeCpc, echoedPeriodMatches } from './lib/ozon-perf-period';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runUgcSilentPurge } from './lib/ugc-silent-purge';
-import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
 import { reportCronFailure } from './lib/auto-healer';
@@ -410,19 +409,6 @@ export async function handleScheduled(
     // by worker `tamara-haar` (draft-engine.mjs). Trigger is gone from
     // wrangler.toml; this stays only as a guard against a stale schedule.
     console.log('[cron:ozon-review-prep] retired — tamara-haar drafts reviews');
-    return;
-  }
-
-  // Monthly compaction (1st @ 03:00 UTC): roll resolved hot rows to R2, prune D1.
-  // Canon (playbook / rules / scenarios / settings) is never touched.
-  if (cron === '0 3 1 * *') {
-    try {
-      const r = await runEmailRetention(env);
-      console.log('[cron:email-retention] ' + JSON.stringify(r));
-      for (const error of r.errors) recordFailure(error);
-    } catch (e) { recordFailure(e);
-      console.error('[cron:email-retention] failed:', e);
-    }
     return;
   }
 

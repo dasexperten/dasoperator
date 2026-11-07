@@ -33,9 +33,6 @@
   "erp-mail-relink": [
     "35 * * * *"
   ],
-  "erp-mail-retention": [
-    "0 3 1 * *"
-  ],
   "erp-mail-scenarios": [
     "23 */3 * * *"
   ],

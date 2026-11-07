@@ -139,8 +139,6 @@
     "0 3 * * *"
   ],
   "erp-wb-stocks": [],
-  "erp-wb-turnover": [],
-  "erp-wb-week": [],
   "erp-wb-weekly-report": [
     "0 4 * * 5"
   ],

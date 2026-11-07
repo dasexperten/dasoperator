@@ -7,6 +7,20 @@ const ACTIVE = '(deleted_at IS NULL OR deleted_at = 0)';
 const UNRESOLVED = "status IN ('needs_partner_link','error')";
 const INBOX_FILE_BASE = 'https://dasoperator-api.dasexperten.workers.dev/api/inbox/';
 
+// A known business conflict holds that record for a person; it is not a broken
+// timer. Only this explicit type is a review hold. SQL/R2/storage errors stay red.
+class ReviewRequiredError extends Error {
+  constructor(reason) { super(reason); this.name = 'ReviewRequiredError'; }
+}
+function recordFailure(result, id, source, error) {
+  if (error instanceof ReviewRequiredError) {
+    result.skipped.push({id,reason:error.message,review_required:true});
+  } else {
+    result.errors.push(`${source}:${id}:${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+
 function minor(amount) {
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null;
   const cents = Math.round(amount * 100);
@@ -49,7 +63,7 @@ async function findOperation(db, inv) {
           AND a.direction = 'incoming' AND a.kind IN ('invoice','service_invoice','commercial_invoice','freight_invoice')
           AND a.doc_number = ? AND a.doc_date = ?))`)
     .bind(PARTNER, COMPANY, inv.ref, inv.ref, inv.number, inv.at).all();
-  if (results.length > 1) throw Error('ambiguous invoice operations');
+  if (results.length > 1) throw new ReviewRequiredError('ambiguous invoice operations');
   const op = results[0];
   if (!op) {
     // Canonical bank creation sometimes uses the payment date or strips '/'.
@@ -65,18 +79,18 @@ async function findOperation(db, inv) {
       if ((m && m[1].slice(0,4) === inv.date.slice(0,4) && [inv.number,sanitized].includes(no))
         || row.reference === `LBR-${inv.number}`
         || (row.doc_number === inv.number && (!row.doc_date || new Date(row.doc_date*1000).getUTCFullYear() === Number(inv.date.slice(0,4)))))
-        throw Error('conflicting legacy invoice identity; review required');
+        throw new ReviewRequiredError('conflicting legacy invoice identity; review required');
     }
     return null;
   }
   if (op.deleted_at || op.status === 'cancelled' || op.operation_type !== 'service' || op.operation_track !== 'service'
-    || op.currency !== 'RUB') throw Error('invoice operation is deleted, cancelled or incompatible');
+    || op.currency !== 'RUB') throw new ReviewRequiredError('invoice operation is deleted, cancelled or incompatible');
   return op;
 }
 async function ensureOperation(db, inv, amount, status, note, now, source) {
   let op = await findOperation(db, inv);
   if (op) {
-    if (minor(Number(op.total_amount)) !== minor(amount)) throw Error('invoice amount conflict; existing money unchanged');
+    if (minor(Number(op.total_amount)) !== minor(amount)) throw new ReviewRequiredError('invoice amount conflict; existing money unchanged');
     return { op, insert: null };
   }
   const id = await stableId('op_lbr_', JSON.stringify([PARTNER, COMPANY, inv.date, inv.number, 'RUB']));
@@ -115,7 +129,7 @@ async function attachInbox(db, row, inv, op, now, insert) {
   const conflict = await db.prepare(`SELECT id FROM operation_attachments WHERE parsed_from='inbox'
     AND source_ref_id=? AND deleted_at IS NULL AND operation_id IS NOT NULL AND operation_id<>? LIMIT 1`)
     .bind(row.id, op.id).first();
-  if (conflict) throw Error('invoice document already belongs to another operation');
+  if (conflict) throw new ReviewRequiredError('invoice document already belongs to another operation');
   const id = await stableId('att_lbr_', `inbox:${row.id}`);
   const fileUrl = `${INBOX_FILE_BASE}${encodeURIComponent(row.id)}/file`;
   const guard = `EXISTS (SELECT 1 FROM invoice_inbox i JOIN operations o ON o.id=?
@@ -148,10 +162,10 @@ async function attachInbox(db, row, inv, op, now, insert) {
 async function matchBank(db, tx, inv, op, now, insert) {
   const conflict = await db.prepare(`SELECT id FROM operation_attachments WHERE source_ref_id=? AND parsed_from='webhook'
     AND deleted_at IS NULL AND operation_id IS NOT NULL AND operation_id<>? LIMIT 1`).bind(tx.id,op.id).first();
-  if (conflict) throw Error('bank document already belongs to another operation');
+  if (conflict) throw new ReviewRequiredError('bank document already belongs to another operation');
   const priorPayment = await db.prepare(`SELECT id FROM bank_transactions WHERE matched_operation_id=? AND id<>? AND ${ACTIVE} LIMIT 1`)
     .bind(op.id,tx.id).first();
-  if (priorPayment) throw Error('invoice already has a bank debit; review required');
+  if (priorPayment) throw new ReviewRequiredError('invoice already has a bank debit; review required');
   const id = await stableId('att_lbr_', `bank:${tx.id}`);
   const out = await db.batch([
     ...(insert ? [insert] : []),
@@ -182,7 +196,7 @@ async function matchBank(db, tx, inv, op, now, insert) {
 
 export async function runLubertsyInvoices(env) {
   const now = Math.floor(Date.now()/1000);
-  const result = { ok:true,opsCreated:0,opsLinked:0,paymentsMatched:0,created:[],linked:[],skipped:[],errors:[] };
+  const result = { ok:true,review_required:0,opsCreated:0,opsLinked:0,paymentsMatched:0,created:[],linked:[],skipped:[],errors:[] };
   const rows = (await env.DB.prepare(`SELECT * FROM invoice_inbox WHERE ${ACTIVE} AND ${UNRESOLVED}
     AND classification IN ('service','acceptance')
     AND (matched_partner_id=? OR (matched_partner_id IS NULL AND extracted_vendor_inn=?))`)
@@ -201,12 +215,12 @@ export async function runLubertsyInvoices(env) {
       // Conflicting versions must not be collapsed with MAX(amount).
       const peers = rows.filter(other => other.classification === 'service' && other.extracted_invoice_no?.trim() === inv.number && other.extracted_invoice_date === inv.date);
       if (peers.some(other => other.extracted_currency !== 'RUB' || minor(other.extracted_amount) !== minor(row.extracted_amount)))
-        throw Error('conflicting invoice versions; review required');
+        throw new ReviewRequiredError('conflicting invoice versions; review required');
       let match;
       if (row.classification === 'acceptance') {
         const op = await findOperation(env.DB,inv);
         if (!op) { result.skipped.push({id:row.id,reason:'acceptance_requires_invoice_operation'}); continue; }
-        if (minor(Number(op.total_amount)) !== minor(row.extracted_amount)) throw Error('acceptance amount conflict');
+        if (minor(Number(op.total_amount)) !== minor(row.extracted_amount)) throw new ReviewRequiredError('acceptance amount conflict');
         match = {op,insert:null};
       } else match = await ensureOperation(env.DB,inv,row.extracted_amount,'issued',`F4 invoice inbox ${row.id}`,now,{kind:'inbox',row});
       const {op,insert} = match;
@@ -214,7 +228,7 @@ export async function runLubertsyInvoices(env) {
       if (outcome.created) { result.opsCreated++; result.created.push(inv.ref); }
       if (outcome.linked) { result.opsLinked++; result.linked.push(`inbox:${row.id}`); }
       else result.skipped.push({id:row.id,reason:'invoice_changed_before_link_or_already_linked'});
-    } catch(error) { result.errors.push(`inbox:${row.id}:${error.message}`); }
+    } catch(error) { recordFailure(result,row.id,'inbox',error); }
   }
   const txs = (await env.DB.prepare(`SELECT * FROM bank_transactions WHERE contragent_inn=? AND ${ACTIVE}
     AND matched_operation_id IS NULL AND matched_payment_id IS NULL AND direction='outgoing' AND currency='RUB' AND status='Executed'`)
@@ -230,8 +244,9 @@ export async function runLubertsyInvoices(env) {
       if (outcome.created) { result.opsCreated++; result.created.push(inv.ref); }
       if (outcome.linked) { result.paymentsMatched++; result.linked.push(`bank:${tx.id}`); }
       else result.skipped.push({id:tx.id,reason:'bank_changed_before_link_or_already_linked'});
-    } catch(error) { result.errors.push(`bank:${tx.id}:${error.message}`); }
+    } catch(error) { recordFailure(result,tx.id,'bank',error); }
   }
+  result.review_required = result.skipped.filter(row => row.review_required === true).length;
   result.ok = result.errors.length === 0;
   return result;
 }

@@ -89,13 +89,13 @@ test('number alone never assigns another vendor orphan, and same invoice number 
 test('date/ref legacy conflicts, cancelled/deleted operations and old 100x total are never rewritten or duplicated',async()=>{
   for(const fields of [{reference:'LBR-20261106-14/218'},{reference:'LBR-20261105-14218'},{status:'cancelled'},{deleted_at:1},{total_amount:1025745}]){
     await withFixture(async f=>{f.op('old',fields);f.inbox('inv');f.bank('tx');const before=f.db.prepare('SELECT * FROM operations').get();
-      const result=await runLubertsyInvoices(f.env);assert.equal(result.ok,false);assert.equal(result.opsCreated,0);assert.equal(result.paymentsMatched,0);
+      const result=await runLubertsyInvoices(f.env);assert.equal(result.ok,true);assert.deepEqual(result.errors,[]);assert.equal(result.review_required,2);assert.ok(result.skipped.every(row=>row.review_required===true));assert.equal(result.opsCreated,0);assert.equal(result.paymentsMatched,0);
       assert.deepEqual(f.db.prepare('SELECT * FROM operations').get(),before);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM operation_attachments').get().n,0);});
   }
 });
 test('conflicting amounts and duplicate exact operations are held without choosing MAX or first',async()=>{
-  await withFixture(async f=>{f.inbox('a');f.inbox('b',{extracted_amount:1});const result=await runLubertsyInvoices(f.env);assert.equal(result.opsCreated,0);assert.equal(result.ok,false);});
-  await withFixture(async f=>{f.op('a');f.op('b');f.inbox('invoice');const result=await runLubertsyInvoices(f.env);assert.equal(result.opsLinked,0);assert.equal(result.ok,false);});
+  await withFixture(async f=>{f.inbox('a');f.inbox('b',{extracted_amount:1});const result=await runLubertsyInvoices(f.env);assert.equal(result.opsCreated,0);assert.equal(result.ok,true);assert.equal(result.review_required,2);assert.deepEqual(result.errors,[]);});
+  await withFixture(async f=>{f.op('a');f.op('b');f.inbox('invoice');const result=await runLubertsyInvoices(f.env);assert.equal(result.opsLinked,0);assert.equal(result.ok,true);assert.equal(result.review_required,1);assert.equal(result.skipped[0].review_required,true);assert.deepEqual(result.errors,[]);});
 });
 test('deleted/resolved documents, foreign currency, incoming/pending/allocated and multi-invoice banks are not touched',()=>withFixture(async f=>{
   for(const [id,more] of [['del',{deleted_at:1}],['rejected',{status:'manual_rejected'}],['confirmed',{status:'manual_confirmed'}],['currency',{extracted_currency:'USD'}],['file',{attachment_r2_key:null}],['act',{classification:'acceptance'}]])f.inbox(id,more);
@@ -148,3 +148,26 @@ test('inbox reclassified before attachment batch cannot be linked using stale cl
   assert.equal(f.db.prepare('SELECT COUNT(*) n FROM operation_attachments').get().n,0);
   assert.equal(f.db.prepare('SELECT status FROM invoice_inbox').get().status,'needs_partner_link');
 }));
+
+
+test('amount review is a successful bounded hold; technical DB failure remains a failed run',async()=>{
+  await withFixture(async f=>{
+    f.op('manual',{total_amount:1025745});f.bank('tx');
+    const before=f.db.prepare('SELECT * FROM operations').all();
+    const result=await runLubertsyInvoices(f.env);
+    assert.equal(result.ok,true);assert.equal(result.review_required,1);assert.deepEqual(result.errors,[]);
+    assert.equal(result.skipped[0].id,'tx');assert.equal(result.skipped[0].review_required,true);
+    assert.match(result.skipped[0].reason,/amount conflict/);
+    assert.equal(f.db.prepare('SELECT matched_operation_id FROM bank_transactions').get().matched_operation_id,null);
+    assert.deepEqual(f.db.prepare('SELECT * FROM operations').all(),before);
+  });
+  await withFixture(async f=>{
+    f.inbox('invoice');const prepare=f.env.DB.prepare;
+    f.env.DB.prepare=sql=>{if(sql.includes('SELECT o.* FROM operations'))throw Error('injected DB unavailable');return prepare(sql);};
+    const result=await runLubertsyInvoices(f.env);
+    assert.equal(result.ok,false);assert.equal(result.review_required,0);assert.equal(result.errors.length,1);
+    assert.match(result.errors[0],/injected DB unavailable/);assert.equal(result.skipped.length,0);
+    assert.equal(f.db.prepare('SELECT COUNT(*) n FROM operations').get().n,0);
+    assert.equal(f.db.prepare('SELECT status FROM invoice_inbox').get().status,'needs_partner_link');
+  });
+});

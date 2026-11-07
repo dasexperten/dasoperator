@@ -11,6 +11,6 @@ export default erpWorker<Env>('erp-lubertsy-invoices', async (env, dry) => {
   return {
     rows: (r?.opsCreated ?? 0) + (r?.opsLinked ?? 0) + (r?.paymentsMatched ?? 0),
     note: JSON.stringify({ ok: r.ok, opsCreated: r.opsCreated, opsLinked: r.opsLinked,
-      paymentsMatched: r.paymentsMatched, skipped: r.skipped.length, skipExamples: r.skipped.slice(0, 3) }),
+      paymentsMatched: r.paymentsMatched, review_required: r.review_required, skipped: r.skipped.length, skipExamples: r.skipped.slice(0, 3) }),
   };
 });

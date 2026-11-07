@@ -69,10 +69,10 @@ test('DeepSeek is the last fallback after Terra and Sonnet are unavailable or em
   globalThis.__inventoryRead=async(provider,messages,opts)=>{calls.push(provider);original??=messages;assert.deepEqual(messages,original);if(provider==='terra')throw Error('quota');if(provider==='sonnet')return {text:''};assert.equal(opts.jsonMode,true);return {text:JSON.stringify(valid)};};
   assert.equal((await readInventoryLetter(readerEnv(),letter)).model,'deepseek-v4-pro');assert.deepEqual(calls,['terra','sonnet','deepseek']);
 });
-test('invalid readings stop without asking another model to overrule them', async () => {
+test('unusable readings advance the bounded fallback chain', async () => {
   for(const text of ['{broken',JSON.stringify({...valid,warehouse_id:'invented'}),JSON.stringify({...valid,rows:[{source:'unreadable',product_id:null,qty_pieces:null}]})]) {
-    const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);return {text};};
-    await assert.rejects(readInventoryLetter(readerEnv(),letter),/reading invalid/);assert.deepEqual(calls,['terra']);
+    const calls=[];globalThis.__inventoryRead=async(provider)=>{calls.push(provider);return {text:provider==='terra'?text:JSON.stringify(valid)};};
+    assert.equal((await readInventoryLetter(readerEnv(),letter)).model,'claude-sonnet-4-6');assert.deepEqual(calls,['terra','sonnet']);
   }
 });
 test('three unavailable providers stop with no fourth call', async () => {

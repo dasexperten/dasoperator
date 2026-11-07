@@ -1,6 +1,6 @@
 import type { Env } from '../types';
 import { ALARM, ROUND, inMoscowWindow, START_GAP_MS, freshSignal } from './diter-ugc-alarm.mjs';
-import { reelTaskText } from './ugc-reel-jobs.mjs';
+import { reelTaskText, reelScope } from './ugc-reel-jobs.mjs';
 
 export const CONSUMER_TTL_MS = 90_000;
 export const START_INTERVAL_MS = START_GAP_MS;
@@ -9,11 +9,13 @@ export function diterWindow(now: number): boolean { return inMoscowWindow(new Da
 // No /adhoc, model, download or publication here. Only accept one concrete job
 // for a registered live executor, before the executor starts its round.
 export async function tickDiterAlarm(env: Env, now = Date.now(), contentId: string | null = null) {
-  const pending = await env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<{content_id:string}>();
+  const pending = await env.DB.prepare("SELECT content_id,required_destinations FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<{content_id:string;required_destinations:string}>();
   const state = await env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const working = await env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first<{content_id:string}>();
+  let scopeNote:string|null=null;
+  if(pending){try{if(!reelScope(pending).active.length)scopeNote='deferred_destinations_only';}catch{scopeNote='invalid_destination_scope';}}
   const note = !diterWindow(now) ? 'outside_window' : working ? 'working_job_exists'
-    : !pending ? 'empty' : !state?.ready || !state.consumer_id || state.heartbeat_at < now-CONSUMER_TTL_MS ? 'consumer_missing'
+    : !pending ? 'empty' : scopeNote ? scopeNote : !state?.ready || !state.consumer_id || state.heartbeat_at < now-CONSUMER_TTL_MS ? 'consumer_missing'
     : state.last_started_at != null && now-state.last_started_at < START_INTERVAL_MS ? 'cooldown' : 'ready';
   await env.DB.prepare('UPDATE ugc_reel_alarm SET tick_at=?,pending_content_id=?,note=? WHERE id=1').bind(now,pending?.content_id ?? null,note).run();
   await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?)
@@ -41,7 +43,7 @@ export async function reelAssignment(env: Env, consumerId: string, origin: strin
   const row = await env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.status='working' AND j.consumer_id=? LIMIT 1`).bind(consumerId).first<{content_id:string;claim_id:string;content_url:string;handle:string;started_at:string;acknowledged_at:string|null;required_destinations:string;publications:string}>();
   if (!row) return null;
   return { runner:'diter-ugc-round', content_id:row.content_id,claim_id:row.claim_id,status:'working',source_url:row.content_url,author:row.handle,
-    started_at:row.started_at,acknowledged_at:row.acknowledged_at,required_destinations:JSON.parse(row.required_destinations),publications:JSON.parse(row.publications),
+    started_at:row.started_at,acknowledged_at:row.acknowledged_at,required_destinations:reelScope(row).active,destination_scope:reelScope(row),publications:JSON.parse(row.publications),
     task:reelTaskText(row,origin) };
 }
 

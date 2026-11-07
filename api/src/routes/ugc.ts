@@ -246,7 +246,7 @@ ugc.post('/content/:id/reel-job', async (c) => {
   if (!content) return fail(c, 404, [{ code: 'not_found', message: 'Ролик не найден' }]);
   if (!content.content_url || !/^https:\/\//i.test(content.content_url) || /^(?:image|photo|carousel)$/i.test(content.content_type ?? '')) return fail(c, 422, [{ code: 'video_required', message: 'Выберите видеоролик' }]);
   const now = new Date().toISOString();
-  const result = await c.env.DB.prepare(`INSERT OR IGNORE INTO ugc_reel_jobs (content_id,status,requested_by,requested_at,updated_at,required_destinations) VALUES (?,'queued',?,?,?,'["instagram","threads","vk","youtube","tiktok"]')`).bind(id, access.id, now, now).run();
+  const result = await c.env.DB.prepare(`INSERT OR IGNORE INTO ugc_reel_jobs (content_id,status,requested_by,requested_at,updated_at,required_destinations) VALUES (?,'queued',?,?,?,'["instagram","threads","youtube"]')`).bind(id, access.id, now, now).run();
   const job = await c.env.DB.prepare('SELECT content_id,status,requested_at,started_at,published_at,last_error,publications FROM ugc_reel_jobs WHERE content_id=?').bind(id).first();
   return ok(c, { job, created: Boolean(result.meta.changes) });
 });

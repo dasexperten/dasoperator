@@ -26,7 +26,7 @@ test('task states exact Owner scope and real worker callbacks without a raw cred
   assert.match(text,/Юридическую маркировку/);
   assert.match(text,/Марикой/);
   assert.match(text,/EMAILER_SERVICE_SECRET/);
-  assert.match(text,/минимальная правка/);
+  assert.match(text,/ТОЛЬКО распаковку/);
   assert.match(text,/HeyGen/);
   assert.doesNotMatch(text,/POST .*\/claim /);
 });
@@ -51,4 +51,15 @@ test('current vk.ru clip links are accepted and alias retries preserve the origi
   assert.ok(reelPublicationProof([vk],''));
   assert.equal(reelPublicationProof([vk],'https://vk.com/clip-229095983_456240567'),null);
   assert.equal(appendPublicationProofs([vk],[{...vk,url:'https://vk.com/clip-229095983_456240567'}]).length,1);
+});
+
+test('active scope preserves raw history and rejects unknown destinations',async()=>{
+ const {reelScope}=await import('./ugc-reel-jobs.mjs');const original=['instagram','threads','vk','youtube','tiktok'];const row={required_destinations:JSON.stringify(original)};assert.deepEqual(reelScope(row).active,['instagram','threads','youtube']);assert.deepEqual(reelScope(row).deferred,['vk','tiktok']);assert.equal(row.required_destinations,JSON.stringify(original));assert.throws(()=>reelScope({required_destinations:'["linkedin"]'}));assert.deepEqual(reelScope({required_destinations:'["vk","tiktok"]'}).active,[]);
+});
+test('source publication is accepted only with explicit verified own accepted-coauth identity',()=>{
+ const p={platform:'instagram',url:'https://instagram.com/reel/SOURCE/',account:'dasexperten',verified:true,verified_at:new Date().toISOString(),evidence:'Official accepted collaborative_media exact source, complete pagination'};
+ assert.equal(reelPublicationProof([p],p.url),null);
+ const accepted={...p,instagram_placement:'accepted_coauth',instagram_media_id:'17911111111111111',instagram_collaborator_account_id:'17841466350261166'};
+ assert.equal(reelPublicationProof([accepted],p.url)?.[0].instagram_placement,'accepted_coauth');
+ assert.equal(reelPublicationProof([{...accepted,instagram_collaborator_account_id:'wrong'}],p.url),null);
 });

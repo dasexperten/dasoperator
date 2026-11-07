@@ -2,7 +2,7 @@
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
 import { ALARM, freshSignal } from '../lib/diter-ugc-alarm.mjs';
-import { reelPublicationProof, appendPublicationProofs, reelTaskText, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
+import { reelPublicationProof, appendPublicationProofs, reelTaskText, reelScope, reelJobScopeView, REEL_SCOPE_VERSION, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
 import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
@@ -42,12 +42,12 @@ route.get('/reel-alarm', async (c) => {
   const signal=freshSignal(stored?.value ?? '');
   const row=signal ? await c.env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3`).bind(signal.content_id).first<{content_id:string;content_url:string;handle:string;required_destinations:string;publications:string}>() : null;
   return c.json({ok:true,name:ALARM,target:'diter-ugc-round',ready:Boolean(row),signal:stored?JSON.parse(stored.value):null,
-    job:row?{...row,task:`Preflight only. Accept this exact post once, then use the ACTUAL returned claim_id in every callback. ${reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}`}:null});
+    job:row?{...reelJobScopeView(row),task:`Preflight only. Accept this exact post once, then use the ACTUAL returned claim_id in every callback. ${reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}`}:null});
 });
 route.get('/reel-jobs', async (c) => {
   const jobs = await c.env.DB.prepare(`SELECT j.*,c.content_url,c.content_type,p.handle,p.platform FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id ORDER BY j.requested_at`).all();
   // claim_id is returned only to the executor that claims the job.
-  return c.json({ ok: true, jobs: (jobs.results ?? []).map((row) => { const { claim_id: _claim, ...job } = row; return job; }) });
+  return c.json({ ok: true, jobs: (jobs.results ?? []).map((row) => { const { claim_id: _claim, ...job } = row; return reelJobScopeView(job as any); }) });
 });
 // Backward-compatible installed PC: its real tool preflight precedes this
 // exact acceptance. It cannot choose another post or bypass the one alarm.
@@ -59,7 +59,7 @@ route.post('/reel-jobs/:id/claim', async (c) => {
 route.get('/alarm/status', async (c) => {
   const state = await c.env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const jobs = await c.env.DB.prepare("SELECT status,COUNT(*) count FROM ugc_reel_jobs GROUP BY status").all();
-  return c.json({ok:true,alarm:'diter-ugc-alarm',runner:'diter-ugc-round',consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
+  return c.json({ok:true,alarm:'diter-ugc-alarm',runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
 });
 route.post('/alarm/pulse', async (c) => {
   const body = await c.req.json().catch(() => null) as {consumer_id?:string;ready?:boolean;capabilities?:string[]} | null;
@@ -109,13 +109,14 @@ route.post('/reel-jobs/:id/complete', async (c) => {
   let publications: ReelPublication[];
   try { const existing=JSON.parse(content?.publications ?? '[]'); if (!Array.isArray(existing)) throw new Error(); publications=appendPublicationProofs(existing,proofs); }
   catch { return c.json({ok:false,error:'existing_publications_invalid'},409); }
-  const required: string[] = JSON.parse(content?.required_destinations ?? '[]');
+  const required: string[] = reelScope(content ?? {}).active;
+  if(!required.length)return c.json({ok:false,error:'no_active_destinations'},422);
   const missing = required.filter(platform => !publications.some(proof => proof.platform === platform));
   if (missing.length) return c.json({ok:false,error:'required_destinations_missing',missing},422);
   const now = new Date().toISOString();
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=? AND (consumer_id IS NULL OR acknowledged_at IS NOT NULL)`).bind(JSON.stringify(publications), now, now, id, body.claim_id,content?.publications ?? '[]').run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'claim_mismatch_or_not_working' }, 409);
-  return c.json({ ok: true, content_id: id, status: 'published', publications });
+  return c.json({ ok: true, content_id: id, status: 'published', destination_scope:reelScope(content ?? {}), publications });
 });
 // UGC Selection: later verified placements append without reopening the job or
 // replacing its first publication timestamp. Compare-and-swap prevents lost updates.
@@ -138,6 +139,31 @@ route.post('/reel-jobs/:id/publications', async (c) => {
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET publications=?,updated_at=? WHERE content_id=? AND status='published' AND publications=?`).bind(JSON.stringify(publications), new Date().toISOString(), id, job.publications).run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'publication_conflict_read_again' }, 409);
   return c.json({ ok: true, content_id: id, status: 'published', added, publications });
+});
+// Owner-attended reconciliation of already verified placements after scope change.
+// Does not claim, wake, download or publish; preserves the saved historical requirements.
+route.post('/reel-jobs/:id/reconcile-scope', async (c) => {
+  const id=c.req.param('id');
+  const body=await c.req.json().catch(()=>null) as {scope_version?:string}|null;
+  if(body?.scope_version!==REEL_SCOPE_VERSION)return c.json({ok:false,error:'exact_scope_version_required'},422);
+  const job=await c.env.DB.prepare(`SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?`).bind(id).first<Record<string,any>>();
+  if(!job)return c.json({ok:false,error:'not_found'},404);
+  if(job.status==='working')return c.json({ok:false,error:'working_assignment_must_complete_itself'},409);
+  const scope=reelScope(job);
+  if(!scope.active.length)return c.json({ok:false,error:'no_active_destinations',destination_scope:scope},422);
+  let proofs:ReelPublication[]|null;
+  try{proofs=reelPublicationProof(JSON.parse(job.publications),job.content_url);}catch{proofs=null;}
+  if(!proofs)return c.json({ok:false,error:'saved_verified_proofs_required'},422);
+  const missing=scope.active.filter(platform=>!proofs!.some(p=>p.platform===platform));
+  if(missing.length)return c.json({ok:false,error:'active_destinations_missing',missing,destination_scope:scope},422);
+  if(job.status==='published')return c.json({ok:true,status:'published',already_complete:true,destination_scope:scope,publications:proofs});
+  const now=new Date().toISOString();
+  const result=await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',published_at=COALESCE(published_at,?),last_error=NULL,updated_at=? WHERE content_id=? AND status='queued' AND publications=? AND required_destinations=?`).bind(now,now,id,job.publications,job.required_destinations),
+    c.env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='published') ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('ugc-reel-scope:'+id,JSON.stringify({...scope,reason:'Owner active3; VK/TikTok deferred, original requirements preserved',completion:'attended_existing_proofs',verified_at:now}),Date.now(),id),
+  ]);
+  if(!result[0].meta.changes)return c.json({ok:false,error:'scope_reconcile_conflict_read_again'},409);
+  return c.json({ok:true,content_id:id,status:'published',destination_scope:scope,publications:proofs});
 });
 route.post('/reel-jobs/:id/release', async (c) => {
   const id = c.req.param('id');

@@ -232,7 +232,7 @@ export default function AgentBar({ channel }: { channel: CallChannel | null }) {
               }`}
             >
               <Avatar agent={agent} size="sm" />
-              <span className="w-full truncate text-center text-xs font-bold text-muted-foreground">{agent.name.split(' ')[0]}</span>
+              <span className="w-full whitespace-nowrap text-center text-[11px] leading-tight font-bold text-muted-foreground">{agent.name.split(' ')[0]}</span>
             </button>
           </li>
         ))}

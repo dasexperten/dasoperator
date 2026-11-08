@@ -91,7 +91,7 @@ export default function FinanceCategoriesPage() {
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)', overflow: 'hidden',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <table data-mshow="2 6 7" className="dx-keep-table dx-row-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--line-1)' }}>
                 <th style={th}>Code</th>

@@ -584,3 +584,8 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-chip-collab { position: absolute; right: -4px; bottom: -6px; display: flex; align-items: center; justify-content: center; width: 14px; height: 12px; border-radius: 4px; background: #1A1A1A; color: #FFFFFF; }
 .ugc-chip-collab[data-collab="requested"] { background: #8A8278; }
 .ugc-chip .ugc-chip-collab svg { width: 10px; height: 10px; stroke-width: 2.4; }
+
+/* Phone: a blogger handle is never cut — it wraps inside its cell (Owner 2026-11-08). */
+@media (max-width: 767px) {
+  .ugc-table td.ugc-c-creator, .ugc-table td.ugc-c-creator * { white-space: normal !important; overflow-wrap: anywhere; text-overflow: clip !important; overflow: visible !important; }
+}

@@ -991,7 +991,7 @@ export default function FinanceTransactionsPage() {
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)', overflow: 'hidden',
         }}>
-          <table className="finance-transactions" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <table data-mshow="1 3 4" className="dx-keep-table dx-row-table finance-transactions" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--line-1)' }}>
                 <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '110px' }}>Date</th>

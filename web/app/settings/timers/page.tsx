@@ -102,7 +102,7 @@ const head: React.CSSProperties = { ...cell, fontWeight: 600, color: 'var(--fg-2
 function Table({ runs, day }: { runs: Run[]; day?: Map<string, Day> }) {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--paper)' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table data-mshow="1 2 3" className="dx-keep-table dx-row-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={{ ...head, textAlign: 'left' }}>Таймер</th>

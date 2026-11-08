@@ -66,7 +66,7 @@ export default function SnapshotTab() {
               />
             </div>
             <div className="wa-table-scroll" style={{ maxHeight: 280 }}>
-              <table className="wa-table">
+              <table data-mshow="1 2 3" className="dx-keep-table dx-row-table wa-table">
                 <thead>
                   <tr><th>Country</th><th className="right">Active users</th><th className="right">7d change</th></tr>
                 </thead>
@@ -166,7 +166,7 @@ export default function SnapshotTab() {
         <Panel title="Views by page title and screen" source="GA4 · last 7 days" pad={false}>
           <LoadState loading={content.loading} error={content.error} />
           <div className="wa-table-scroll">
-            <table className="wa-table">
+            <table data-mshow="1 2" className="dx-keep-table dx-row-table wa-table">
               <thead>
                 <tr><th>Page title and path</th><th className="right">Views</th></tr>
               </thead>
@@ -187,7 +187,7 @@ export default function SnapshotTab() {
             </table>
           </div>
           <div className="wa-table-scroll" style={{ marginTop: 16 }}>
-            <table className="wa-table">
+            <table data-mshow="1 2" className="dx-keep-table dx-row-table wa-table">
               <thead><tr><th>Commerce event and page</th><th className="right">Count</th></tr></thead>
               <tbody>
                 {(content.data?.commerce_rows ?? []).map((r) => (
@@ -212,7 +212,7 @@ export default function SnapshotTab() {
         <Panel title="Sessions by Session default channel" source="GA4 · last 7 days" pad={false}>
           <LoadState loading={channels.loading} error={channels.error} />
           <div className="wa-table-scroll">
-            <table className="wa-table">
+            <table data-mshow="1 2" className="dx-keep-table dx-row-table wa-table">
               <thead>
                 <tr><th>Session default channel group</th><th className="right">Sessions</th></tr>
               </thead>

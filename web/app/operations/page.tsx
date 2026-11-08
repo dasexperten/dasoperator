@@ -979,9 +979,8 @@ export default function OperationsPage() {
             fontWeight: 800,
             minWidth: 0,
             flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'normal',
+            overflowWrap: 'anywhere',
             lineHeight: 1.2,
           }}>
             {isBatchRow ? `transfer · ${clusterCount ?? 0} ${(clusterCount ?? 0) === 1 ? 'cluster' : 'clusters'}` : partnerLabel}

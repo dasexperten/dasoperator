@@ -29,6 +29,11 @@ type GeoPulse = {
   cards: GeoCard[];
 };
 
+// Phone labels — short so nothing is cut (Owner 2026-11-08).
+const GEO_SHORT: Record<string, string> = {
+  shown: 'Impr.', visited: 'Clicks', position: 'Position', ai_reads: 'AI crawls',
+};
+
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return '—';
   return Math.round(n).toLocaleString('en-US');
@@ -94,6 +99,7 @@ export default function AiVisibilityOverview() {
                 <AuthCard
                   key={c.id}
                   label={c.label}
+                  short={GEO_SHORT[c.id]}
                   value={fmt(c.value)}
                   hint={(c.hint || '').replace(/\s*\([^)]*\)\s*$/, '')}
                   tone={c.tone}
@@ -113,11 +119,13 @@ export default function AiVisibilityOverview() {
 
 function AuthCard({
   label,
+  short,
   value,
   hint,
   tone,
 }: {
   label: string;
+  short?: string;
   value: string | null;
   hint: string;
   tone?: GeoTone;
@@ -138,7 +146,10 @@ function AuthCard({
     >
       {/* Same reserved two-line label as the SEO tiles above — the figures in
           both blocks must sit on one line across the row. */}
-      <div className="dx-metric-label" style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
+      <div className="dx-metric-label" style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>
+        <span className="dx-label-full">{label}</span>
+        <span className="dx-label-short">{short || label}</span>
+      </div>
       <div
         className="dx-num dx-metric-value"
         style={{

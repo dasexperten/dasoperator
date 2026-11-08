@@ -215,24 +215,28 @@ export default function HomeDashboard() {
         <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
           <MetricCard
             label="Domain authority"
+            short="DA"
             value={String(m.domain_authority)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Backlinks"
+            short="Backlinks"
             value={loading ? '—' : formatSeoNumber(m.backlinks)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Referring domains"
+            short="Ref. domains"
             value={loading ? '—' : formatSeoNumber(m.ref_domains)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Organic traffic"
+            short="Traffic"
             value={loading ? '—' : formatSeoNumber(m.organic_traffic)}
             tone="default"
             loading={loading}
@@ -450,11 +454,13 @@ function HomePulseBlock({
 
 function MetricCard({
   label,
+  short,
   value,
   tone,
   loading,
 }: {
   label: string;
+  short?: string;
   value: string;
   tone: 'default' | 'rot' | 'muted';
   loading: boolean;
@@ -485,7 +491,8 @@ function MetricCard({
         className="dx-metric-label"
         style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}
       >
-        {label}
+        <span className="dx-label-full">{label}</span>
+        <span className="dx-label-short">{short || label}</span>
       </div>
       <div
         className="dx-num dx-metric-value"

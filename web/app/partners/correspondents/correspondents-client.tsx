@@ -111,7 +111,7 @@ export default function CorrespondentsClient() {
           </p>
         </div>
         <div className="dx-keep-flex flex items-center gap-4 flex-wrap">
-          <label className="inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer' }}>
+          <label className="dx-keep-flex inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer', whiteSpace: 'normal', minWidth: 0, flex: '1 1 200px' }}>
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
             Показать роботов и внутренние адреса
           </label>

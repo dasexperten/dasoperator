@@ -80,6 +80,10 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   // own. Lisa answers by default; Otto takes infographic letters.
   { address: 'image@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Image · Lisa + Otto', role: 'Brand Studio shared', showInUi: true, inbound: 'worker' },
   { address: 'taras@dasexperten.com', kind: 'agent', slug: 'taras-ryzhiy', label: 'Taras Ryzhiy', role: 'Video', showInUi: true, inbound: 'worker' },
+  // Existing enabled Cloudflare route → dieter-vfx, verified 2026-11-08;
+  // matches Dieter's CHARTER. Without this row his real mailbox was invisible
+  // and the attended send/archive path rejected his own From address.
+  { address: 'reels@dasexperten.com', kind: 'agent', slug: 'dieter-mons', label: 'Dieter Mons', role: 'VFX & 3D Effects', showInUi: true, inbound: 'worker' },
   { address: 'build@dasexperten.com', kind: 'agent', slug: 'alessandro-conti', label: 'Alessandro Conti', role: 'Architecture · Construction', showInUi: true, inbound: 'worker' },
   // Owner 2026-08-30 (R8): social@ is Angela's, and only hers.
   { address: 'social@dasexperten.com', kind: 'agent', slug: 'angela', label: 'Angela', role: 'Social Media', showInUi: true, inbound: 'worker' },

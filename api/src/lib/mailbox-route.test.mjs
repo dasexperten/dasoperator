@@ -20,6 +20,9 @@ test('tagged reply to a company box is archived under the base box', () => {
 test('plain company box is archived', () => {
   assert.equal(routeInboundRecipient('Eurasia@dasexperten.com').action, 'archive');
 });
+test('Dieter support replies retain their thread tag in the existing reels mailbox', () => {
+  assert.deepEqual(routeInboundRecipient('reels+vk261108@dasexperten.com'), { base: 'reels@dasexperten.com', tag: 'vk261108', action: 'archive' });
+});
 test('alias with a tag resolves through the registry', () => {
   assert.equal(routeInboundRecipient('mina+x1@dasexperten.com').action, 'archive');
 });

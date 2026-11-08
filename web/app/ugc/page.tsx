@@ -762,6 +762,28 @@ function instagramPostedAt(url: string | null): Date | null {
   return ms > 1314220021721 && ms < Date.now() + 86_400_000 ? new Date(ms) : null;
 }
 
+function reelFailureReason(error: string): string {
+  if (error.startsWith('Owner manual quarantine: stale executor')) return 'Исполнитель перестал отвечать после принятия ролика. Ролик снят с обработки, остальные продолжают работу. Перед повтором нужно проверить, не появился ли он уже в наших соцсетях.';
+  if (/Three bounded execution\/reconciliation attempts/i.test(error)) return 'После трёх попыток обработка или проверка результата не завершилась. Ролик пропущен, остальные продолжают работу. Перед повтором нужно сверить возможные публикации в наших соцсетях.';
+  if (/timeout|timed out|deadline/i.test(error)) return 'Обработка ролика не завершилась за отведённое время. Ролик пропущен, остальные продолжают работу.';
+  if (/authenticated upload access|unauthorized|authentication/i.test(error)) return 'Не удалось подтвердить доступ к публикации. Ролик пропущен, остальные продолжают работу.';
+  return error;
+}
+
+function ReelFailure({ reason }: { reason: string }) {
+  const [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (open && dialog.current && !dialog.current.open) dialog.current.showModal(); }, [open]);
+  return <>
+    <button type="button" className="ugc-reel-failure" aria-label="Показать причину остановки ролика" title="Показать причину остановки ролика" onClick={(event) => { event.stopPropagation(); setOpen(true); }}>!</button>
+    {open && createPortal(<dialog ref={dialog} className="ugc-reel-failure-dialog" aria-label="Почему ролик остановлен" onCancel={() => setOpen(false)} onClick={(event) => event.stopPropagation()}>
+      <p className="ugc-reel-failure-title">Ролик остановлен</p>
+      <p>{reason}</p>
+      <button type="button" autoFocus onClick={() => setOpen(false)}>Закрыть</button>
+    </dialog>, document.body)}
+  </>;
+}
+
 function Publication({ item, href, compact = false }: { item: ContentObservation; href: string; compact?: boolean }) {
   const { isAdmin } = useContext(PayContext);
   const [jobStatus, setJobStatus] = useState(item.reel_status ?? null);
@@ -792,7 +814,9 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
     event.preventDefault();
     clicks.current?.click(event.detail);
   };
-  const jobLabel = jobStatus === 'queued' ? 'В очереди Дитера' : jobStatus === 'working' ? 'Дитер работает' : jobStatus === 'published' ? 'Опубликовано нами' : '';
+  const failed = jobStatus === 'queued' && Boolean(item.reel_error);
+  const failureReason = reelFailureReason(jobError || item.reel_error || 'Обработка ролика остановлена');
+  const jobLabel = failed ? 'Ролик остановлен' : jobStatus === 'queued' ? 'В очереди Дитера' : jobStatus === 'working' ? 'Дитер работает' : jobStatus === 'published' ? 'Опубликовано нами' : '';
   const kind = mediaKind(item);
   const confirmed=contentConfirmed(item);
   const status = !confirmed ? 'Ожидает проверки Дианы: автор и наш товар не подтверждены' : item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Проверено Дианой';
@@ -819,20 +843,20 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
     // Owner 2026-11-07: the top-right tag is likes + comments, not ER.
     const reactions = item.likes == null && item.comments == null ? null : (Number(item.likes) || 0) + (Number(item.comments) || 0);
     const tag = net === 'instagram' ? <Instagram aria-hidden="true" /> : net === 'youtube' ? <svg viewBox="0 0 8 8" aria-hidden="true"><path fill="currentColor" d="M1.5 0.5v7l6-3.5z" /></svg> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'telegram' ? <Send aria-hidden="true" /> : net === 'facebook' ? <Facebook aria-hidden="true" /> : net === 'vk' ? <span aria-hidden="true">VK</span> : <Link aria-hidden="true" />;
-    return <span className="ugc-pub ugc-chip" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
-      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${reactions != null ? ` · лайки и комментарии ${formatCount(reactions)}` : ''}${item.collab_status === 'confirmed' ? ' · Collab подтверждён' : item.collab_status === 'requested' ? ' · приглашение в Collab ждёт ответа' : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
+    return <span className="ugc-pub ugc-chip" data-state={state} data-net={net || undefined} data-reel-status={failed ? undefined : jobStatus || undefined} data-reel-failed={failed || undefined}>
+      <a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link ugc-chip-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · просмотры ${formatCount(item.views)}${reactions != null ? ` · лайки и комментарии ${formatCount(reactions)}` : ''}${item.collab_status === 'confirmed' ? ' · Collab подтверждён' : item.collab_status === 'requested' ? ' · приглашение в Collab ждёт ответа' : ''} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || (failed ? failureReason : item.reel_error), isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, figure('Просмотры', item.views), figure('Лайки', item.likes), figure('Комментарии', item.comments), er ? `ER ${er}` : null, status, item.content_url].filter(Boolean).join(' · ')}>
         <span className="ugc-chip-views">{formatCount(item.views)}</span>
         <span className="ugc-chip-net">{tag}</span>
         {reactions != null ? <span className="ugc-chip-er" aria-hidden="true">{formatCount(reactions)}</span> : null}
         {item.collab_status ? <span className="ugc-chip-collab" data-collab={item.collab_status} title={item.collab_status === 'confirmed' ? 'Collab: мы соавтор публикации' : 'Collab: блогер пригласил нас, приглашение не принято'}><Handshake aria-hidden="true" /></span> : null}
       </a>
       <span className="ugc-chip-date" title={postedAt ? `Опубликовано ${postedAt.toLocaleDateString('ru-RU')}` : undefined}>{posted || '\u00a0'}</span>
-      {jobError ? <span role="alert" className="sr-only">{jobError}</span> : null}
+      {failed || jobError ? <ReelFailure reason={failureReason} /> : null}
     </span>;
   }
-  return <span className="ugc-pub" data-state={state} data-net={net || undefined} data-reel-status={jobStatus || undefined}>
-    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || item.reel_error, isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
-    {jobError ? <span role="alert" className="ugc-reel-error" title={jobError}><AlertCircle aria-hidden="true" /><span className="sr-only">{jobError}</span></span> : null}
+  return <span className="ugc-pub" data-state={state} data-net={net || undefined} data-reel-status={failed ? undefined : jobStatus || undefined} data-reel-failed={failed || undefined}>
+    <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || (failed ? failureReason : item.reel_error), isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
+    {failed || jobError ? <ReelFailure reason={failureReason} /> : null}
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>

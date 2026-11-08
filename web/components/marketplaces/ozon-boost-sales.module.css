@@ -9,19 +9,20 @@
 .refresh:focus-visible, .tableWrap:focus-visible { outline: 2px solid var(--brand-rot); outline-offset: 3px; }
 .notice { margin: 0 0 12px; color: var(--status-warning); font-size: 14px; }
 .tableWrap { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-color: var(--stone-200) var(--paper-sunk); }
-.table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 15px; }
-.table th, .table td { padding: 13px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border-hairline); }
+.table { width: 100%; min-width: 1000px; border-collapse: collapse; font-size: 15px; }
+.table th, .table td { padding: 13px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border-hairline); }
 .table thead th { color: var(--fg-2); background: var(--paper-sunk); font-size: 14px; font-weight: 700; }
 .table th:first-child, .table th:nth-child(2), .table .boostCell { text-align: left; }
 .table tbody tr:last-child th, .table tbody tr:last-child td { border-bottom: 0; }
 .product { text-align: left; font-size: 16px; font-weight: 800; }
-.product > span { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.product > span { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .boostCell { font-size: 14px; }
 .boostCell strong { font-size: 17px; font-weight: 800; }
 .count, .delta { font-size: 18px; font-weight: 800; }
 .positive { color: var(--status-success); }
 .negative { color: var(--brand-rot); }
 .neutral { color: var(--fg-2); }
+.mobileLabel { display: none; }
 .empty { margin: 20px 0 8px; color: var(--fg-2); font-size: 14px; }
 .spinning { animation: rotate 1s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
@@ -31,6 +32,16 @@
   .header h2 { font-size: 19px; }
   .tools { gap: 8px; }
   .tools > span { font-size: 14px; }
-  .table th, .table td { padding: 12px 10px; }
-  .product > span { max-width: 170px; }
+  .table th, .table td { padding: 12px 4px; }
+  .table { min-width: 0; table-layout: fixed; }
+  .table th:first-child { width: 43%; padding-left: 0; }
+  .table th:nth-child(3), .table th:nth-child(5) { width: 18%; }
+  .table th:nth-child(7) { width: 21%; }
+  .table td:nth-child(7), .table th:nth-child(7) { padding-right: 0; }
+  .table .basket, .table .boostCell, .table .boostHeader, .desktopLabel { display: none; }
+  .mobileLabel { display: inline; }
+  .product { font-size: 14px; }
+  .product > span { max-width: none; }
+  .count, .delta { font-size: 16px; }
+  .delta { font-size: 14px; }
 }

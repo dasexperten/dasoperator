@@ -14,15 +14,17 @@ type ProductRow = {
   boost: { value: number | null; value_kind?: 'api' | 'terms' | 'unknown'; status: 'active' | 'none' | 'unknown'; basis: string; memberships: Membership[] };
   issues: string[]; today_units: number | null; yesterday_units: number | null;
   delta_units: number | null; delta_pct: number | null;
+  today_baskets?: number | null; yesterday_baskets?: number | null; delta_baskets_pct?: number | null;
 };
 type PromotionReport = {
   snapshot_at: string | null; sales_as_of: string; timezone: string; cutoff: string;
   sales_scope?: string; sales_available: boolean; sales_error?: string; rows: ProductRow[];
+  baskets_available?: boolean; baskets_basis?: string; baskets_period?: unknown;
 };
 
 const number = (value: number | null | undefined) => value == null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 function compactName(row: ProductRow) {
-  return (row.display_name || row.name || row.offer_id)
+  return (row.display_name || row.offer_id || row.name)
     .replace(/\s*([24])\s*in\s*1\b/gi, '-$1')
     .replace(/TERMO\s*39\s*°?/gi, 'TERMO').toUpperCase();
 }
@@ -48,6 +50,14 @@ function Change({ row, available }: { row: ProductRow; available: boolean }) {
   const text = row.yesterday_units === 0 && delta !== 0
     ? `${sign}${number(Math.abs(delta))}`
     : row.delta_pct != null ? `${sign}${number(Math.abs(row.delta_pct))}%` : delta === 0 ? '0%' : '—';
+  return <span className={delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral}>{text}</span>;
+}
+function BasketChange({ row, available }: { row: ProductRow; available: boolean }) {
+  if (!available || row.today_baskets == null || row.yesterday_baskets == null) return <>—</>;
+  const delta = row.today_baskets - row.yesterday_baskets;
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
+  const text = row.yesterday_baskets === 0 && delta !== 0 ? `${sign}${number(Math.abs(delta))}`
+    : row.yesterday_baskets > 0 ? `${sign}${number(Math.abs(delta / row.yesterday_baskets * 100))}%` : '0%';
   return <span className={delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral}>{text}</span>;
 }
 
@@ -87,6 +97,10 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
     return top10 ? sorted.slice(0, 10) : sorted;
   }, [report, top10]);
   const available = Boolean(report?.sales_available) && !error;
+  const basketsAvailable = Boolean(report?.baskets_available) && !error;
+  const basketEvidence = [report?.baskets_basis, typeof report?.baskets_period === 'string'
+    ? report.baskets_period : report?.baskets_period ? JSON.stringify(report.baskets_period) : ''].filter(Boolean).join('\n')
+    || 'Сопоставимый источник корзин не подтверждён';
   const title = top10 ? 'Топ-10 Ozon' : 'Все позиции Ozon';
   return (
     <section className={styles.panel} aria-label={title} aria-busy={loading}>
@@ -105,13 +119,24 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
         : !rows.length ? <p className={styles.empty}>{top10 && report && !report.sales_available ? 'Топ-10 пока не подтверждён.' : 'Нет данных Ozon.'}</p>
           : <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Товары Ozon, таблица с горизонтальной прокруткой">
             <table className={styles.table}>
-              <thead><tr><th scope="col">Товар</th><th scope="col">Бустинг</th><th scope="col">Сегодня</th><th scope="col">Вчера</th><th scope="col">Δ</th></tr></thead>
+              <thead><tr>
+                <th scope="col">Товар</th><th scope="col" className={styles.boostHeader}>Бустинг</th>
+                <th scope="col"><span className={styles.desktopLabel}>Заказы сегодня</span><span className={styles.mobileLabel}>Сегодня</span></th>
+                <th scope="col" className={styles.basket} title={basketEvidence}>Корзины сегодня</th>
+                <th scope="col"><span className={styles.desktopLabel}>Заказы вчера</span><span className={styles.mobileLabel}>Вчера</span></th>
+                <th scope="col" className={styles.basket} title={basketEvidence}>Корзины вчера</th>
+                <th scope="col"><span className={styles.desktopLabel}>Δ заказов</span><span className={styles.mobileLabel}>Δ</span></th>
+                <th scope="col" className={styles.basket} title={basketEvidence}>Δ корзин</th>
+              </tr></thead>
               <tbody>{rows.map(row => <tr key={row.product_id}>
                 <th scope="row" className={styles.product} title={`${row.offer_id} · ${row.name}`}><span>{compactName(row)}</span></th>
                 <td className={styles.boostCell} title={[row.boost?.basis, ...(row.boost?.memberships ?? []).map(m => m.title), ...(row.issues ?? [])].filter(Boolean).join('\n')}><Boost row={row} confirmed={Boolean(report?.snapshot_at) && !error} /></td>
                 <td className={styles.count}>{number(available ? row.today_units : null)}</td>
+                <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.today_baskets : null)}</td>
                 <td className={styles.count}>{number(available ? row.yesterday_units : null)}</td>
+                <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.yesterday_baskets : null)}</td>
                 <td className={styles.delta}><Change row={row} available={available} /></td>
+                <td className={`${styles.delta} ${styles.basket}`} title={basketEvidence}><BasketChange row={row} available={basketsAvailable} /></td>
               </tr>)}</tbody>
             </table>
           </div>}

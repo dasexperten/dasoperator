@@ -69,8 +69,7 @@ export const STEPS: Record<string, Step> = {
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
       const refreshed = await ugcPayoutSweep(e);
-      // Owner 2026-10-19: the incident control runs inside this tick, gated to once an hour; its work is not lane activity.
-      await import('./lib/ugc-incident-control').then((m) => m.incidentControl(e)).catch(() => undefined);
+      // Owner 2026-11-08: retired the legacy hourly incident_control escalation.
       // Creator post links and metrics belong to erp-ugc-postlink, not this payout lane.
       const failures: string[] = [];
       // Owner 2026-10-19: a payout waiting to go out keeps the payouts lane on 3 minutes too.

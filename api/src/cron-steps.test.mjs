@@ -21,7 +21,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta
       export const startDailyVideoReminders=()=>call('video_batch');
       export const igDmWatch=()=>call('read'), igDmHasNew=()=>call('probe'), igDmReply=()=>call('reply');
       export const ugcPayoutSweep=()=>call('payout'), ugcPayoutEvening=()=>call('unused');
-      export const incidentControl=()=>call('incidents'), captureDmLinks=()=>call('links'), refreshContentMetrics=()=>call('content');
+      export const captureDmLinks=()=>call('links'), refreshContentMetrics=()=>call('content');
     ` }));
   } }] });
 const { STEPS } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
@@ -54,9 +54,9 @@ test('Direct only detects metadata; it never reads bodies, calls a reply model o
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
   assert.deepEqual(g.calls, ['video_batch', 'detect']);
 });
-test('payout timer does not read creator links or metrics', async t => {
+test('payout timer only sweeps payouts without legacy incident escalation, creator links or metrics', async t => {
   const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);
-  assert.ok(!f.calls.includes('links')); assert.ok(!f.calls.includes('content'));
+  assert.deepEqual(f.calls, ['payout']);
 });
 test('payout idle is success; sweep exception is failure', async t => {
   const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 15);

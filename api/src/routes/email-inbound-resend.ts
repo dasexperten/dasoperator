@@ -27,6 +27,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { archiveEmail, type ArchiveEmailInput } from '../lib/inbox-archive';
+import { receivedAttachments } from '../lib/resend-inbound-attachments';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -187,7 +188,18 @@ app.post('/resend', async (c) => {
     origin: 'human',
   };
 
-  await archiveEmail(c.env, 'received', mailbox, payload);
+  try {
+    payload.attachments = await receivedAttachments(c.env.RESEND_API_KEY || '', emailId);
+    // Stable identity makes provider retry repair this record instead of
+    // creating another message. Incomplete file writes must remain retryable.
+    const key = await archiveEmail(c.env, 'received', mailbox, payload, {
+      strict: true, recordId: `resend-${emailId}`,
+      ...(typeof src.created_at === 'string' ? {timestamp:src.created_at} : {}),
+    });
+    if (!key) throw new Error('archive_not_confirmed');
+  } catch {
+    return c.json({success:false,error:'message_or_attachments_not_archived'},503);
+  }
 
   return c.json({ success: true, mailbox, email_id: emailId, body_fetched: full !== null });
 });

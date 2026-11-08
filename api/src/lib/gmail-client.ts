@@ -83,5 +83,21 @@ export async function gmailBody(token: string, message: GmailMessage) {
       attachments.push({ partId: part.partId || '', filename: part.filename || 'attachment', mimeType: part.mimeType || 'application/octet-stream', size: part.body.size || 0, contentId, inline: /^inline/i.test(disposition) || !!contentId });
     }
   }
-  return { text: texts.join('\n'), html: html.join('\n'), attachments };
+  let renderedHtml=html.join('\n');
+  // The sandboxed mail viewer cannot resolve Gmail's cid: references. Fetch
+  // inline raster bytes with the same authenticated message boundary as the
+  // download route; keep all attachment buttons even when a preview fails.
+  for(const part of gmailParts(message.payload)) {
+    const cid=gmailHeader(part,'Content-ID').replace(/^<|>$/g,'');
+    if(!cid || !/^image\/(png|jpeg|gif|webp|bmp)$/i.test(part.mimeType || '') || !renderedHtml.includes('cid:'+cid))continue;
+    if((part.body?.size || 0)>10*1024*1024)continue;
+    try {
+      let data=part.body?.data;
+      if(data===undefined && part.body?.attachmentId)data=(await gmailRequest<{data:string}>(token,`messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(part.body.attachmentId)}`)).data;
+      if(data===undefined || data.length>14*1024*1024)continue;
+      const escaped=cid.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      renderedHtml=renderedHtml.replace(new RegExp(`(src\\s*=\\s*["'])cid:${escaped}(["'])`,'gi'),(_match,start,end)=>`${start}data:${part.mimeType};base64,${data.replace(/-/g,'+').replace(/_/g,'/')}${end}`);
+    } catch { /* File remains downloadable; one broken preview cannot hide the message. */ }
+  }
+  return { text: texts.join('\n'), html: renderedHtml, attachments };
 }

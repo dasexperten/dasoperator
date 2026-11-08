@@ -110,7 +110,7 @@ export default function CorrespondentsClient() {
             Кто нам пишет и кого нет в справочнике · без контрагента: {unknownCount}
           </p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="dx-keep-flex flex items-center gap-4 flex-wrap">
           <label className="inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer' }}>
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
             Показать роботов и внутренние адреса

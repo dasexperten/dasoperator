@@ -2704,7 +2704,7 @@ function SwipeableRow({
         </button>
         <div className="mb-rmain">
           <div className="mb-rtop">
-            <div className={`mb-rfrom ${email.unread ? '' : 'read'}`}>{email.from}</div>
+            <div className={`mb-rfrom ${email.unread ? '' : 'read'}`}>{/^[0-9a-f]{16}-[0-9a-f-]{20,}$/i.test(String(email.from ?? '')) ? 'Das Experten' : email.from}</div>
             <div className="mb-rtime">{email.time}</div>
           </div>
           <div className={`mb-rsub ${email.unread ? '' : 'read'}`}>{displaySubject(email.subject) || email.subject}</div>

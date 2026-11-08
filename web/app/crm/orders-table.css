@@ -90,6 +90,7 @@
   main .crm-mock table.crm-orders-table[data-source="ru"] tbody td:nth-child(7),
   main .crm-mock table.crm-orders-table[data-source="com"] tbody td:nth-child(8) { display: block !important; grid-column: 2; grid-row: 1; font-size: 13px; text-align: right !important; }
   main .crm-mock table.crm-orders-table tbody td:nth-child(2) { grid-row: 1; overflow-wrap: anywhere; }
+  main .crm-mock table.crm-orders-table tbody td:nth-child(2) *, main .crm-mock table.crm-customers-table tbody td:nth-child(1) * { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
 
   /* customers: name · total spent · delivered */
   main .crm-mock table.crm-customers-table tbody td:nth-child(1) { display: block !important; grid-column: 1; font-weight: 800; font-size: 16px; }

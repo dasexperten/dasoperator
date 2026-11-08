@@ -45,6 +45,29 @@ test('confirmation requires evidence, preserves id and observed date, then confi
  const r=f.rows()[0];assert.equal(r.id,id);assert.equal(r.product_source,'manual');assert.equal(contentState(r),'live');assert.equal(r.published_at,'2026-11-04T12:00:00Z');assert.equal(f.stage(),'posted');
  assert.deepEqual(await captureDmLinks(f.env),{added:0});
 });
+test('Marysa: verified live publication advances creation without inventing a product check',async()=>{
+ const f=fixture(['marysa.shat']);f.message('marysa.shat');await captureDmLinks(f.env);const id=f.rows()[0].id;
+ f.db.prepare("UPDATE ugc_content SET product_status='unknown',product_evidence=NULL").run();
+ const input={verdict:'published',evidence:'Existing verified Diana event: creator shared her published reel; original thread and URL recorded',author_verified:true,publication_verified:true,published_at:'2026-11-08T05:53:02Z'};
+ await reviewContent(f.env,id,input);
+ const r=f.rows()[0];assert.equal(f.stage('marysa.shat'),'posted');assert.equal(r.link_status,'active');assert.equal(r.published_at,input.published_at);
+ assert.equal(r.product_status,'unknown');assert.equal(r.product_evidence,null);assert.equal(r.product_checked_at,null);assert.equal(contentState(r),'pending');
+ const receipt=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(contentReviewKey('c-marysa.shat',publicationLink(url).key)).value);
+ assert.equal(receipt.publication_verified,true);assert.equal(receipt.our_product,null);
+ await reviewContent(f.env,id,input);assert.equal(f.rows().length,1);assert.equal(f.stage('marysa.shat'),'posted');
+ assert.equal((await captureDmLinks(f.env)).added,0);
+});
+test('publication requires author and live evidence; preserves unknown date, product facts, manual stages and gold',async()=>{
+ const f=fixture();f.message('alice');await captureDmLinks(f.env);const id=f.rows()[0].id;
+ const input={verdict:'published',evidence:'Original author and live URL verified',author_verified:true,publication_verified:true};
+ for(const bad of [{...input,author_verified:false},{...input,publication_verified:false},{...input,evidence:''},{...input,published_at:'2099-01-01T00:00:00Z'}])await assert.rejects(reviewContent(f.env,id,bad));
+ assert.equal(f.stage(),'creation');assert.equal(f.rows()[0].link_status,null);
+ f.db.prepare("INSERT INTO crm_sync_state VALUES ('manual_stage:c-alice',?,1)").run(JSON.stringify({to:'creation',at:1}));
+ await reviewContent(f.env,id,input);assert.equal(f.stage(),'creation');assert.equal(f.rows()[0].published_at,null);
+ f.db.prepare("DELETE FROM crm_sync_state WHERE key='manual_stage:c-alice'").run();f.db.prepare("UPDATE ugc_creators SET lifecycle_stage='gold'").run();
+ f.db.prepare("UPDATE ugc_content SET product_status='identified',product_evidence='previous verified product',product_checked_at='2026-11-01'").run();
+ await reviewContent(f.env,id,input);assert.equal(f.stage(),'gold');assert.equal(f.rows()[0].product_evidence,'previous verified product');assert.equal(f.rows()[0].product_checked_at,'2026-11-01');
+});
 test('rejected row is removed atomically and never restored; other creator same URL is untouched',async()=>{
  const f=fixture(['alice','bob']);f.message('alice');f.message('bob');assert.equal((await captureDmLinks(f.env)).added,2);
  const a=f.rows().find(r=>r.creator_id==='c-alice'),b=f.rows().find(r=>r.creator_id==='c-bob');assert.notEqual(a.id,b.id);
@@ -99,8 +122,8 @@ test('existing protected helper reuses review validation and one atomic REST bat
    if(body.batch){const results=await f.env.DB.batch(body.batch.map(q=>f.env.DB.prepare(q.sql).bind(...q.params)));return Response.json({success:true,result:results.map(r=>({...r,success:true}))});}
    const result=await f.env.DB.prepare(body.sql).bind(...body.params).all();return Response.json({success:true,result:[{success:true,results:result.results}]});
  };
- const input={id,verdict:'confirmed',evidence:'Original author and our product read by Diana',author_verified:true,our_product:true};
+ const input={id,verdict:'published',evidence:'Original author and live publication verified by Diana',author_verified:true,publication_verified:true};
  await assert.rejects(protectedContentReview(input,{fetchImpl}),/existing_protected_credential/);
- assert.equal((await protectedContentReview(input,{token:'synthetic-test-credential',fetchImpl})).verdict,'confirmed');
- assert.equal(calls.length,2);assert.equal(calls[1].batch.length,3);assert.equal(f.rows()[0].product_status,'identified');assert.equal(f.stage(),'posted');
+ assert.equal((await protectedContentReview(input,{token:'synthetic-test-credential',fetchImpl})).verdict,'published');
+ assert.equal(calls.length,2);assert.equal(calls[1].batch.length,3);assert.equal(f.rows()[0].product_status,'queued');assert.equal(f.stage(),'posted');
 });

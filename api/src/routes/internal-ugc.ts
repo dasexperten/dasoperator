@@ -165,6 +165,18 @@ route.post('/reel-jobs/:id/reconcile-scope', async (c) => {
   if(!result[0].meta.changes)return c.json({ok:false,error:'scope_reconcile_conflict_read_again'},409);
   return c.json({ok:true,content_id:id,status:'published',destination_scope:scope,publications:proofs});
 });
+// Owner 08.11.2026: after three failed attempts the frame is red and the
+// next reel may run. Quarantine preserves partial/uncertain publication facts;
+// it is exhausted, so no future automatic upload can duplicate them.
+route.post('/reel-jobs/:id/block', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as { claim_id?: string; error?: string; failed_attempts?: number } | null;
+  const error = String(body?.error ?? '').trim().slice(0, 1000);
+  if (!body?.claim_id || !error || body.failed_attempts !== 3) return c.json({ ok: false, error: 'claim_reason_and_three_failed_attempts_required' }, 422);
+  const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='queued',attempts=MAX(attempts,3),claim_id=NULL,consumer_id=NULL,acknowledged_at=NULL,last_error=?,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`)
+    .bind(error, new Date().toISOString(), id, body.claim_id).run();
+  return c.json({ ok: Boolean(result.meta.changes), status: 'queued', blocked: true, automatic_retry: false }, result.meta.changes ? 200 : 409);
+});
 route.post('/reel-jobs/:id/release', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => null) as { claim_id?: string; error?: string } | null;

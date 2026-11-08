@@ -130,6 +130,26 @@ test('15-minute start spacing and release attempt limit survive retries',async()
   ready(monday+60*60000);assert.equal((await tickDiterAlarm(env,monday+60*60000)).note,'empty');
   sqlite.exec('DELETE FROM ugc_reel_jobs');
 });
+test('three failures quarantine a red reel without losing proofs or stopping the next job',async()=>{
+  sqlite.exec('DELETE FROM ugc_reel_jobs');resetAlarm();insert();
+  const saved='[{"platform":"instagram","url":"https://instagram.com/reel/KEEPTHEPROOF/"}]';
+  sqlite.prepare("UPDATE ugc_reel_jobs SET status='working',claim_id='exact-block-claim',consumer_id='mac-dieter-test',acknowledged_at='ack',attempts=1,publications=? WHERE content_id='reel1'").run(saved);
+  const body={claim_id:'exact-block-claim',error:'Three verified failed recovery attempts; publication state retained',failed_attempts:3};
+  assert.equal((await request('/reel-jobs/reel1/block',body,false)).status,401);
+  for(const failed_attempts of [undefined,0,1,2,4,'3']) assert.equal((await request('/reel-jobs/reel1/block',{...body,failed_attempts})).status,422);
+  assert.equal((await request('/reel-jobs/reel1/block',{...body,claim_id:'wrong'})).status,409);
+  assert.equal(row().status,'working');
+  assert.equal((await request('/reel-jobs/reel1/block',body)).status,200);
+  assert.equal(row().status,'queued');assert.equal(row().attempts,3);
+  assert.equal(row().publications,saved);assert.equal(row().claim_id,null);assert.equal(row().consumer_id,null);
+  assert.equal((await request('/reel-jobs/reel1/block',body)).status,409);
+  assert.equal((await request('/reel-jobs/reel1/release',{claim_id:body.claim_id,error:'late callback'})).status,409);
+  sqlite.exec("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at) VALUES('reel2','owner','2026-11-07T01:00:00Z','2026-11-07T01:00:00Z')");
+  ready();assert.equal((await tickDiterAlarm(env,monday)).accepted,true);
+  assert.equal(sqlite.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='reel2'").get().status,'working');
+  assert.equal(sqlite.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='reel1'").get().attempts,3);
+  sqlite.exec('DELETE FROM ugc_reel_jobs');resetAlarm();
+});
 test('real Owner endpoint authorizes selection and persists one queued job without fake /adhoc wake for repeated clicks',async()=>{
   sqlite.exec('DELETE FROM ugc_reel_jobs');
   const pending=[];const ctx={waitUntil(p){pending.push(p);},passThroughOnException(){}};

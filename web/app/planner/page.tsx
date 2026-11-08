@@ -1059,7 +1059,7 @@ export default function PlannerPage() {
       {selectedGroup && detail ? (
         <>
           {/* Info strip — totals + toggles */}
-          <div className="erp-planner-strip flex items-center justify-between flex-wrap gap-3" style={{ background: '#FAFAF7', padding: '12px 16px', borderRadius: 8 }}>
+          <div className="erp-planner-strip dx-keep-flex flex items-center justify-between flex-wrap gap-3" style={{ background: '#FAFAF7', padding: '12px 16px', borderRadius: 8 }}>
             <div style={{ fontSize: '14px' }}>
               <span style={{ fontWeight: 700 }}>{totCartons} cartons</span>
               <span className="text-stone-400 mx-2">·</span>
@@ -1069,16 +1069,16 @@ export default function PlannerPage() {
               <span className="text-stone-400 mx-2">·</span>
               <span className="text-stone-600">{totPallets.toFixed(1)} pallets</span>
             </div>
-            <div className="erp-planner-toggles flex items-center gap-4 flex-wrap" style={{ fontSize: '13px' }}>
-              <div className="flex items-center gap-2" title="Russia = only stock and inbound sitting in Russia (not China DGN, not Vietnam, not factory). Worldwide = all non-factory warehouses.">
+            <div className="erp-planner-toggles dx-keep-flex flex items-center gap-4 flex-wrap" style={{ fontSize: '13px' }}>
+              <div className="dx-keep-flex flex items-center gap-2" title="Russia = only stock and inbound sitting in Russia (not China DGN, not Vietnam, not factory). Worldwide = all non-factory warehouses.">
                 <span className="text-stone-500">Stock:</span>
                 <ToggleGroup value={stockZone} options={[{ id: 'russia', label: 'Russia' }, { id: 'worldwide', label: 'Worldwide' }]} onChange={(v) => setStockZone(v as 'russia' | 'worldwide')} />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="dx-keep-flex flex items-center gap-2">
                 <span className="text-stone-500">Price:</span>
                 <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => setCurrency(v as 'cny' | 'usd')}  />
               </div>
-              <div className="flex items-center gap-2" title="Free surplus at LBR/SRN/FLP can pack/unpack 1↔2↔4 before ordering from factory">
+              <div className="dx-keep-flex flex items-center gap-2" title="Free surplus at LBR/SRN/FLP can pack/unpack 1↔2↔4 before ordering from factory">
                 <span className="text-stone-500">Bundling:</span>
                 <ToggleGroup
                   value={bundlingOn ? 'on' : 'off'}
@@ -1513,7 +1513,7 @@ function SkuTable({
 
   return (
     <div className="border border-stone-200 rounded-lg overflow-hidden">
-      <table data-mshow="1 6 7" className="dx-keep-table dx-row-table w-full" style={{ fontSize: '13.5px' }}>
+      <table data-mshow="1 6 7" data-mwrap="1" className="dx-keep-table dx-row-table w-full" style={{ fontSize: '13.5px' }}>
         <thead>
           <tr className="border-b border-stone-200 bg-stone-50 text-stone-500" style={{ fontSize: '11.5px' }}>
             <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('sku')}>

@@ -1427,8 +1427,8 @@ input[type="number"] {
   main table.dx-row-table.dx-keep-table tr > :is(th, td) {
     display: none !important; position: static !important; width: auto !important;
     min-width: 0 !important; max-width: none !important;
-    white-space: normal !important; overflow-wrap: break-word; word-break: normal;
-    padding: 10px 6px !important; font-size: 14px !important; vertical-align: middle;
+    white-space: nowrap !important; overflow-wrap: normal !important; word-break: normal;
+    padding: 10px 5px !important; font-size: 14px !important; vertical-align: middle;
   }
   main table.dx-row-table.dx-keep-table tr > :is(th, td)[colspan] { display: table-cell !important; }
   main table.dx-row-table.dx-keep-table[data-mshow~="1"] tr > :nth-child(1),
@@ -1443,7 +1443,21 @@ input[type="number"] {
   main table.dx-row-table.dx-keep-table[data-mshow~="10"] tr > :nth-child(10),
   main table.dx-row-table.dx-keep-table[data-mshow~="11"] tr > :nth-child(11),
   main table.dx-row-table.dx-keep-table[data-mshow~="12"] tr > :nth-child(12) { display: table-cell !important; }
-  main table.dx-row-table.dx-keep-table tr > :is(th, td) :is(button, a, span, div) { max-width: 100%; white-space: normal; }
+  main table.dx-row-table.dx-keep-table thead th { white-space: normal !important; }
+  main table.dx-row-table.dx-keep-table[data-mwrap~="1"] tr > :nth-child(1),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="2"] tr > :nth-child(2),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="3"] tr > :nth-child(3),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="4"] tr > :nth-child(4),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="5"] tr > :nth-child(5),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="6"] tr > :nth-child(6),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="7"] tr > :nth-child(7),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="8"] tr > :nth-child(8),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="9"] tr > :nth-child(9),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="10"] tr > :nth-child(10),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="11"] tr > :nth-child(11),
+  main table.dx-row-table.dx-keep-table[data-mwrap~="12"] tr > :nth-child(12) { white-space: normal !important; overflow-wrap: anywhere !important; width: 100% !important; }
+  main table.dx-row-table.dx-keep-table[data-mwrap] tr > td :is(span, div, a, p) { white-space: inherit !important; overflow-wrap: inherit !important; text-overflow: clip !important; max-width: 100%; }
+  main table.dx-row-table.dx-keep-table col { width: auto !important; }
   main table.dx-row-table.dx-keep-table thead th { font-size: 13px !important; font-weight: 700 !important; }
 }
 

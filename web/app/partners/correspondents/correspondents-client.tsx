@@ -152,7 +152,7 @@ export default function CorrespondentsClient() {
         ) : rows.length === 0 ? (
           <div className="text-center py-12" style={{ color: 'var(--fg-3)' }}>Переписки не найдено</div>
         ) : (
-          <table data-mshow="1 2" className="dx-keep-table dx-row-table w-full">
+          <table data-mshow="1 2" data-mwrap="2" className="dx-keep-table dx-row-table w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <Th>Писем</Th><Th>Адрес</Th><Th>Ящик</Th><Th>Последняя тема</Th><Th>Контрагент</Th>

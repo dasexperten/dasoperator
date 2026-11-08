@@ -402,7 +402,7 @@ export default function ProductsPage() {
         </div>
       ) : (
         <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-          <table data-mshow="2 4 6" className="dx-keep-table dx-row-table w-full" style={{ fontSize: '14px' }}>
+          <table data-mshow="2 4 6" data-mwrap="2" className="dx-keep-table dx-row-table w-full" style={{ fontSize: '14px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <ProductTh sortKey="sku"      active={sortKey} dir={sortDir} onClick={clickHeader}>SKU</ProductTh>

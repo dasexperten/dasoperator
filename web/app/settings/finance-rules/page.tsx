@@ -96,7 +96,7 @@ export default function FinanceRulesPage() {
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)', overflow: 'hidden',
         }}>
-          <table data-mshow="1 3 5" className="dx-keep-table dx-row-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <table data-mshow="1 3 5" data-mwrap="1 3" className="dx-keep-table dx-row-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--line-1)' }}>
                 <th style={th}>Category</th>

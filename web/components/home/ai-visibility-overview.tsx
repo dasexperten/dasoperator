@@ -82,9 +82,6 @@ export default function AiVisibilityOverview() {
                 {loading ? 'Loading…' : `as of ${asOf}`}
               </span>
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>
-              Julian Farah · Search Console + AI crawlers
-            </div>
           </div>
 
           <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
@@ -98,7 +95,7 @@ export default function AiVisibilityOverview() {
                   key={c.id}
                   label={c.label}
                   value={fmt(c.value)}
-                  hint={c.hint}
+                  hint={(c.hint || '').replace(/\s*\([^)]*\)\s*$/, '')}
                   tone={c.tone}
                 />
               ))}
@@ -141,9 +138,9 @@ function AuthCard({
     >
       {/* Same reserved two-line label as the SEO tiles above — the figures in
           both blocks must sit on one line across the row. */}
-      <div style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
+      <div className="dx-metric-label" style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
       <div
-        className="dx-num"
+        className="dx-num dx-metric-value"
         style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(24px, 7vw, 40px)',
@@ -161,6 +158,7 @@ function AuthCard({
       </div>
       {hint ? (
         <div
+          className="dx-metric-hint"
           style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600, marginTop: 'auto', paddingTop: '8px' }}
         >
           {hint}

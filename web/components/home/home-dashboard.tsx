@@ -210,34 +210,29 @@ export default function HomeDashboard() {
 
       <HomePulseBlock
         title="SEO"
-        kicker="Jurgen Witt · Ubersuggest"
         asOf={loading ? 'Loading…' : `as of ${seoAsOf}`}
       >
         <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
           <MetricCard
             label="Domain authority"
-            sublabel="dasexperten.com"
             value={String(m.domain_authority)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Backlinks"
-            sublabel="dasexperten.com"
             value={loading ? '—' : formatSeoNumber(m.backlinks)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Referring domains"
-            sublabel="dasexperten.com"
             value={loading ? '—' : formatSeoNumber(m.ref_domains)}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Organic traffic"
-            sublabel="dasexperten.com · est."
             value={loading ? '—' : formatSeoNumber(m.organic_traffic)}
             tone="default"
             loading={loading}
@@ -421,12 +416,10 @@ export default function HomeDashboard() {
 // =============================================================================
 function HomePulseBlock({
   title,
-  kicker,
   asOf,
   children,
 }: {
   title: string;
-  kicker: string;
   asOf: string;
   children: ReactNode;
 }) {
@@ -445,10 +438,7 @@ function HomePulseBlock({
         />
         <div style={{ padding: '20px 24px 24px' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
-            <div>
-              <div className="dx-eyebrow-rot">{title}</div>
-              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>{kicker}</div>
-            </div>
+            <div className="dx-eyebrow-rot">{title}</div>
             <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>{asOf}</span>
           </div>
           {children}
@@ -460,13 +450,11 @@ function HomePulseBlock({
 
 function MetricCard({
   label,
-  sublabel,
   value,
   tone,
   loading,
 }: {
   label: string;
-  sublabel: string;
   value: string;
   tone: 'default' | 'rot' | 'muted';
   loading: boolean;
@@ -494,12 +482,13 @@ function MetricCard({
           every figure in the row starts at the same height. A one-line label
           next to a two-line one is what knocked the numbers out of line. */}
       <div
+        className="dx-metric-label"
         style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}
       >
         {label}
       </div>
       <div
-        className="dx-num"
+        className="dx-num dx-metric-value"
         style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(24px, 7vw, 40px)',
@@ -510,11 +499,6 @@ function MetricCard({
         }}
       >
         {loading ? <Loader2 className="h-7 w-7 animate-spin inline-block" style={{ color: 'var(--fg-3)' }} /> : value}
-      </div>
-      <div
-        style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)', marginTop: 'auto', paddingTop: '8px' }}
-      >
-        {sublabel}
       </div>
     </div>
   );

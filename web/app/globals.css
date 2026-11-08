@@ -1356,3 +1356,52 @@ input[type="number"] {
   main .pulse-row-mark { justify-self: end; display: inline-flex; }
   main .pulse-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; }
 }
+
+/* ---- 37. Home SEO/GEO: one metric = one row on phones (Owner 2026-11-08) ----
+   Tiles become a compact list: label left, number right, change after it.
+   Placed last so it wins over blocks 34 and 36. */
+@media (max-width: 767px) {
+  .dx-metrics-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0 !important;
+  }
+  .dx-metrics-grid > div {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+    height: auto !important;
+    padding: 12px 0 !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--border-hairline) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+  .dx-metrics-grid > div:last-child { border-bottom: 0 !important; }
+  .dx-metrics-grid .dx-metric-label {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    color: var(--fg-1) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .dx-metrics-grid .dx-metric-value {
+    flex: 0 0 auto !important;
+    margin: 0 !important;
+    font-size: 22px !important;
+    white-space: nowrap !important;
+  }
+  .dx-metrics-grid .dx-metric-hint {
+    flex: 0 0 4.2em !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    text-align: right !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+  }
+}

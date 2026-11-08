@@ -420,7 +420,7 @@ export async function handleScheduled(
     // diter-ugc-round receives the exact accepted job from a live consumer.
     try {
       const { tickDiterUgcAlarm } = await import('./lib/ugc-reel-store');
-      await tickDiterUgcAlarm(env);
+      await tickDiterUgcAlarm(env,new Date(event.scheduledTime || Date.now()));
     } catch (e) { recordFailure(e); console.error('[diter-ugc-alarm] failed'); }
     // Owner 2026-10-16: the Direct and payout lanes moved to their own ERP workers
     // (erp-ugc-direct, erp-ugc-payouts → cron-steps.ts). Safety net: if a worker's own timer

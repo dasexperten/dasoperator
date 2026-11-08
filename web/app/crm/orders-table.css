@@ -72,8 +72,8 @@
 
   main .crm-mock table.crm-orders-table tbody tr,
   main .crm-mock table.crm-customers-table tbody tr {
-    display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-    column-gap: 12px; row-gap: 4px; padding: 12px 14px !important;
+    display: grid !important; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+    column-gap: 10px; row-gap: 4px; padding: 12px 14px !important;
   }
   main .crm-mock table.crm-orders-table tbody td,
   main .crm-mock table.crm-customers-table tbody td {
@@ -85,14 +85,17 @@
 
   /* orders: customer · total · delivery */
   main .crm-mock table.crm-orders-table tbody td:nth-child(2) { display: block !important; grid-column: 1; font-weight: 800; font-size: 16px; }
-  main .crm-mock table.crm-orders-table tbody td:nth-child(4) { display: block !important; grid-column: 2; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
+  main .crm-mock table.crm-orders-table tbody td:nth-child(4) { display: block !important; grid-column: 3; grid-row: 1; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
+  /* Owner 2026-11-08: one order = one row — delivery sits between name and amount */
   main .crm-mock table.crm-orders-table[data-source="ru"] tbody td:nth-child(7),
-  main .crm-mock table.crm-orders-table[data-source="com"] tbody td:nth-child(8) { display: block !important; grid-column: 1 / -1; font-size: 14px; }
+  main .crm-mock table.crm-orders-table[data-source="com"] tbody td:nth-child(8) { display: block !important; grid-column: 2; grid-row: 1; font-size: 13px; text-align: right !important; }
+  main .crm-mock table.crm-orders-table tbody td:nth-child(2) { grid-row: 1; overflow-wrap: anywhere; }
 
   /* customers: name · total spent · delivered */
   main .crm-mock table.crm-customers-table tbody td:nth-child(1) { display: block !important; grid-column: 1; font-weight: 800; font-size: 16px; }
-  main .crm-mock table.crm-customers-table tbody td:nth-child(3) { display: block !important; grid-column: 2; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
-  main .crm-mock table.crm-customers-table tbody td:nth-child(4) { display: block !important; grid-column: 1 / -1; font-size: 14px; }
+  main .crm-mock table.crm-customers-table tbody td:nth-child(3) { display: block !important; grid-column: 3; grid-row: 1; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
+  main .crm-mock table.crm-customers-table tbody td:nth-child(4) { display: block !important; grid-column: 2; grid-row: 1; font-size: 13px; text-align: right !important; }
+  main .crm-mock table.crm-customers-table tbody td:nth-child(1) { grid-row: 1; overflow-wrap: anywhere; }
 
   main .crm-mock table.crm-orders-table tbody td[colspan],
   main .crm-mock table.crm-customers-table tbody td[colspan] { display: block !important; grid-column: 1 / -1; text-align: center !important; }

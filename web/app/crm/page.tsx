@@ -1974,7 +1974,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
   if (variant === 'com') {
     // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
     return (
-      <table data-mshow="1 2 4" data-mwrap="2" className="dx-keep-table dx-row-table w-full crm-orders-table" data-source="com">
+      <table className="w-full crm-orders-table" data-source="com">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
             <SortTh label="Order" sortKey="number" current={sort} onSort={onSort} align="left" />
@@ -2061,7 +2061,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
     );
   }
   return (
-    <table data-mshow="1 2 4" data-mwrap="2" className="dx-keep-table dx-row-table w-full crm-orders-table" data-source="ru">
+    <table className="w-full crm-orders-table" data-source="ru">
       <thead>
         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <Th align="left">Order</Th>
@@ -2435,7 +2435,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
   const full = contactData && typeof contactData === 'object' ? contactData : null;
   const deliveryLabel = (status?: string | null) => status === 'delivered' ? 'доставлен' : ['shipped', 'delivering', 'wait_for_delivery'].includes(status || '') ? 'в пути' : ['cancelled', 'refunded'].includes(status || '') ? 'отменён' : status === 'created' ? 'создан' : '—';
   return <>
-    <table data-mshow="1 2 3" data-mwrap="1" className="dx-keep-table dx-row-table w-full crm-customers-table" data-source={variant}>
+    <table className="w-full crm-customers-table" data-source={variant}>
       <thead><tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <Th>Customer</Th>
         <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />

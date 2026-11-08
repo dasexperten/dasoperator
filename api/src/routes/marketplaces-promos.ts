@@ -2421,6 +2421,16 @@ export async function runPromoRefillSweep(env: Env): Promise<{
   const historyEntries: RefillHistoryEntry[] = [];
   const nowIso = new Date().toISOString();
 
+  // The existing October cutover blocks this entire legacy operation. Check
+  // before reading rules or calling Ozon; repeated scans cannot make it legal.
+  // Keep the failure visible to VP7 and retain every saved rule for migration.
+  try {
+    assertLegacyPromotionWriteSafe('/v1/actions/products/activate');
+  } catch (e) {
+    if (!(e instanceof PromotionMigrationError)) throw e;
+    return { rules_checked: 0, refills_triggered: 0, refills, errors: [e.message] };
+  }
+
   // 1. List all rule keys
   let allKeys: string[] = [];
   try {

@@ -49,6 +49,24 @@ test("actual route adapter sends only v2 cursor reads and refuses post-cutover w
  } finally {globalThis.fetch=originalFetch;Date.now=originalNow;}
 });
 
+const sweepStart = route.indexOf('export async function runPromoRefillSweep');
+const sweepEnd = route.indexOf('// ===========================================================================', sweepStart);
+const sweepRuntime = code + transformSync(route.slice(sweepStart, sweepEnd), {loader:'ts',format:'esm'}).code;
+const {runPromoRefillSweep} = await import('data:text/javascript;base64,' + Buffer.from(sweepRuntime).toString('base64'));
+test('disabled refill sweep fails visibly before any KV access or Ozon request; saved rules stay intact', async t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-08'));
+  const calls = [];
+  const env = new Proxy({}, {get(_target, key) { calls.push(String(key)); throw new Error('no binding may be used'); }});
+  t.mock.method(globalThis, 'fetch', async () => { calls.push('fetch'); throw new Error('no network'); });
+  const result = await runPromoRefillSweep(env);
+  assert.equal(result.rules_checked, 0);
+  assert.equal(result.refills_triggered, 0);
+  assert.deepEqual(result.refills, []);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /legacy control is disabled/);
+  assert.deepEqual(calls, []);
+});
+
 test("live empty-currency Money and echoed-cursor empty terminal are retained without invented RUB",async()=>{
  let n=0;const products=await readActionProducts(async()=>({products:++n===1?[{id:7,action_price:{amount:"797",currency:""}}]:[],total:1,last_id:"7"}),9);
  assert.equal(products[0].action_price,797);assert.equal(products[0].currency_is_explicit_rub,false);assert.equal(n,2);

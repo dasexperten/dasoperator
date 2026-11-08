@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inMoscowWindow, alarmState, freshSignal } from './diter-ugc-alarm.mjs';
 
-test('all seven Moscow days, exact opening/closing minutes and Sunday evening', () => {
-  const windows = {0:[[1170,1290]],1:[[735,810]],2:[[480,630],[735,810]],
-    3:[[480,630],[735,810],[1170,1290]],4:[[480,630],[735,810]],5:[[735,810]],6:[]};
+test('all seven Moscow days include Owner weekend windows with exact opening/closing minutes', () => {
+  const windows = {0:[[630,780],[1110,1290]],1:[[735,810]],2:[[480,630],[735,810]],
+    3:[[480,630],[735,810],[1170,1290]],4:[[480,630],[735,810]],5:[[735,810]],6:[[600,750]]};
   for(let day=0;day<7;day++) for(let minute=0;minute<1440;minute++) {
     // 2026-11-08 is Sunday; Moscow midnight is 21:00 UTC on the previous day.
     const now=new Date(Date.UTC(2026,10,7+day,21,minute));

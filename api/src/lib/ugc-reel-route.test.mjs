@@ -47,7 +47,9 @@ test('consumer registration requires capability, excludes competing identity and
 test('Moscow windows exactly preserve days and half-open boundaries',()=>{
   const check=(s,expected)=>assert.equal(diterWindow(Date.parse(s)),expected,s);
   check('2026-11-07T09:30:00Z',false); // Saturday
-  check('2026-11-08T16:29:59Z',false);check('2026-11-08T16:30:00Z',true);check('2026-11-08T18:30:00Z',false);
+  check('2026-11-07T06:59:59Z',false);check('2026-11-07T07:00:00Z',true);
+  check('2026-11-08T07:29:59Z',false);check('2026-11-08T07:30:00Z',true);check('2026-11-08T10:00:00Z',false);
+  check('2026-11-08T15:29:59Z',false);check('2026-11-08T15:30:00Z',true);check('2026-11-08T18:30:00Z',false);
   check('2026-11-09T05:00:00Z',false);check('2026-11-10T05:00:00Z',true);check('2026-11-10T07:30:00Z',false);
   check('2026-11-09T09:14:59Z',false);check('2026-11-09T09:15:00Z',true);check('2026-11-09T10:30:00Z',false);
   check('2026-11-11T16:30:00Z',true);check('2026-11-12T16:30:00Z',false);
@@ -57,8 +59,8 @@ test('alarm stays red without live consumer or outside windows; atomic one-job a
   assert.equal((await request('/alarm/status',undefined,false)).status,401);
   assert.equal((await request('/alarm/pulse',{consumer_id:'mac-dieter-test',ready:true,capabilities:[]})).status,422);
   assert.equal((await tickDiterAlarm(env,monday)).note,'consumer_missing');assert.equal(row().status,'queued');
-  ready(Date.parse('2026-11-07T09:15:00Z'));
-  assert.equal((await tickDiterAlarm(env,Date.parse('2026-11-07T09:15:00Z'))).note,'outside_window');assert.equal(row().status,'queued');
+  ready(Date.parse('2026-11-07T06:59:00Z'));
+  assert.equal((await tickDiterAlarm(env,Date.parse('2026-11-07T06:59:00Z'))).note,'outside_window');assert.equal(row().status,'queued');
   ready(monday-90001);assert.equal((await tickDiterAlarm(env,monday)).note,'consumer_missing');
   ready();
   sqlite.exec("INSERT INTO ugc_content VALUES('reel2','profile','https://instagram.com/reel/SECOND/','video');INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at) VALUES('reel2','owner','2026-11-07T01:00:00Z','2026-11-07T01:00:00Z')");

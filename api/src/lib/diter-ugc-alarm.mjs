@@ -1,4 +1,4 @@
-// Owner 2026-11-07: ERP owns this alarm; transport is not publication work.
+// Owner 2026-11-08: Moscow-time alarm windows; the round starts on its signal.
 export const ALARM = 'diter-ugc-alarm';
 export const ROUND = 'diter-ugc-round';
 export const START_GAP_MS = 15 * 60_000;
@@ -9,7 +9,9 @@ export function inMoscowWindow(now = new Date()) {
   const minute = moscow.getUTCHours() * 60 + moscow.getUTCMinutes();
   return ([2, 3, 4].includes(day) && minute >= 480 && minute < 630)
     || (day >= 1 && day <= 5 && minute >= 735 && minute < 810)
-    || ([0, 3].includes(day) && minute >= 1170 && minute < 1290);
+    || (day === 3 && minute >= 1170 && minute < 1290)
+    || (day === 6 && minute >= 600 && minute < 750)
+    || (day === 0 && ((minute >= 630 && minute < 780) || (minute >= 1110 && minute < 1290)));
 }
 export function alarmState(rows, now = new Date()) {
   const base = { name: ALARM, target: ROUND, checked_at: now.toISOString(), content_id: null,

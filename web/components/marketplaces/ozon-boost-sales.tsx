@@ -24,6 +24,7 @@ type ProductRow = {
   product_id: number;
   offer_id: string;
   name: string;
+  display_name?: string;
   seller_price: number | null;
   min_price: number | null;
   boost: { value: number | null; value_kind?: 'api' | 'terms' | 'unknown'; status: 'active' | 'none' | 'unknown'; basis: string; memberships: Membership[] };
@@ -57,6 +58,10 @@ function asOf(value: string | null | undefined): string {
 function Boost({ row, snapshot }: { row: ProductRow; snapshot: boolean }) {
   const boost = row.boost;
   const active = boost?.memberships?.filter(m => m.status === 'active') ?? [];
+  const kinds = Array.from(new Set(active.map(m => /эластич/i.test(m.title) ? 'Эластичный'
+    : /супербустинг/i.test(m.title) ? 'Супербустинг'
+      : /максимальн.*бустинг/i.test(m.title) ? 'Максимальный'
+        : /бустинг/i.test(m.title) ? 'Бустинг' : 'Акция')));
   const label = !snapshot || !boost || boost.status === 'unknown'
     ? 'Не подтверждён'
     : boost.value != null ? `${number(boost.value)}%`
@@ -65,7 +70,7 @@ function Boost({ row, snapshot }: { row: ProductRow; snapshot: boolean }) {
     <div className={styles.boost}>
       <strong>{label}</strong>
       {snapshot && boost?.value != null && boost.status !== 'unknown' && <span>{boost.value_kind === 'terms' ? 'по условиям акции' : boost.value_kind === 'api' ? 'данные Ozon API' : 'источник в расчёте'}</span>}
-      {active.length > 0 && <span>{active.map(m => m.title).join(' · ')}</span>}
+      {active.length > 0 && <span>{kinds.join(' · ')}</span>}
     </div>
   );
 }
@@ -90,6 +95,7 @@ function Calculation({ row }: { row: ProductRow }) {
     <details className={styles.calculation}>
       <summary>Расчёт бустинга</summary>
       <div className={styles.detailBody}>
+        {row.display_name && row.display_name !== row.name && <p>Название в Ozon: {row.name}</p>}
         <p>{row.boost?.basis || 'Ozon ещё не передал подтверждение бустинга.'}</p>
         <p>Цена продавца: <strong>{price(row.seller_price)}</strong>. Минимальная цена в Ozon: <strong>{price(row.min_price)}</strong>.</p>
         {memberships.length > 0 && <ul>{memberships.map(m => (
@@ -114,9 +120,17 @@ export default function OzonBoostSales({ top10 = false }: { top10?: boolean }) {
     setLoading(true);
     setError('');
     try {
-      const response = await apiGet<PromotionReport>('/api/cron-runs/promozon?refresh=1');
+      const [response, catalogue] = await Promise.all([
+        apiGet<PromotionReport>('/api/cron-runs/promozon?refresh=1'),
+        apiGet<{ products: Array<{ id: string; product_name: string }> }>('/api/products').catch(() => null),
+      ]);
       if (!response.success || !response.result) throw new Error('report unavailable');
-      setReport(response.result);
+      const exactId = (value: string) => value.replace(/^prd_/i, '').toLowerCase();
+      const names = new Map((catalogue?.success ? catalogue.result?.products ?? [] : [])
+        .map(product => [exactId(product.id), product.product_name]));
+      setReport({ ...response.result, rows: response.result.rows.map(row => ({ ...row,
+        display_name: names.get(exactId(row.offer_id)) || undefined,
+      })) });
     } catch {
       setError('Не удалось обновить данные Ozon. Повторите обновление.');
     } finally { setLoading(false); }
@@ -169,7 +183,7 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
               <thead><tr><th scope="col">Товар</th><th scope="col">Бустинг сейчас</th><th scope="col">Сегодня</th><th scope="col">Вчера</th><th scope="col">Изменение</th></tr></thead>
               <tbody>{rows.map(row => <tr key={row.product_id}>
                 <th scope="row" className={styles.product}>
-                  <strong>{row.name || row.offer_id || `Товар ${row.product_id}`}</strong>
+                  <strong>{row.display_name || row.name || row.offer_id || `Товар ${row.product_id}`}</strong>
                   <span>{row.offer_id}</span>
                   <Calculation row={row} />
                 </th>

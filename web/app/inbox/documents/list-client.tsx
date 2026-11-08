@@ -37,7 +37,7 @@ export default function InboxListClient() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                 <FileText className="h-5 w-5" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.filename}</div>
+                  <div className="dx-product-name" style={{ fontSize: '14px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.filename}</div>
                   <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{String(r.header_fields?.doc_number?.value ?? '')} · {r.target_action} → {r.target_table}</div>
                 </div>
               </div>

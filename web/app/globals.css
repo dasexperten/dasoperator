@@ -1483,3 +1483,10 @@ input[type="number"] {
   main .erp-planner-toggles > div > .inline-flex { display: inline-flex !important; width: auto !important; flex: 0 0 auto !important; }
   main .erp-planner-toggles button { display: inline-block !important; width: auto !important; min-width: 72px; min-height: 36px; white-space: nowrap !important; }
 }
+/* Pulse rows: on the narrowest phones the reference wraps instead of being cut (2026-11-08). */
+@media (max-width: 767px) {
+  main .pulse-row-title, main .pulse-row-date { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+}
+@media (max-width: 767px) {
+  main .dx-product-name { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+}

@@ -63,3 +63,21 @@ test('source publication is accepted only with explicit verified own accepted-co
  assert.equal(reelPublicationProof([accepted],p.url)?.[0].instagram_placement,'accepted_coauth');
  assert.equal(reelPublicationProof([{...accepted,instagram_collaborator_account_id:'wrong'}],p.url),null);
 });
+
+test('Facebook and Rutube proofs require concrete public videos and preserve media identity',()=>{
+ const facebook={...proof,platform:'facebook',url:'https://www.facebook.com/reel/1444100564600075/',account:'1697038263872226'};
+ const rutube={...proof,platform:'rutube',url:'https://rutube.ru/video/0123456789abcdef0123456789abcdef/',account:'channel'};
+ assert.ok(reelPublicationProof([facebook,rutube],'https://t.me/source/123'));
+ assert.equal(reelPublicationProof([{...facebook,url:'https://facebook.com/dasexperten'}],''),null);
+ assert.equal(reelPublicationProof([{...rutube,url:'https://rutube.ru/channel/123'}],''),null);
+ assert.equal(reelPublicationProof([{...rutube,url:rutube.url.replace('rutube.ru','rutube.ru.evil')}],''),null);
+ assert.equal(reelPublicationProof([facebook],'https://facebook.com/1697038263872226/videos/1444100564600075/'),null);
+ assert.equal(reelPublicationProof([rutube],rutube.url.replace('/video/','/shorts/')),null);
+ assert.equal(appendPublicationProofs([facebook],[{...facebook,url:'https://facebook.com/1697038263872226/videos/1444100564600075/'}]).length,1);
+});
+
+test('two product outputs across seven platforms are not truncated by the old twelve-proof ceiling',()=>{
+ const platforms=[['instagram',i=>`https://instagram.com/reel/OUT${i}/`],['threads',i=>`https://threads.com/@dasexperten/post/OUT${i}`],['youtube',i=>`https://youtube.com/watch?v=AbC123def_${i}`],['vk',i=>`https://vk.com/clip-123_${456+i}`],['facebook',i=>`https://facebook.com/reel/${1444100564600070+i}/`],['rutube',i=>`https://rutube.ru/video/0123456789abcdef0123456789abcde${i}/`],['tiktok',i=>`https://tiktok.com/@dasexperten/video/123456789012345678${i}`]];
+ const outputs=[0,1].flatMap(i=>platforms.map(([platform,url])=>({...proof,platform,url:url(i),account:'dasexperten'})));
+ assert.equal(reelPublicationProof(outputs,'https://t.me/source/123')?.length,14);
+});

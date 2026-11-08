@@ -1,4 +1,4 @@
-# erp-promozon — Ozon promo guard (elastic-stock guard, zero-bid restore); dry mode lives in its config table.
+# erp-promozon — read-only boosting, overlap and same-cutoff order monitor.
 # Timer moved from the stray worker promozon ("0 */4 * * *") on 2026-09-18; code in workers/_promozon.
 name = "erp-promozon"
 main = "src/index.ts"

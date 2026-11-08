@@ -66,9 +66,7 @@ test('required waiting and payout count reads cannot report unknown as zero and 
   await failsInThreeMinutes(t, 'erp-ugc-payouts', { countFailure: new Error('D1 read unavailable') }, /open payouts.*D1 read unavailable/);
 });
 
-test('promo refill errors are failures even when other rules succeeded', async t => {
-  const f = fixture(t, { refill: { rules_checked: 36, refills_triggered: 1, errors: ['legacy control disabled'] } });
-  await assert.rejects(STEPS['erp-promo-refill'](f.env), /promo refill: 1 errors; legacy control disabled/);
-  const g = fixture(t, { refill: { rules_checked: 36, refills_triggered: 0, errors: [] } });
-  assert.equal(JSON.parse(await STEPS['erp-promo-refill'](g.env)).rules_checked, 36);
+test('removed timer jobs have no executable ERP step', () => {
+  assert.equal(STEPS['erp-promo-refill'], undefined);
+  assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
 });

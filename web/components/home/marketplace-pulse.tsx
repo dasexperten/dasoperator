@@ -14,6 +14,7 @@
 
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Loader2, X, Package, ShoppingBag, BarChart3 } from 'lucide-react';
+import OzonBoostSales from '@/components/marketplaces/ozon-boost-sales';
 
 const COLOR_OZON = '#185FA5';
 const COLOR_OZON_LIGHT = '#85B7EB';
@@ -182,7 +183,7 @@ export default function MarketplacePulse() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 dx-stack-mobile">
         <SalesTodayCard data={salesToday} loading={loading} refreshing={refreshing} onRefresh={handleRefresh} />
         <TrendCard data={trend} loading={loading} />
-        <PieBreakdownCard />
+        <OzonBoostSales top10 />
       </div>
     </section>
   );
@@ -462,171 +463,9 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Card 3 — Sales Breakdown last 30 days (by product / SKU only)
+// Legacy Top & Bottom helpers, unused by the current dashboard.
 // ═══════════════════════════════════════════════════════════════════════════
 
-type BreakdownData = {
-  period: { from: string; to: string; label: string };
-  sku: {
-    top10: Array<{ sku: string; product_name: string | null; units: number; revenue: number }>;
-    other: { count: number; revenue: number; units?: number };
-    total: number;
-    total_units?: number;
-    sku_count: number;
-  };
-};
-
-const SKU_COLORS = ['#C4302B', '#D4A017', '#1D9E75', '#534AB7', '#D4537E', '#378ADD', '#639922', '#D85A30', '#993556', '#0F6E56'];
-const OTHER_COLOR = 'var(--fg-2)';
-
-function buildPieSlices(values: number[], explode = 6, rx = 90, ry = 49.5) {
-  const total = values.reduce((s, v) => s + v, 0);
-  if (total <= 0) return [];
-  const slices = [];
-  let angle = 0;
-  for (const v of values) {
-    const sweep = (v / total) * 360;
-    const start = angle;
-    const end = angle + sweep;
-    const mid = (start + end) / 2;
-    const sx = rx * Math.cos((start * Math.PI) / 180);
-    const sy = -ry * Math.sin((start * Math.PI) / 180);
-    const ex = rx * Math.cos((end * Math.PI) / 180);
-    const ey = -ry * Math.sin((end * Math.PI) / 180);
-    const dx = explode * Math.cos((mid * Math.PI) / 180);
-    const dy = -explode * Math.sin((mid * Math.PI) / 180) * (ry / rx);
-    const largeArc = sweep > 180 ? 1 : 0;
-    slices.push({ sx, sy, ex, ey, dx, dy, largeArc, rx, ry, pct: (v / total) * 100 });
-    angle = end;
-  }
-  return slices;
-}
-
-function fmtMoneyShort(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
-  if (Math.abs(v) >= 1_000) return (v / 1_000).toFixed(0) + 'k';
-  return v.toFixed(0);
-}
-
-function PieBreakdownCard() {
-  const [data, setData] = useState<BreakdownData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dasoperator-api.dasexperten.workers.dev';
-    fetch(`${apiBase}/api/dashboard/sales-breakdown`)
-      .then(r => r.json())
-      .then(j => { if (j?.success) setData(j.result); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', gridColumn: 'span 2' }}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Package className="h-4 w-4" style={{ color: 'var(--fg-2)' }} />
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
-            Sales breakdown · {data?.period.label || 'Last 30 days'}
-          </span>
-        </div>
-        {data?.period.from && (
-          <span style={{ fontSize: '12px', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-            {data.period.from} → {data.period.to}
-          </span>
-        )}
-      </div>
-
-      {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
-        <SkuPie data={data} />
-      )}
-    </div>
-  );
-}
-
-function SkuPie({ data }: { data: BreakdownData }) {
-  const sortedTop10 = data.sku.top10;
-  const otherUnits = data.sku.other.units ?? 0;
-  const totalUnits = data.sku.total_units
-    ?? (sortedTop10.reduce((s, r) => s + r.units, 0) + otherUnits);
-  const other = { count: data.sku.other.count, units: otherUnits };
-
-  const slices = useMemo(() => {
-    const values = [...sortedTop10.map(s => s.units), other.units];
-    return buildPieSlices(values, 6);
-  }, [data]);
-
-  const legend = [
-    ...sortedTop10.map((s, i) => ({
-      label: (s.product_name || s.sku).toUpperCase(),
-      units: s.units,
-      pct: totalUnits > 0 ? (s.units / totalUnits) * 100 : 0,
-      color: SKU_COLORS[i] || OTHER_COLOR,
-      muted: false,
-    })),
-    {
-      label: `Other (${other.count} SKU)`,
-      units: other.units,
-      pct: totalUnits > 0 ? (other.units / totalUnits) * 100 : 0,
-      color: OTHER_COLOR,
-      muted: true,
-    },
-  ];
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By product · retail only (units)</span>
-        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{totalUnits.toLocaleString('ru-RU')} шт</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
-        <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
-          {slices.map((s, i) => (
-            <g key={i} transform={`translate(${s.dx.toFixed(2)},${s.dy.toFixed(2)})`}>
-              <path
-                d={`M 0,0 L ${s.sx.toFixed(2)},${s.sy.toFixed(2)} A ${s.rx},${s.ry} 0 ${s.largeArc},0 ${s.ex.toFixed(2)},${s.ey.toFixed(2)} Z`}
-                fill={SKU_COLORS[i] || OTHER_COLOR}
-                stroke="white"
-                strokeWidth={1.5}
-              />
-            </g>
-          ))}
-        </svg>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', marginTop: '14px' }}>
-        {legend.map((l, i) => (
-          <div
-            key={l.label}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '3px 0',
-              borderTop: l.muted && i > 0 ? '0.5px solid var(--border-hairline)' : 'none',
-              marginTop: l.muted ? '4px' : 0,
-              paddingTop: l.muted ? '6px' : '3px',
-            }}
-          >
-            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: l.color, flexShrink: 0 }} />
-            <span style={{ flex: 1, fontWeight: 700, color: l.muted ? 'var(--fg-3)' : 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {l.label}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: l.muted ? 'var(--fg-3)' : 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-              {l.units.toLocaleString('ru-RU')} шт
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-              {l.pct.toFixed(1)}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// LEGACY — Top & Bottom SKUs (not currently used, kept for reference) (toggle units/revenue, product names)
-// ═══════════════════════════════════════════════════════════════════════════
 type SortMode = 'units' | 'revenue';
 
 function TopBottomCard({ data, loading }: { data: Spotlight | null; loading: boolean }) {

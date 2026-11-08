@@ -79,11 +79,6 @@ export const STEPS: Record<string, Step> = {
         activity: refreshed > 0 || openPayouts > 0, refreshed, openPayouts };
     });
   },
-  // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.
-  'erp-ugc-payout-summary': async (env) => {
-    const { ugcPayoutEvening } = await import('./lib/ugc-payout-store');
-    return ugcPayoutEvening(env);
-  },
   'erp-site-stock': async (env) => {
     // @ts-expect-error plain JS module
     const { syncOzonStocksToSite } = await import('./lib/site-stock-sync.mjs');
@@ -106,12 +101,6 @@ export const STEPS: Record<string, Step> = {
     const { snapshotPass } = await import('./lib/mail-index-sync');
     const r = await snapshotPass(env, { max: 4 });
     return JSON.stringify({ pending: r.pending, wrote: r.wrote, ms: r.ms });
-  },
-  'erp-promo-refill': async (env) => {
-    const { runPromoRefillSweep } = await import('./routes/marketplaces-promos');
-    const result = await runPromoRefillSweep(env);
-    if (result.errors.length) throw new Error(`promo refill: ${result.errors.length} errors; ${result.errors[0]}`);
-    return JSON.stringify(result);
   },
   'erp-marketplace-pull': async (env) => {
     const { tickMarketplacePull } = await import('./lib/marketplace-pull');

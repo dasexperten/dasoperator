@@ -1,6 +1,7 @@
 // Failures are journalled once; only persistent unresolved episodes reach Telegram.
 import type { Env } from '../types';
 import { reportCronFailure } from './auto-healer';
+import RETIRED from '../../../scripts/erp-retired.json';
 
 export async function notifyErpCronFailures(env: Env): Promise<number> {
   // No terminal receipt after 20 minutes (timer runs get 15): completion is unconfirmed.
@@ -32,7 +33,8 @@ export async function notifyErpCronFailures(env: Env): Promise<number> {
 
   for (const r of results) {
     await env.DB.prepare('UPDATE erp_cron_runs SET notified = 1 WHERE id = ?').bind(r.id).run();
+    if (RETIRED.includes(r.worker)) continue;
     await reportCronFailure(env, r.worker, r.error ?? 'failed without a message', { cron: r.cron, occurredAt: Math.floor(Date.parse(r.started_at) / 1000) });
   }
-  return results.length;
+  return results.filter(r => !RETIRED.includes(r.worker)).length;
 }

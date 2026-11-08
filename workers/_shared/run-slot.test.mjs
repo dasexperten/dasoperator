@@ -163,8 +163,8 @@ test('HTTP scheduled door is unavailable for unregistered workers; manual runs r
 });
 
 test('broader registry includes API-backed lanes but excludes disabled and retired work', () => {
-  for (const name of ['erp-blogger-id', 'erp-mail-snapshot', 'erp-ozon-ads-poll', 'erp-ugc-payout-summary']) assert.equal(hasScheduledDoor(name), true);
-  for (const name of ['erp-promo-refill', 'erp-promozon', 'erp-vn-einvoice', 'erp-fbo-sync']) assert.equal(hasScheduledDoor(name), false);
+  for (const name of ['erp-blogger-id', 'erp-mail-snapshot', 'erp-ozon-ads-poll']) assert.equal(hasScheduledDoor(name), true);
+  for (const name of ['erp-ugc-payout-summary', 'erp-promo-refill', 'erp-promozon', 'erp-vn-einvoice', 'erp-fbo-sync']) assert.equal(hasScheduledDoor(name), false);
 });
 
 test('blogger HTTP requires configured04:00Yerevan cron and current due minute, then dedupes CF', async t => {

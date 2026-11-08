@@ -1,0 +1,28 @@
+name: Retire Owner-removed ERP workers
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/erp-retired.json'
+      - 'scripts/retire-erp-workers.mjs'
+      - '.github/workflows/retire-erp-workers.yml'
+  workflow_dispatch:
+concurrency:
+  group: retire-erp-workers
+  cancel-in-progress: false
+jobs:
+  guard:
+    uses: ./.github/workflows/_guard.yml
+  retire:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Remove the two named jobs and verify absence
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
+        run: node scripts/retire-erp-workers.mjs

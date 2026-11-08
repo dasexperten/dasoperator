@@ -10,8 +10,20 @@ import { expectedFires } from '../lib/cron-expect';
 import SCHEDULES from '../generated/erp-schedules.json';
 import BORN from '../generated/erp-born.json';
 import BUSINESS_SCHEDULES from '../../../scripts/erp-clock/schedules.json';
+import RETIRED from '../../../scripts/erp-retired.json';
+import { REPORT_KEY, runPromotionMonitor } from '../../../workers/_promozon/monitor';
 
 const route = new Hono<{ Bindings: Env }>();
+
+route.get('/promozon', async (c) => {
+  try {
+    if (c.req.query('refresh') === '1') return c.json({ success: true, result: await runPromotionMonitor(c.env) });
+    const row = await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(REPORT_KEY).first<{ value: string }>();
+    return c.json({ success: true, result: row ? JSON.parse(row.value) : { snapshot_at: null, rows: [], sales_available: false, timezone: 'Asia/Yerevan' } });
+  } catch (e) {
+    return c.json({ success: false, errors: [{ message: e instanceof Error ? e.message : 'Promotion monitor unavailable' }] }, 503);
+  }
+});
 
 route.get('/', async (c) => {
   const since = new Date(Date.now() - 24 * 3600_000).toISOString();
@@ -30,7 +42,11 @@ route.get('/', async (c) => {
   ]);
   return c.json({
     success: true,
-    result: { workers: latest.results, last_24h: fails.results, recent: recent.results },
+    // Owner 2026-11-08: remove the two retired jobs from the active screen;
+    // historical receipts remain stored in erp_cron_runs.
+    result: { workers: latest.results.filter((r: any) => !RETIRED.includes(r.worker)),
+      last_24h: fails.results.filter((r: any) => !RETIRED.includes(r.worker)),
+      recent: recent.results.filter((r: any) => !RETIRED.includes(r.worker)) },
   });
 });
 

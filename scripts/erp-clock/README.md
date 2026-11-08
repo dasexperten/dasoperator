@@ -6,7 +6,7 @@ jobs. This service is a model-free transport clock on the existing non-Hermes
 telegramer server, not an agent or an alternate business executor. No new host,
 paid resource, inbound port or business schedule is created.
 
-The registry covers44 active timer workers (27 API-backed and17 local), using each worker's exact
+The registry covers43 active timer workers (26 API-backed and17 local), using each worker's exact
 configured cron. Direct and payout-status retain their minute probe and ERP
 3/15/30 cadence. Payout status does not execute or approve payments. The site
 sales rebuild retains its first-Wednesday gate. Cloudflare timers stay enabled.
@@ -23,8 +23,9 @@ execution ownership. Existing WB cross-slot locking remains in force.
 
 Only workers with this ownership contract may use `/scheduled`. Local workers
 require the explicit local claim path; adding a name alone is insufficient.
-Excluded: intentionally disabled legacy pricing `erp-promo-refill`, provider-
-disabled `erp-vn-einvoice`, and the dry monitor `erp-promozon`. They are not revived.
+Removed by the Owner on 2026-11-08: `erp-promo-refill` and `erp-ugc-payout-summary`.
+Excluded: provider-disabled `erp-vn-einvoice` and the independently scheduled
+read-only monitor `erp-promozon`. They are not added to this transport.
 
 The Python process starts one foreground HTTPS request per due worker at a time.
 One slow Direct request does not block the payout-status clock. It holds the

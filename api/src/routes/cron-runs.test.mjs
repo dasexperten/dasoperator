@@ -19,6 +19,20 @@ async function guard(t, at, rows = []) {
   return (await r.json()).result.workers;
 }
 const find = (rows, name = 'erp-site-sales-rebuild') => rows.find(r => r.worker === name);
+test('retired jobs stay out of active timer lists without erasing their stored history', async () => {
+  const rows = [{ worker: 'erp-promo-refill' }, { worker: 'erp-ugc-payout-summary' }, { worker: 'erp-promozon' }];
+  const DB = { prepare() { return { bind() { return this; }, async all() { return { results: rows }; } }; } };
+  const response = await route.request('/', {}, { DB });
+  const result = (await response.json()).result;
+  for (const list of [result.workers, result.last_24h, result.recent]) assert.deepEqual(list, [{ worker: 'erp-promozon' }]);
+  assert.equal(rows.length, 3);
+});
+test('promotion report with no prior saved snapshot is unknown rather than fabricated zeros', async () => {
+  const DB = { prepare() { return { bind() { return this; }, async first() { return null; } }; } };
+  const response = await route.request('/promozon', {}, { DB });
+  const result = (await response.json()).result;
+  assert.equal(result.snapshot_at, null); assert.equal(result.sales_available, false); assert.deepEqual(result.rows, []);
+});
 function receipt(worker, at, { ok = 1, note = 'actual work', finished = true, dry = 0 } = {}) {
   return { worker, cron: worker === 'erp-site-sales-rebuild' ? '0 4 * * 4' : '* * * * *', started_at: at,
     finished_at: finished ? at : null, ok, dry_run: dry, note, error: ok ? null : 'fixture failure' };

@@ -67,9 +67,6 @@
   "erp-partner-status": [
     "0 12 * * *"
   ],
-  "erp-promo-refill": [
-    "15 */3 * * *"
-  ],
   "erp-promozon": [
     "0 */4 * * *"
   ],
@@ -107,9 +104,6 @@
     "*/3 2-21 * * *"
   ],
   "erp-ugc-link-health": [],
-  "erp-ugc-payout-summary": [
-    "0 17 * * *"
-  ],
   "erp-ugc-payouts": [
     "* * * * *"
   ],

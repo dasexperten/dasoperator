@@ -17,6 +17,7 @@ import { ChannelsOverview, ChannelTab, type ChannelKey } from '@/components/mark
 import { apiPost, apiDelete } from '@/lib/api';
 import { WbFbsBoard } from '@/components/marketplaces/wb-fbs';
 import { WbLibrary } from '@/components/marketplaces/wb-library';
+import OzonBoostSales from '@/components/marketplaces/ozon-boost-sales';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
@@ -157,6 +158,9 @@ function fmt(n: number | null | undefined): string {
 
 export default function MarketplacesPage() {
   const [tab, setTab] = useState<Tab>('overview');
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'ozon-promos') setTab('ozon-promos');
+  }, []);
 
   const tabs: Array<{ key: Tab; label: string; accent: string }> = [
     { key: 'overview', label: 'Overview', accent: 'var(--fg-1)' },
@@ -207,7 +211,7 @@ export default function MarketplacesPage() {
 
       {tab === 'overview' && <ChannelsOverview onOpen={openChannel} />}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
-      {tab === 'ozon-promos' && <div style={OZON_THEME}><OzonPromotionsWidget /></div>}
+      {tab === 'ozon-promos' && <div className="space-y-6"><OzonBoostSales /><div style={OZON_THEME}><OzonPromotionsWidget /></div></div>}
       {/* WB is FBS-only since 2026-09-19 (Owner): the FBO planner is retired for WB. */}
       {tab === 'wb' && <WbFbsBoard />}
       {tab === 'wb-library' && <WbLibrary />}

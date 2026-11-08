@@ -1,15 +1,16 @@
 import { erpWorker, type BaseEnv } from '../../_shared/run';
-// @ts-expect-error plain JS module
-import { runCheck } from '../../_promozon/promozon.mjs';
+import { runPromotionMonitor } from '../../_promozon/monitor';
 
 interface Env extends BaseEnv {
   PROMO_DB: D1Database;
+  OZON_SELLER_API_KEY?: string;
+  OZON_SELLER_CLIENT_ID?: string;
 }
 
 export default erpWorker<Env>('erp-promozon', async (env, dry) => {
-  if (dry) return { note: 'dry · promozon not started' };
-  // The promozon code reads its own database as env.DB.
-  const r = await runCheck({ ...env, DB: env.PROMO_DB }, 'cron');
-  if (r && (r.status === 'error' || r.error)) throw new Error(String(r.error ?? 'promozon error'));
-  return { rows: r?.products_checked ?? r?.productsChecked, note: JSON.stringify(r).slice(0, 600) };
+  if (dry) return { note: 'dry · read-only promotion monitor not started' };
+  const r = await runPromotionMonitor(env);
+  if (!r.sales_available) throw new Error(`Ozon monitor saved partial report: ${r.sales_error ?? 'same-cutoff orders unavailable'}`);
+  return { rows: r.rows.length, note: JSON.stringify({ mode: 'read_only', products: r.rows.length,
+    sales_available: r.sales_available, issues: r.rows.filter(p => p.issues.length).length, snapshot_at: r.snapshot_at, actionsTaken: 0 }) };
 });

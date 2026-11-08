@@ -436,18 +436,7 @@ export async function handleScheduled(
         if (!fresh && step) console.log(`[cron:${w}:fallback] ${await step(env)}`);
       }
     } catch (e) { recordFailure(e); console.error('[cron:ugc-fallback] failed:', e); }
-    // Evening UGC payout summary to the Owner (Owner 2026-10-15): a message, never a
-    // payment. The erp-ugc-payout-summary timer has no run key yet, so the ERP starts
-    // it itself at 21:05–21:55 Yerevan; one message a day (day mark in crm_sync_state).
-    const tick = new Date(event.scheduledTime || Date.now());
-    if (tick.getUTCHours() === 17 && tick.getUTCMinutes() % 10 === 5) {
-      try {
-        const { ugcPayoutEvening } = await import('./lib/ugc-payout-store');
-        console.log(`[cron:ugc-payout-evening] ${await ugcPayoutEvening(env)}`);
-      } catch (e) { recordFailure(e);
-        console.error('[cron:ugc-payout-evening] failed:', e);
-      }
-    }
+    // Owner 2026-11-08: payout-summary and its minute-tick fallback are removed.
     // No return: the email-harvest branch below shares this minute tick.
   }
 

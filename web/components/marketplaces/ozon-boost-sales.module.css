@@ -27,13 +27,16 @@
 .spinning { animation: rotate 1s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
-@media (max-width: 680px) {
+@media (max-width: 767px) {
   .panel { padding: 14px 12px; }
   .header h2 { font-size: 19px; }
   .tools { gap: 8px; }
   .tools > span { font-size: 14px; }
   .table th, .table td { padding: 12px 4px; }
-  .table { min-width: 0; table-layout: fixed; }
+  .tableWrap > table.table { display: table; width: 100%; min-width: 0; table-layout: fixed; }
+  .tableWrap > table.table.table th, .tableWrap > table.table.table td { position: static; background: transparent; }
+  .tableWrap > table.table.table thead th { background: var(--paper-sunk); }
+  .product > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .table th:first-child { width: 43%; padding-left: 0; }
   .table th:nth-child(3), .table th:nth-child(5) { width: 18%; }
   .table th:nth-child(7) { width: 21%; }

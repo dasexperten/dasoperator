@@ -118,7 +118,7 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
       {loading && !report ? <p className={styles.empty} role="status">Загружаем Ozon…</p>
         : !rows.length ? <p className={styles.empty}>{top10 && report && !report.sales_available ? 'Топ-10 пока не подтверждён.' : 'Нет данных Ozon.'}</p>
           : <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Товары Ozon, таблица с горизонтальной прокруткой">
-            <table className={styles.table}>
+            <table className={`${styles.table} dx-keep-table`}>
               <thead><tr>
                 <th scope="col">Товар</th><th scope="col" className={styles.boostHeader}>Бустинг</th>
                 <th scope="col"><span className={styles.desktopLabel}>Заказы сегодня</span><span className={styles.mobileLabel}>Сегодня</span></th>

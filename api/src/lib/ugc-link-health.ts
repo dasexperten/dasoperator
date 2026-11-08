@@ -5,8 +5,10 @@ import { classifyUgcLink, isSafePublicHttpUrl, type UgcLinkStatus } from './ugc-
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 60;
-const CONCURRENCY = 6;
+const CONCURRENCY = 3;
 const TIMEOUT_MS = 8_000;
+// Leave time for the final group of bounded Apify calls before the worker runtime limit.
+const BATCH_TIME_BUDGET_MS = 4 * 60_000;
 const MAX_REDIRECTS = 5;
 const BODY_BYTES = 32_768;
 
@@ -144,7 +146,9 @@ export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_L
   ).bind(limit, contentId ?? null).all<DueLink>();
   const rows = due.results ?? [];
   const results: CheckResult[] = [];
+  const startedAt = Date.now();
   for (let offset = 0; offset < rows.length; offset += CONCURRENCY) {
+    if (Date.now() - startedAt >= BATCH_TIME_BUDGET_MS) break;
     const group = await Promise.all(rows.slice(offset, offset + CONCURRENCY).map(inspectLink));
     for (const result of group) {
       const row = rows.find(row => row.id === result.contentId)!;
@@ -168,5 +172,5 @@ export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_L
     }
   }
   const counts = Object.fromEntries(['active', 'missing', 'restricted', 'unknown', 'invalid'].map((status) => [status, results.filter((r) => r.status === status).length]));
-  return { selected: rows.length, checked: results.filter(r => !r.pending).length, pending: results.filter(r => r.pending).length, limit, counts, checked_at: new Date().toISOString() };
+  return { selected: rows.length, checked: results.filter(r => !r.pending).length, pending: results.filter(r => r.pending).length, deferred: rows.length - results.length, limit, counts, checked_at: new Date().toISOString() };
 }

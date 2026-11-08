@@ -54,3 +54,11 @@ test('unknown post metrics are not written as zero',async()=>{
  const {d}=await links(async()=>({status:'ok',views:null,likes:null,comments:null}),200);
  assert.equal(d.writes.some(x=>x.sql.includes('SET views=COALESCE')),false);
 });
+
+test('slow post checks leave the remainder explicitly deferred',async t=>{
+ const rows=Array.from({length:6},(_,i)=>({id:'c'+i,content_url:'https://www.instagram.com/reel/ExampleCode/'}));
+ const d=db(rows); let now=1000000;t.mock.method(Date,'now',()=>now);
+ t.mock.method(globalThis,'fetch',async()=>{now+=300000;return new Response('gone',{status:404})});
+ const f=load('./ugc-link-health.ts',{instagramPostFallback:async()=>{throw Error('unexpected paid call')},classifyUgcLink,isSafePublicHttpUrl},'runUgcLinkHealthBatch');
+ const result=await f({DB:d},6);assert.equal(result.checked,3);assert.equal(result.deferred,3);
+});

@@ -1,4 +1,6 @@
 import type { Env } from '../types';
+import { instagramPostFallback } from './ugc-apify.mjs';
+import { refreshCadence, dueCadenceSql } from './ugc-refresh-cadence.mjs';
 import { classifyUgcLink, isSafePublicHttpUrl, type UgcLinkStatus } from './ugc-link-classifier.mjs';
 
 const DEFAULT_LIMIT = 50;
@@ -8,7 +10,7 @@ const TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 5;
 const BODY_BYTES = 32_768;
 
-type DueLink = { id: string; content_url: string };
+type DueLink = { id: string; content_url: string; published_at?: string | null; link_checked_at?: string | null };
 type CheckResult = {
   contentId: string;
   status: UgcLinkStatus;
@@ -17,6 +19,7 @@ type CheckResult = {
   finalUrl: string | null;
   note: string;
   responseMs: number;
+  pending?: boolean;
 };
 
 function note(value: string): string {
@@ -126,24 +129,39 @@ async function saveCheck(env: Env, result: CheckResult): Promise<void> {
   ]);
 }
 
-export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_LIMIT): Promise<Record<string, unknown>> {
+export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_LIMIT, contentId?: string): Promise<Record<string, unknown>> {
+  if (contentId !== undefined && !/^[A-Za-z0-9_-]{1,160}$/.test(contentId)) throw new Error('invalid_content_id');
   const limit = Math.max(1, Math.min(MAX_LIMIT, Math.trunc(requestedLimit || DEFAULT_LIMIT)));
   const due = await env.DB.prepare(
-    `SELECT id, content_url FROM ugc_content
+    `SELECT id, content_url, published_at, link_checked_at FROM ugc_content
      WHERE content_url IS NOT NULL AND TRIM(content_url) <> ''
-       AND (link_checked_at IS NULL OR datetime(link_checked_at) <= datetime('now', '-30 days'))
+       AND (?2 IS NULL OR id = ?2)
+       AND (?2 IS NOT NULL OR ${dueCadenceSql('published_at','link_checked_at')})
      ORDER BY link_checked_at IS NOT NULL ASC, datetime(link_checked_at) ASC, imported_at ASC, id ASC
      LIMIT ?1`
-  ).bind(limit).all<DueLink>();
+  ).bind(limit, contentId ?? null).all<DueLink>();
   const rows = due.results ?? [];
   const results: CheckResult[] = [];
   for (let offset = 0; offset < rows.length; offset += CONCURRENCY) {
     const group = await Promise.all(rows.slice(offset, offset + CONCURRENCY).map(inspectLink));
     for (const result of group) {
+      const row = rows.find(row => row.id === result.contentId)!;
+      if (result.status === 'restricted' || result.status === 'unknown') {
+        const fallback = await instagramPostFallback(env, { url: row.content_url, cacheForMs: refreshCadence({activityAt:row.published_at,checkedAt:row.link_checked_at,manual:Boolean(contentId)}).cacheForMs });
+        if (fallback.status === 'pending' || fallback.status === 'budget_exhausted') {
+          result.pending = true;
+          results.push(result);
+          continue; // Keep due, do not call the blocked lightweight check a terminal result.
+        }
+        if (fallback.status === 'ok') {
+          result.status = 'active'; result.checkedAt = fallback.observedAt ?? result.checkedAt;
+          result.finalUrl = fallback.url ?? result.finalUrl; result.note = 'Exact Instagram post observed by bounded Apify fallback';
+        }
+      }
       await saveCheck(env, result);
       results.push(result);
     }
   }
   const counts = Object.fromEntries(['active', 'missing', 'restricted', 'unknown', 'invalid'].map((status) => [status, results.filter((r) => r.status === status).length]));
-  return { selected: rows.length, checked: results.length, limit, counts, checked_at: new Date().toISOString() };
+  return { selected: rows.length, checked: results.filter(r => !r.pending).length, pending: results.filter(r => r.pending).length, limit, counts, checked_at: new Date().toISOString() };
 }

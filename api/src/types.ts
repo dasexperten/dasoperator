@@ -3,6 +3,9 @@
 // =============================================================================
 
 export interface Env {
+  // Selective bounded fallback; absent budget/token disables paid requests.
+  APIFY_TOKEN?: string;
+  APIFY_DAILY_BUDGET_USD?: string;
   DIANA_WAKE: DurableObjectNamespace;
   DIANA_SUBSCRIPTION: Fetcher;
   BROWSER_QUEUE_FIRE_URL?: string; // Owner 2026-10-19: routine fire URL for the /ugc browser-queue button

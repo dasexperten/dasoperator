@@ -1,4 +1,6 @@
 import type { Env } from '../types';
+import { instagramProfileFallback } from './ugc-apify.mjs';
+import { refreshCadence, dueCadenceSql } from './ugc-refresh-cadence.mjs';
 import { measureInstagram, render } from './ugc-diagnose';
 import { parseInstagramProfile, isInstagramAvatarUrl } from './ugc-blogger-profile-parse.mjs';
 
@@ -45,7 +47,7 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
 }
 
 // Independent of payouts and Direct. Every 3h during the Owner's working window: bloggers never checked yet (Owner 2026-10-18: «где followers»);
-// at 04 UTC (08:00 Yerevan, Owner 2026-11-07) also the weekly refresh of known ones. Or a manual batch/profile.
+// Activity-age cadence is evaluated at existing timer slots; a manual target bypasses cadence, not budget.
 // Missing values never erase previously observed values; attempts and successes differ.
 export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean; avatarUrl?: string } = {}) {
   const lease = crypto.randomUUID();
@@ -55,27 +57,39 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
     RETURNING worker`).bind(lock, lease, Date.now() + 15 * 60_000, Date.now()).first();
   if (!claimed) return { attempted: 0, updated: 0, busy: true };
   try {
-    const rows = (await env.DB.prepare(`SELECT id,normalized_handle,
-        (SELECT from_id FROM ugc_ig_messages m WHERE m.direction='in' AND lower(m.from_username)=ugc_creator_platforms.normalized_handle AND m.from_id IS NOT NULL ORDER BY m.created_at DESC LIMIT 1) igsid
-      FROM ugc_creator_platforms
-      WHERE platform='instagram' AND (?1 IS NULL OR id=?1)
-        AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=ugc_creator_platforms.creator_id AND (c.archived_at IS NULL OR ?1 IS NOT NULL))
-        AND (?1 IS NOT NULL OR profile_attempted_at IS NULL OR (?4 = 1 AND profile_attempted_at < ?2))
-      ORDER BY (profile_checked_at IS NULL) DESC, created_at DESC, profile_attempted_at ASC LIMIT ?3`)
-      .bind(profileId ?? null, new Date(Date.now() - 7 * 86_400_000).toISOString(), Math.min(20, Math.max(1, limit)), new Date().getUTCHours() === 4 ? 1 : 0)
-      .all<{ id: string; normalized_handle: string; igsid: string | null }>()).results ?? [];
+    const rows = (await env.DB.prepare(`WITH candidates AS (
+      SELECT cp.id,cp.normalized_handle,cp.profile_attempted_at,
+        (SELECT MAX(activity) FROM (
+          SELECT last_contact_at activity FROM ugc_collaborations WHERE creator_id=cp.creator_id
+          UNION ALL SELECT invited_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
+          UNION ALL SELECT accepted_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
+          UNION ALL SELECT sample_sent_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
+          UNION ALL SELECT published_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
+          UNION ALL SELECT created_at FROM ugc_ig_messages WHERE conversation_id IN
+            (SELECT conversation_id FROM ugc_ig_messages WHERE lower(from_username)=cp.normalized_handle)
+        ) WHERE julianday(activity) IS NOT NULL AND julianday(activity)<=julianday('now')) activity_at,
+        (SELECT from_id FROM ugc_ig_messages m WHERE m.direction='in' AND lower(m.from_username)=cp.normalized_handle AND m.from_id IS NOT NULL ORDER BY m.created_at DESC LIMIT 1) igsid
+      FROM ugc_creator_platforms cp WHERE cp.platform='instagram' AND (?1 IS NULL OR cp.id=?1)
+        AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=cp.creator_id AND (c.archived_at IS NULL OR ?1 IS NOT NULL))
+    ) SELECT * FROM candidates WHERE ?1 IS NOT NULL OR ${dueCadenceSql('activity_at','profile_attempted_at')}
+      ORDER BY (profile_attempted_at IS NULL) DESC,profile_attempted_at ASC,id ASC LIMIT ?2`)
+      .bind(profileId ?? null, Math.min(20, Math.max(1, limit)))
+      .all<{ id: string; normalized_handle: string; igsid: string | null; activity_at: string | null; profile_attempted_at: string | null }>()).results ?? [];
     const messagingToken = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
     const pageToken = messagingToken ? (await graph('1697038263872226?fields=access_token', messagingToken))?.access_token : null;
-    let updated = 0, attempted = 0;
+    let updated = 0, attempted = 0, apifyPending = 0;
     const avatars: { profile_id: string; saved: boolean; handle: string; source: string | null }[] = [];
     const deadline = Date.now() + 10 * 60_000;
     for (const row of rows) {
       if (Date.now() > deadline) break;
       attempted++;
+      const cadence = refreshCadence({activityAt:row.activity_at,checkedAt:row.profile_attempted_at,manual:Boolean(profileId)});
       const now = new Date().toISOString();
       let error: string | null = null;
       let m: Awaited<ReturnType<typeof measureInstagram>> = { followers: null, er: null };
       let avatar: string | null = null;
+      let metricMethod = 'public_last6_posts_by_date:mean(likes+comments)/followers*100';
+      let metricsObservedAt = now, erObservedAt = now;
       try {
         if (!/^[A-Za-z0-9_.]{1,30}$/.test(row.normalized_handle)) throw new Error('invalid handle');
         const official = pageToken && row.igsid ? await graph(`${encodeURIComponent(row.igsid)}?fields=username,profile_pic,follower_count`, pageToken) : null;
@@ -88,6 +102,11 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
             const html = await render(env, `https://www.instagram.com/${encodeURIComponent(row.normalized_handle)}/`, 'domcontentloaded', 15_000).catch(() => null);
             url = html ? parseInstagramProfile(html, row.normalized_handle).avatar : null;
             if (url) source = 'instagram_profile_identity';
+          }
+          if (!url) {
+            const fallback = await instagramProfileFallback(env, { handle: row.normalized_handle, cacheForMs: cadence.cacheForMs });
+            if (fallback.status === 'pending' || fallback.status === 'budget_exhausted') apifyPending++;
+            if (fallback.status === 'ok' && isInstagramAvatarUrl(fallback.avatar)) { url = fallback.avatar; source = 'apify_profile_identity'; }
           }
           const key = await saveAvatar(env, row.id, url).catch(() => null);
           if (key) {
@@ -106,6 +125,36 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
           }
           if (isInstagramAvatarUrl(official.profile_pic)) m.avatar = official.profile_pic;
         }
+        if (m.followers == null || m.posts == null || !isInstagramAvatarUrl(m.avatar) || m.er == null) {
+          const fallback = await instagramProfileFallback(env, { handle: row.normalized_handle, cacheForMs: cadence.cacheForMs });
+          // No attempt/success stamp while a paid operation needs resumption.
+          if (fallback.status === 'pending' || fallback.status === 'budget_exhausted') {
+            apifyPending++;
+            // Keep independently observed primary values without hiding unfinished fallback work.
+            const primaryAvatar = await saveAvatar(env, row.id, m.avatar).catch(() => null);
+            if (m.followers != null || m.posts != null || m.er != null || primaryAvatar) {
+              await env.DB.prepare(`UPDATE ugc_creator_platforms SET
+                followers=COALESCE(?2,followers),posts_count=COALESCE(?3,posts_count),avatar_key=COALESCE(?4,avatar_key),
+                engagement_rate=COALESCE(?5,engagement_rate),er_sample_posts=CASE WHEN ?5 IS NULL THEN er_sample_posts ELSE ?6 END,
+                er_checked_at=CASE WHEN ?5 IS NULL THEN er_checked_at ELSE ?7 END,
+                engagement_rate_method=CASE WHEN ?5 IS NULL THEN engagement_rate_method ELSE ?8 END,
+                metrics_as_of=CASE WHEN ?2 IS NOT NULL OR ?3 IS NOT NULL THEN ?7 ELSE metrics_as_of END,
+                updated_at=?9 WHERE id=?1`)
+                .bind(row.id,m.followers,m.posts ?? null,primaryAvatar,m.er,m.sample ?? null,now,metricMethod,Date.now()).run();
+            }
+            continue;
+          }
+          if (fallback.status === 'ok') {
+            if (m.followers == null && fallback.followers != null) metricsObservedAt = fallback.observedAt ?? now;
+            m.followers ??= fallback.followers ?? null;
+            m.posts ??= fallback.posts;
+            if (!isInstagramAvatarUrl(m.avatar) && isInstagramAvatarUrl(fallback.avatar)) m.avatar = fallback.avatar;
+            if (m.er == null && fallback.er != null && fallback.followers === m.followers) {
+              m.er = fallback.er; m.sample = fallback.sample ?? undefined; erObservedAt = fallback.observedAt ?? now;
+              metricMethod = 'apify_public_last6_posts_by_date:mean(likes+comments)/followers*100';
+            }
+          }
+        }
         avatar = await saveAvatar(env, row.id, m.avatar).catch(() => null);
         if (m.followers == null && m.posts == null && !avatar) error = 'Instagram не открыл данные профиля';
       } catch {
@@ -116,18 +165,18 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
       await env.DB.prepare(`UPDATE ugc_creator_platforms SET
         followers=COALESCE(?2,followers),posts_count=COALESCE(?3,posts_count),avatar_key=COALESCE(?4,avatar_key),
         engagement_rate=COALESCE(?5,engagement_rate),er_sample_posts=CASE WHEN ?5 IS NULL THEN er_sample_posts ELSE ?6 END,
-        er_checked_at=CASE WHEN ?5 IS NULL THEN er_checked_at ELSE ?7 END,
-        engagement_rate_method=CASE WHEN ?5 IS NULL THEN engagement_rate_method ELSE 'public_last6_posts_by_date:mean(likes+comments)/followers*100' END,
+        er_checked_at=CASE WHEN ?5 IS NULL THEN er_checked_at ELSE ?12 END,
+        engagement_rate_method=CASE WHEN ?5 IS NULL THEN engagement_rate_method ELSE ?11 END,
         profile_attempted_at=?7,profile_checked_at=CASE WHEN ?8 THEN ?7 ELSE profile_checked_at END,
-        metrics_as_of=CASE WHEN ?8 THEN ?7 ELSE metrics_as_of END,
+        metrics_as_of=CASE WHEN ?2 IS NOT NULL OR ?3 IS NOT NULL THEN ?13 ELSE metrics_as_of END,
         availability_status=CASE WHEN ?8 THEN 'available' ELSE availability_status END,
         availability_checked_at=CASE WHEN ?8 THEN ?7 ELSE availability_checked_at END,
         availability_note=CASE WHEN ?8 THEN 'Instagram supplied current profile data' ELSE availability_note END,
         profile_error=?9,updated_at=?10 WHERE id=?1`)
-        .bind(row.id,m.followers,m.posts ?? null,avatar,m.er,m.sample ?? null,now,success ? 1 : 0,error,Date.now()).run();
+        .bind(row.id,m.followers,m.posts ?? null,avatar,m.er,m.sample ?? null,now,success ? 1 : 0,error,Date.now(),metricMethod,erObservedAt,metricsObservedAt).run();
       if (success) updated++;
     }
-    return { attempted, updated, busy: false, ...(options.avatarOnly ? { avatars } : {}) };
+    return { attempted, updated, apify_pending: apifyPending, busy: false, ...(options.avatarOnly ? { avatars } : {}) };
   } finally {
     await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock,lease).run();
   }

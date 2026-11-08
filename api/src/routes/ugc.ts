@@ -625,10 +625,11 @@ ugc.post('/content/:id/review', async(c)=>{
 ugc.post('/link-health/run', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
-  let body: { limit?: unknown } = {};
+  let body: { limit?: unknown; content_id?: unknown } = {};
   try { body = await c.req.json(); } catch { /* optional empty body */ }
   const limit = Math.max(1, Math.min(10, Math.trunc(Number(body.limit) || 5)));
-  return ok(c, await runUgcLinkHealthBatch(c.env, limit));
+  if (body.content_id !== undefined && (typeof body.content_id !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(body.content_id))) return fail(c, 422, [{ code: 'invalid_content_id', message: 'Exact content ID required' }]);
+  return ok(c, await runUgcLinkHealthBatch(c.env, body.content_id ? 1 : limit, body.content_id as string | undefined));
 });
 
 // Diana 2026-10-16 (Owner: «check like and views one by one»): counts read from

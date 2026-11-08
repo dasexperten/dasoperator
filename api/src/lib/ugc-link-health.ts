@@ -20,6 +20,7 @@ type CheckResult = {
   note: string;
   responseMs: number;
   pending?: boolean;
+  metrics?: { views: number | null; likes: number | null; comments: number | null; observedAt: string; source: string };
 };
 
 function note(value: string): string {
@@ -116,6 +117,7 @@ async function inspectLink(row: DueLink): Promise<CheckResult> {
 
 async function saveCheck(env: Env, result: CheckResult): Promise<void> {
   await env.DB.batch([
+    ...(result.metrics ? [env.DB.prepare(`UPDATE ugc_content SET views=COALESCE(?1,views),likes=COALESCE(?2,likes),comments=COALESCE(?3,comments),metrics_checked_at=?4,metrics_source=?5,updated_at=?6 WHERE id=?7`).bind(result.metrics.views,result.metrics.likes,result.metrics.comments,result.metrics.observedAt,result.metrics.source,Date.now(),result.contentId)] : []),
     env.DB.prepare(
       `UPDATE ugc_content SET link_status = ?1, link_checked_at = ?2,
          link_http_status = ?3, link_final_url = ?4, link_check_note = ?5
@@ -136,7 +138,7 @@ export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_L
     `SELECT id, content_url, published_at, link_checked_at FROM ugc_content
      WHERE content_url IS NOT NULL AND TRIM(content_url) <> ''
        AND (?2 IS NULL OR id = ?2)
-       AND (?2 IS NOT NULL OR ${dueCadenceSql('published_at','link_checked_at')})
+       AND (?2 IS NOT NULL OR ${dueCadenceSql('published_at','link_checked_at')} OR (content_url LIKE '%instagram.com/%' AND ${dueCadenceSql('published_at','metrics_checked_at')}))
      ORDER BY link_checked_at IS NOT NULL ASC, datetime(link_checked_at) ASC, imported_at ASC, id ASC
      LIMIT ?1`
   ).bind(limit, contentId ?? null).all<DueLink>();
@@ -146,16 +148,19 @@ export async function runUgcLinkHealthBatch(env: Env, requestedLimit = DEFAULT_L
     const group = await Promise.all(rows.slice(offset, offset + CONCURRENCY).map(inspectLink));
     for (const result of group) {
       const row = rows.find(row => row.id === result.contentId)!;
-      if (result.status === 'restricted' || result.status === 'unknown') {
+      const ig = /^(https?:\/\/)?(www\.)?instagram\.com\//i.test(row.content_url);
+      if (result.status === 'restricted' || result.status === 'unknown' || (result.status === 'active' && ig)) {
         const fallback = await instagramPostFallback(env, { url: row.content_url, cacheForMs: refreshCadence({activityAt:row.published_at,checkedAt:row.link_checked_at,manual:Boolean(contentId)}).cacheForMs });
         if (fallback.status === 'pending' || fallback.status === 'budget_exhausted') {
           result.pending = true;
+          if (result.status === 'active') await saveCheck(env, result);
           results.push(result);
-          continue; // Keep due, do not call the blocked lightweight check a terminal result.
+          continue; // Missing metrics remain due; never discard a successful lightweight check.
         }
         if (fallback.status === 'ok') {
           result.status = 'active'; result.checkedAt = fallback.observedAt ?? result.checkedAt;
           result.finalUrl = fallback.url ?? result.finalUrl; result.note = 'Exact Instagram post observed by bounded Apify fallback';
+          if ([fallback.views, fallback.likes, fallback.comments].some(v => v !== null && v !== undefined)) result.metrics = { views: fallback.views ?? result.metrics?.views ?? null, likes: fallback.likes ?? result.metrics?.likes ?? null, comments: fallback.comments ?? result.metrics?.comments ?? null, observedAt: fallback.observedAt ?? result.checkedAt, source: 'apify' };
         }
       }
       await saveCheck(env, result);

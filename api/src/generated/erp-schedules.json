@@ -106,14 +106,15 @@
   "erp-ugc-direct": [
     "*/3 2-21 * * *"
   ],
-  "erp-ugc-link-health": [
-    "0 0 * * *"
-  ],
+  "erp-ugc-link-health": [],
   "erp-ugc-payout-summary": [
     "0 17 * * *"
   ],
   "erp-ugc-payouts": [
     "* * * * *"
+  ],
+  "erp-ugc-postlink": [
+    "0 0 * * *"
   ],
   "erp-vn-einvoice": [
     "5 1-10 * * 2-6"

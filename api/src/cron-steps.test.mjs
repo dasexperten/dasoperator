@@ -54,12 +54,9 @@ test('Direct only detects metadata; it never reads bodies, calls a reply model o
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
   assert.deepEqual(g.calls, ['video_batch', 'detect']);
 });
-test('payout link exception and content exception or partial error fail the lane', async t => {
-  const f = fixture(t, { links: new Error('the payout timer must not parse chat text') });
-  await STEPS['erp-ugc-payouts'](f.env); assert.ok(!f.calls.includes('links')); assert.ok(f.calls.includes('content'));
-  await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: new Error('browser unavailable') }, /content.*browser unavailable/);
-  await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: new Error('') }, /content.*Error/);
-  await failsInThreeMinutes(t, 'erp-ugc-payouts', { content: { read: 2, removed: 1, error: 'browser partial failure' } }, /content.*browser partial failure/);
+test('payout timer does not read creator links or metrics', async t => {
+  const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);
+  assert.ok(!f.calls.includes('links')); assert.ok(!f.calls.includes('content'));
 });
 test('payout idle is success; sweep exception is failure', async t => {
   const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 15);

@@ -12,7 +12,7 @@ database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 [triggers]
-crons = ["0 0 * * *"]
+crons = []
 
 [vars]
 # Same shared Asia/Yerevan daily reservation ledger as dasoperator-api.

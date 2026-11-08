@@ -25,6 +25,7 @@ const KEY_LITERAL = [
 
 // Owner-approved exceptions to "timer, no model" — each with the Owner's word.
 const RETIRED = {
+  'erp-ugc-link-health': 'Owner 2026-11-08: renamed to erp-ugc-postlink',
   'erp-ozon-turnover': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-ozon-week': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-wb-turnover': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',

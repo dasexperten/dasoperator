@@ -31,7 +31,7 @@
   "erp-skladbot-sync": { "crons": ["30 */6 * * *"] },
   "erp-social-queue": { "crons": ["40 4,7,10,13,16,19 * * *"], "execution": "local" },
   "erp-ugc-direct": { "crons": ["*/3 2-21 * * *"] },
-  "erp-ugc-link-health": { "crons": ["0 0 * * *"], "execution": "local" },
+  "erp-ugc-postlink": { "crons": ["0 0 * * *"], "execution": "local" },
   "erp-ugc-payout-summary": { "crons": ["0 17 * * *"] },
   "erp-ugc-payouts": { "crons": ["* * * * *"] },
   "erp-watchdog": { "crons": ["20 */3 * * *"] },

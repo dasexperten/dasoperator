@@ -67,22 +67,17 @@ export const STEPS: Record<string, Step> = {
   'erp-ugc-payouts': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-    const { refreshContentMetrics } = await import('./lib/ugc-diagnose');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
       const refreshed = await ugcPayoutSweep(e);
       // Owner 2026-10-19: the incident control runs inside this tick, gated to once an hour; its work is not lane activity.
       await import('./lib/ugc-incident-control').then((m) => m.incidentControl(e)).catch(() => undefined);
-      // Diana, not the payout timer, opens messages and recognises video links.
-      const links = { added: 0 };
-      const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: err instanceof Error ? (err.message || err.name) : (String(err) || 'failed') }));
+      // Creator post links and metrics belong to erp-ugc-postlink, not this payout lane.
       const failures: string[] = [];
-      // The metrics reader may return some successful rows plus an error.
-      if (content.error) failures.push(ugcStepError('content', content.error));
       // Owner 2026-10-19: a payout waiting to go out keeps the payouts lane on 3 minutes too.
       const open = await e.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE status IN ('awaiting_approval','approved','sent')`).first<{ n: number }>().catch((err) => { throw new Error(ugcStepError('open payouts', err)); });
       const openPayouts = Number(open?.n ?? 0);
       return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
-        activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0 || openPayouts > 0, refreshed, openPayouts, links, content };
+        activity: refreshed > 0 || openPayouts > 0, refreshed, openPayouts };
     });
   },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.

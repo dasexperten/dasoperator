@@ -128,6 +128,9 @@ jobs:
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs
 
+      - name: Test postlink Apify budget and metric preservation
+        run: node --test api/src/lib/ugc-apify.test.mjs api/src/lib/ugc-apify-consumers.test.mjs
+
       - name: Test UGC partial failures and real retry status
         run: node --test api/src/lib/ugc-payout-notice.test.mjs api/src/lib/diana-compose.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-video-reminder-schedule.test.mjs api/src/cron-steps.test.mjs api/src/lib/ig-dm-watch.test.mjs api/src/lib/ugc-payout-sweep.test.mjs
 

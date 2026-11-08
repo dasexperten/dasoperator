@@ -27,7 +27,7 @@ async function links(fallback,status=403){
 test('pending paid post keeps lightweight restriction due without saving terminal check',async()=>{const {d,r}=await links(async()=>({status:'pending'}));assert.equal(r.pending,1);assert.equal(r.checked,0);assert.equal(d.writes.length,0)});
 test('unknown actor response cannot turn restriction into missing or active',async()=>{const {d}=await links(async()=>({status:'unknown'}));assert.equal(d.writes[0].args[0],'restricted')});
 test('positive exact post result upgrades ambiguous check and carries provider observed date',async()=>{const {d}=await links(async()=>({status:'ok',url:'https://www.instagram.com/reel/ExampleCode/',observedAt:'2026-11-08T06:00:00Z'}));assert.equal(d.writes[0].args[0],'active');assert.equal(d.writes[0].args[1],'2026-11-08T06:00:00Z')});
-test('definitive lightweight success and missing never launch paid fallback',async()=>{for(const status of [200,404]){const {calls}=await links(()=>{throw Error('unexpected paid fallback')},status);assert.equal(calls,0)}});
+test('active Instagram link uses bounded Apify for metrics, missing link does not',async()=>{const ok=await links(async()=>({status:'ok',views:12,likes:0,comments:2,observedAt:'2026-11-08T06:00:00Z'}),200);assert.equal(ok.calls,1);const metrics=ok.d.writes.find(x=>x.sql.includes('SET views=COALESCE'));assert.deepEqual(metrics.args.slice(0,5),[12,0,2,'2026-11-08T06:00:00Z','apify']);const missing=await links(()=>{throw Error('unexpected paid fallback')},404);assert.equal(missing.calls,0)});
 
 test('exhausted shared day budget keeps both consumers due for tomorrow',async()=>{const d=db([{id:'p',normalized_handle:'katy',igsid:null}]);const p=await profile(d,async()=>({status:'budget_exhausted'}));assert.equal(p.apify_pending,1);assert.equal(d.writes.filter(x=>x.sql.includes('UPDATE ugc_creator_platforms')).length,0);const {d:ld,r}=await links(async()=>({status:'budget_exhausted'}));assert.equal(r.pending,1);assert.equal(ld.writes.length,0)});
 
@@ -44,3 +44,13 @@ test('actual profile selector SQL uses campaign/contact age, not row or check up
 });
 
 test('bounded profile drain reports remaining due work instead of claiming full cadence',async()=>{const d=db(Array.from({length:10},(_,n)=>({id:'p'+n,normalized_handle:'katy',igsid:null,due_count:10})));const original=Date.now;let tick=0;Date.now=()=>1700000000000+(tick++)*200000;try{const result=await profile(d,async()=>({status:'budget_exhausted'}));assert.equal(result.due,10);assert.equal(result.selected,10);assert.equal(result.time_budget_exhausted,true);assert.ok(result.attempted<10);assert.equal(result.deferred,10)}finally{Date.now=original}});
+
+test('pending post metrics preserve the successful lightweight link check and leave metrics due',async()=>{
+ const {d,r}=await links(async()=>({status:'pending'}),200);
+ assert.equal(r.pending,1);assert.equal(d.writes.some(x=>x.sql.includes('SET views=COALESCE')),false);
+ assert.equal(d.writes.some(x=>x.sql.includes('UPDATE ugc_content SET link_status')),true);
+});
+test('unknown post metrics are not written as zero',async()=>{
+ const {d}=await links(async()=>({status:'ok',views:null,likes:null,comments:null}),200);
+ assert.equal(d.writes.some(x=>x.sql.includes('SET views=COALESCE')),false);
+});

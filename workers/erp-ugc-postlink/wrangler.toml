@@ -1,0 +1,19 @@
+# erp-ugc-postlink — bounded daily sweep; publication-age cadence 1/3/7/30 days.
+name = "erp-ugc-postlink"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[triggers]
+crons = ["0 0 * * *"]
+
+[vars]
+# Same shared Asia/Yerevan daily reservation ledger as dasoperator-api.
+APIFY_DAILY_BUDGET_USD = "1"

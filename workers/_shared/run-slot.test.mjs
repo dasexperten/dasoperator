@@ -312,4 +312,4 @@ test('local business failure remains failed, suppresses platform replay, and is 
   assert.equal(f.sql('SELECT ok FROM erp_cron_runs').results[0].ok, 0);
 });
 
-test('both UGC enrichment lanes reject previous daytime schedules',()=>{for(const [worker,cron,time] of [['erp-blogger-id','0 4,7,10,13,16,19,22 * * *','2026-11-08T07:00:00Z'],['erp-ugc-link-health','23 2 * * *','2026-11-08T02:23:00Z']])assert.equal(matchesScheduledCron(worker,cron,Date.parse(time)),false)});
+test('both UGC enrichment lanes reject previous daytime schedules',()=>{for(const [worker,cron,time] of [['erp-blogger-id','0 4,7,10,13,16,19,22 * * *','2026-11-08T07:00:00Z'],['erp-ugc-postlink','23 2 * * *','2026-11-08T02:23:00Z']])assert.equal(matchesScheduledCron(worker,cron,Date.parse(time)),false)});

@@ -1,124 +1,62 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { ArrowUpRight, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { apiGet } from '@/lib/api';
 import styles from './ozon-boost-sales.module.css';
 
 type Membership = {
-  action_id: number;
-  title: string;
-  status: 'active' | 'future' | 'ended' | 'unknown';
-  action_price: number | null;
-  current_boost: number | null;
-  official_boost?: number | null;
-  min_boost: number | null;
-  max_boost: number | null;
-  is_quarantined: boolean | null;
-  date_start: string | null;
-  date_end: string | null;
+  action_id: number; title: string; status: 'active' | 'future' | 'ended' | 'unknown';
+  current_boost: number | null; official_boost?: number | null; is_quarantined: boolean | null;
 };
-
 type ProductRow = {
-  product_id: number;
-  offer_id: string;
-  name: string;
-  display_name?: string;
-  seller_price: number | null;
-  min_price: number | null;
+  product_id: number; offer_id: string; name: string; display_name?: string;
   boost: { value: number | null; value_kind?: 'api' | 'terms' | 'unknown'; status: 'active' | 'none' | 'unknown'; basis: string; memberships: Membership[] };
-  issues: string[];
-  today_units: number | null;
-  yesterday_units: number | null;
-  delta_units: number | null;
-  delta_pct: number | null;
+  issues: string[]; today_units: number | null; yesterday_units: number | null;
+  delta_units: number | null; delta_pct: number | null;
 };
-
 type PromotionReport = {
-  snapshot_at: string | null;
-  sales_as_of: string;
-  timezone: string;
-  cutoff: string;
-  sales_scope?: string;
-  sales_available: boolean;
-  sales_error?: string;
-  rows: ProductRow[];
-  coverage?: { orders?: { basis?: string; [key: string]: unknown }; [key: string]: unknown };
+  snapshot_at: string | null; sales_as_of: string; timezone: string; cutoff: string;
+  sales_scope?: string; sales_available: boolean; sales_error?: string; rows: ProductRow[];
 };
 
 const number = (value: number | null | undefined) => value == null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
-const price = (value: number | null | undefined) => value == null ? 'не передана' : `${number(value)}\u00a0₽`;
-
-function asOf(value: string | null | undefined): string {
-  if (!value || !Number.isFinite(Date.parse(value))) return 'ещё не проверен';
-  return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Asia/Yerevan', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+function compactName(row: ProductRow) {
+  return (row.display_name || row.name || row.offer_id)
+    .replace(/\s*([24])\s*in\s*1\b/gi, '-$1')
+    .replace(/TERMO\s*39\s*°?/gi, 'TERMO').toUpperCase();
 }
-
-function Boost({ row, snapshot }: { row: ProductRow; snapshot: boolean }) {
+function boostType(title: string) {
+  if (/эластич/i.test(title)) return 'Эластичный бустинг';
+  if (/супербустинг/i.test(title)) return 'Супербустинг';
+  if (/максимальн.*бустинг/i.test(title)) return 'Максимальный бустинг';
+  return 'Бустинг';
+}
+function Boost({ row, confirmed }: { row: ProductRow; confirmed: boolean }) {
   const boost = row.boost;
-  const active = boost?.memberships?.filter(m => m.status === 'active') ?? [];
-  const kinds = Array.from(new Set(active.map(m => /эластич/i.test(m.title) ? 'Эластичный'
-    : /супербустинг/i.test(m.title) ? 'Супербустинг'
-      : /максимальн.*бустинг/i.test(m.title) ? 'Максимальный'
-        : /бустинг/i.test(m.title) ? 'Бустинг' : 'Акция')));
-  const label = !snapshot || !boost || boost.status === 'unknown'
-    ? 'Не подтверждён'
-    : boost.value != null ? `${number(boost.value)}%`
-      : boost.status === 'none' ? 'Нет активного' : 'Участие активно';
-  return (
-    <div className={styles.boost}>
-      <strong>{label}</strong>
-      {snapshot && boost?.value != null && boost.status !== 'unknown' && <span>{boost.value_kind === 'terms' ? 'по условиям акции' : boost.value_kind === 'api' ? 'данные Ozon API' : 'источник в расчёте'}</span>}
-      {active.length > 0 && <span>{kinds.join(' · ')}</span>}
-    </div>
-  );
+  if (!confirmed || !boost || boost.status === 'unknown') return <>Не подтверждён</>;
+  if (boost.status === 'none') return <>Нет</>;
+  if (boost.value == null) return <>Участие активно</>;
+  const source = boost.memberships?.find(m => m.status === 'active' && !m.is_quarantined
+    && (boost.value_kind === 'terms' ? m.official_boost === boost.value : m.current_boost === boost.value));
+  return <><strong>{number(boost.value)}%</strong> {source ? boostType(source.title) : 'Бустинг'}</>;
 }
-
 function Change({ row, available }: { row: ProductRow; available: boolean }) {
-  if (!available || row.delta_units == null) return <span className={styles.unknown}>—</span>;
+  if (!available || row.delta_units == null) return <>—</>;
   const delta = row.delta_units;
-  const direction = delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral;
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
-  return (
-    <span className={`${styles.change} ${direction}`} aria-label={`${delta > 0 ? 'Рост' : delta < 0 ? 'Снижение' : 'Без изменения'}: ${number(Math.abs(delta))} шт`}>
-      <strong>{sign}{number(Math.abs(delta))}<span className={styles.unit}> шт</span></strong>
-      {row.delta_pct != null && delta !== 0 && <span>{sign}{number(Math.abs(row.delta_pct))}%</span>}
-      {delta > 0 && row.yesterday_units === 0 && <span>вчера 0</span>}
-    </span>
-  );
+  const text = row.yesterday_units === 0 && delta !== 0
+    ? `${sign}${number(Math.abs(delta))}`
+    : row.delta_pct != null ? `${sign}${number(Math.abs(row.delta_pct))}%` : delta === 0 ? '0%' : '—';
+  return <span className={delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral}>{text}</span>;
 }
 
-function Calculation({ row }: { row: ProductRow }) {
-  const memberships = row.boost?.memberships ?? [];
-  return (
-    <details className={styles.calculation}>
-      <summary>Расчёт бустинга</summary>
-      <div className={styles.detailBody}>
-        {row.display_name && row.display_name !== row.name && <p>Название в Ozon: {row.name}</p>}
-        <p>{row.boost?.basis || 'Ozon ещё не передал подтверждение бустинга.'}</p>
-        <p>Цена продавца: <strong>{price(row.seller_price)}</strong>. Минимальная цена в Ozon: <strong>{price(row.min_price)}</strong>.</p>
-        {memberships.length > 0 && <ul>{memberships.map(m => (
-          <li key={m.action_id}>
-            <strong>{m.title}</strong>
-            <span>{m.is_quarantined ? 'Карантин' : m.status === 'active' ? 'Действует' : m.status === 'future' ? 'Будущая акция' : m.status === 'ended' ? 'Завершена' : 'Статус не подтверждён'} · цена {price(m.action_price)}{m.official_boost != null ? ` · ${number(m.official_boost)}% по условиям` : m.current_boost != null ? ` · ${number(m.current_boost)}% по данным API` : ''}</span>
-            {(m.date_start || m.date_end) && <span>{m.date_start ? `С ${asOf(m.date_start)}` : ''}{m.date_end ? ` до ${asOf(m.date_end)}` : ''} · Ереван</span>}
-          </li>
-        ))}</ul>}
-        {row.issues?.length > 0 && <ul className={styles.issues}>{row.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
-      </div>
-    </details>
-  );
-}
-
-/** Same factual rows on the homepage (top ten) and on the Ozon page (all SKUs). */
 export default function OzonBoostSales({ top10 = false }: { top10?: boolean }) {
   const [report, setReport] = useState<PromotionReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       const [response, catalogue] = await Promise.all([
         apiGet<PromotionReport>('/api/cron-runs/promozon?refresh=1'),
@@ -131,12 +69,10 @@ export default function OzonBoostSales({ top10 = false }: { top10?: boolean }) {
       setReport({ ...response.result, rows: response.result.rows.map(row => ({ ...row,
         display_name: names.get(exactId(row.offer_id)) || undefined,
       })) });
-    } catch {
-      setError('Не удалось обновить данные Ozon. Повторите обновление.');
-    } finally { setLoading(false); }
+    } catch { setError('Не удалось обновить данные Ozon.'); }
+    finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-
   return <OzonBoostSalesView top10={top10} report={report} loading={loading} error={error} onRefresh={() => void load()} />;
 }
 
@@ -144,61 +80,41 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
   top10?: boolean; report: PromotionReport | null; loading?: boolean; error?: string; onRefresh: () => void;
 }) {
   const rows = useMemo(() => {
-    // A top-ten ranking needs a confirmed order comparison, never an
-    // alphabetical placeholder that could be mistaken for today's leaders.
     if (top10 && report && !report.sales_available) return [];
     const sorted = [...(report?.rows ?? [])].sort((a, b) =>
-      (b.today_units ?? -1) - (a.today_units ?? -1)
-      || (b.yesterday_units ?? -1) - (a.yesterday_units ?? -1)
+      (b.today_units ?? -1) - (a.today_units ?? -1) || (b.yesterday_units ?? -1) - (a.yesterday_units ?? -1)
       || a.offer_id.localeCompare(b.offer_id, 'ru', { numeric: true }));
     return top10 ? sorted.slice(0, 10) : sorted;
   }, [report, top10]);
   const available = Boolean(report?.sales_available) && !error;
-  const title = top10 ? 'Топ-10 позиций Ozon' : 'Все позиции Ozon';
-
+  const title = top10 ? 'Топ-10 Ozon' : 'Все позиции Ozon';
   return (
     <section className={styles.panel} aria-label={title} aria-busy={loading}>
       <header className={styles.header}>
-        <div>
-          <h2>{title}</h2>
-          <p>Бустинг и заказанные единицы{report?.sales_scope ? ` · ${report.sales_scope}` : ''}</p>
+        <h2>{title}</h2>
+        <div className={styles.tools}>
+          {report?.cutoff && <span title={`Сегодня и вчера до одного времени. ${report.sales_as_of}. ${report.sales_scope ?? ''}`}>{report.cutoff} · Ереван</span>}
+          <button type="button" className={styles.refresh} disabled={loading} onClick={onRefresh} aria-label="Обновить Ozon" title="Обновить">
+            <RefreshCw size={16} aria-hidden="true" className={loading ? styles.spinning : ''} />
+          </button>
         </div>
-        <button type="button" className={styles.refresh} disabled={loading} onClick={onRefresh} aria-label="Обновить бустинг и заказы Ozon">
-          <RefreshCw size={16} aria-hidden="true" className={loading ? styles.spinning : ''} />
-          <span>{loading ? 'Обновляем' : 'Обновить'}</span>
-        </button>
       </header>
-
-      {report && <div className={styles.meta}>
-        <span>Сегодня и вчера до <strong>{report.cutoff || '—'}</strong> · Ереван</span>
-        <span>Бустинг проверен: {asOf(report.snapshot_at)}</span>
-      </div>}
-      {error && <p className={styles.notice} role="alert">{error}{report ? ' Ниже последний сохранённый срез.' : ''}</p>}
-      {report && !report.sales_available && <p className={styles.notice}>Сравнение заказов пока не подтверждено. {report.sales_error || 'Данные за одинаковые часы ещё не получены.'}</p>}
-
-      {loading && !report ? <div className={styles.skeleton} aria-label="Загрузка товаров Ozon">{Array.from({ length: top10 ? 5 : 8 }, (_, i) => <div key={i} />)}</div>
-        : !rows.length ? <p className={styles.empty}>{error ? 'Таблица появится после успешного обновления.' : top10 && report && !report.sales_available ? 'Топ-10 появится, когда количество заказанных единиц будет подтверждено.' : 'В сохранённом срезе пока нет товаров Ozon.'}</p>
-          : <div className={styles.tableWrap}>
+      {error && <p className={styles.notice} role="alert">{error}</p>}
+      {report && !report.sales_available && <p className={styles.notice}>Сравнение заказов не подтверждено.</p>}
+      {loading && !report ? <p className={styles.empty} role="status">Загружаем Ozon…</p>
+        : !rows.length ? <p className={styles.empty}>{top10 && report && !report.sales_available ? 'Топ-10 пока не подтверждён.' : 'Нет данных Ozon.'}</p>
+          : <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Товары Ozon, таблица с горизонтальной прокруткой">
             <table className={styles.table}>
-              <thead><tr><th scope="col">Товар</th><th scope="col">Бустинг сейчас</th><th scope="col">Сегодня</th><th scope="col">Вчера</th><th scope="col">Изменение</th></tr></thead>
+              <thead><tr><th scope="col">Товар</th><th scope="col">Бустинг</th><th scope="col">Сегодня</th><th scope="col">Вчера</th><th scope="col">Δ</th></tr></thead>
               <tbody>{rows.map(row => <tr key={row.product_id}>
-                <th scope="row" className={styles.product}>
-                  <strong>{row.display_name || row.name || row.offer_id || `Товар ${row.product_id}`}</strong>
-                  <span>{row.offer_id}</span>
-                  <Calculation row={row} />
-                </th>
-                <td className={styles.boostCell} data-label="Бустинг"><Boost row={row} snapshot={Boolean(report?.snapshot_at) && !error} /></td>
-                <td className={styles.count} data-label="Сегодня">{number(available ? row.today_units : null)}</td>
-                <td className={styles.count} data-label="Вчера">{number(available ? row.yesterday_units : null)}</td>
-                <td className={styles.delta} data-label="Изменение"><Change row={row} available={available} /></td>
+                <th scope="row" className={styles.product} title={`${row.offer_id} · ${row.name}`}><span>{compactName(row)}</span></th>
+                <td className={styles.boostCell} title={[row.boost?.basis, ...(row.boost?.memberships ?? []).map(m => m.title), ...(row.issues ?? [])].filter(Boolean).join('\n')}><Boost row={row} confirmed={Boolean(report?.snapshot_at) && !error} /></td>
+                <td className={styles.count}>{number(available ? row.today_units : null)}</td>
+                <td className={styles.count}>{number(available ? row.yesterday_units : null)}</td>
+                <td className={styles.delta}><Change row={row} available={available} /></td>
               </tr>)}</tbody>
             </table>
           </div>}
-
-      <footer className={styles.footer}>
-        <span>{top10 ? 'По количеству заказанных единиц сегодня. ' : `${report?.rows.length ?? 0} позиций. `}Проценты разных акций не складываются.</span>
-        {top10 && <Link href="/marketplaces?tab=ozon-promos">Все позиции <ArrowUpRight size={15} aria-hidden="true" /></Link>}
-      </footer>
     </section>
   );
 }

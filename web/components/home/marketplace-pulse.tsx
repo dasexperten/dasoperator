@@ -191,7 +191,7 @@ export default function MarketplacePulse() {
 
 function SectionLegend() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: 'var(--fg-3)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 12px', fontSize: '14px', color: 'var(--fg-3)', minWidth: 0 }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
         <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
         Ozon

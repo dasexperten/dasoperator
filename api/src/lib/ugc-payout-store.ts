@@ -274,50 +274,27 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
  * creation: how the video is going. Once per creator, five per run; she wrote in the last 3 days — the
  * reply lane has her, skip. Window closed — the browser queue, as the order reminder does.
  */
-export const VIDEO_ROUND_FROM = '2026-10-15T20:00:00Z';
-export const VIDEO_ROUND_TO = '2026-10-24T20:00:00Z';
+// One video reminder per payment. Diana verifies the original conversation and video before acting.
 export async function overdueVideoReminders(env: Env, now = Date.now()): Promise<number> {
-  const rows = (await env.DB.prepare(
-    `SELECT c.id creator_id, c.lifecycle_stage stage, p.handle, p.amount_minor, p.paid_at FROM ugc_creators c
-       JOIN ugc_payouts p ON p.creator_id = c.id AND p.status = 'paid'
-      WHERE c.lifecycle_stage IN ('paid','ordered','creation') AND p.paid_at >= ?1 AND p.paid_at < ?2
-        AND p.paid_at = (SELECT MAX(y.paid_at) FROM ugc_payouts y WHERE y.creator_id = c.id AND y.status = 'paid')
-        AND NOT EXISTS (SELECT 1 FROM crm_sync_state k WHERE k.key = 'video_round_261103:' || c.id)
-      ORDER BY p.paid_at LIMIT 5`
-  ).bind(VIDEO_ROUND_FROM, VIDEO_ROUND_TO).all<{ creator_id: string; stage: string; handle: string; amount_minor: number; paid_at: string }>()).results ?? [];
-  let sent = 0;
+  const rows = (await env.DB.prepare(`SELECT p.id, p.handle, p.paid_at FROM ugc_payouts p
+    JOIN ugc_creators c ON c.id=p.creator_id
+    WHERE p.status='paid' AND p.paid_at IS NOT NULL AND p.paid_at <= ?1
+      AND c.lifecycle_stage IN ('paid','ordered','creation')
+      AND p.paid_at=(SELECT MAX(y.paid_at) FROM ugc_payouts y WHERE y.creator_id=c.id AND y.status='paid')
+    ORDER BY p.paid_at DESC`)
+    .bind(new Date(now - 3 * 86_400_000).toISOString())
+    .all<{id:string;handle:string;paid_at:string}>()).results ?? [];
+  let queued = 0, failed = 0;
   for (const row of rows) {
-    const handle = String(row.handle || '').toLowerCase();
-    const save = (value: Record<string, unknown>) => env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-      .bind(`video_round_261103:${row.creator_id}`, JSON.stringify({ handle, stage: row.stage, at: new Date(now).toISOString(), ...value }), now).run();
-    if (!handle) { await save({ via: 'skipped', why: 'no handle' }); continue; }
-    const lastIn = await env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1`).bind(handle).first<{ t: string | null }>();
-    if (lastIn?.t && now - Date.parse(lastIn.t) < 3 * 86_400_000) { await save({ via: 'skipped', why: 'wrote in the last 3 days' }); continue; }
-    const day = `${row.paid_at.slice(8, 10)}.${row.paid_at.slice(5, 7)}`;
-    const ask = row.stage === 'paid'
-      ? 'Скрина оформленного заказа пока нет. Мягко напомни: оформить заказ пасты на Ozon и прислать скрин заказа.'
-      : row.stage === 'ordered'
-        ? 'Заказ оформлен, ролика пока нет. Спроси, пришла ли паста, и мягко напомни про ролик, когда паста будет у неё.'
-        : 'Ролика пока нет. Спроси, как идёт съёмка и когда ждать ссылку на ролик.';
-    const brief = [`Мы перевели ${formatRub(row.amount_minor)} ${day}.`, ask,
-      'Если по переписке видно, что ролик уже вышел или паста не пришла, ответь по этому, а не по шаблону.', 'Коротко, тепло, без упрёков.'].join('\n');
-    const parts = await dianaCompose(env, handle, brief).catch(() => null);
-    if (!parts || !parts.length) continue; // Diana could not write: retried on the next run.
-    const humanAgent = !lastIn?.t || now - Date.parse(lastIn.t) > 23.5 * 3_600_000;
-    const first = await sendIgDirect(env, handle, parts[0]!, { humanAgent });
-    if (first.ok) {
-      for (const part of parts.slice(1)) { await new Promise((r) => setTimeout(r, 1500)); if (!(await sendIgDirect(env, handle, part, { humanAgent })).ok) break; }
-      await save({ via: 'instagram', text: parts.join('\n') });
-      sent++;
-    } else if (/allowed window/i.test(String(first.error ?? ''))) {
-      await save({ via: 'browser_queue', text: parts.join('\n') });
-      const { queueForBrowser } = await import('./ig-dm-reply');
-      await queueForBrowser(env, handle, 'video_round_261103', parts.join('\n'));
-    } else {
-      await save({ via: 'failed', error: String(first.error ?? '').slice(0, 200) });
-    }
+    if (!row.handle || !Number.isFinite(Date.parse(row.paid_at))) continue;
+    const result = await queueDianaAction(env, row.handle, '', `video-reminder:${row.id}`, {
+      task: 'video_reminder', payout_id: String(row.id), paid_at: row.paid_at,
+    });
+    if (!result.ok) { failed++; continue; }
+    if (result.queued && result.newlyQueued) queued++;
   }
-  return sent;
+  if (failed) throw new Error(`video reminder queue failed for ${failed} payout(s)`);
+  return queued;
 }
 
 /**

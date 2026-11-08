@@ -28,7 +28,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', impor
       export const queueForBrowser=async(_e,handle)=>{globalThis.__sweep.queued.push(handle)};
     ` }));
   } }] });
-const { ugcPayoutSweep, payoutStore } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
+const { ugcPayoutSweep, payoutStore, overdueVideoReminders } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
 
 const row = id => ({ id, handle: id, creator_id: 'c-' + id, konsol_payment_id: 'k-' + id, amount_minor: 40000 });
 function fixture(t, options = {}) {
@@ -47,6 +47,7 @@ function fixture(t, options = {}) {
       if (sql.includes("SELECT id FROM ugc_payouts WHERE status='sent'")) return { results: f.pending.map(id => ({ id })) };
       if (sql.includes("SELECT * FROM ugc_payouts WHERE status='paid'")) return { results: f.paid.map(row) };
       if (sql.includes("SELECT * FROM ugc_payouts WHERE status='failed'")) return { results: f.failed.map(row) };
+      if (sql.includes('SELECT p.id, p.handle, p.paid_at FROM ugc_payouts p')) return { results: [] };
       if (sql.includes('SELECT p.id, p.handle')) { if (f.reminderError) throw f.reminderError; return { results: [] }; }
       if (sql.includes('video_round_261103')) return { results: [] };
       throw Error('unexpected all ' + sql);
@@ -109,4 +110,16 @@ test('a notice claim persists visible sending state atomically and cannot claim 
   db.prepare("UPDATE ugc_payouts SET paid_notice_at=NULL,notice_status='reviewed'").run();
   assert.equal(await store.claimNotice('p1','2026-11-07T13:02:00Z'),false,'completed review must not trigger a historic notification');
   db.close();
+});
+
+
+test('video reminders are queued only from 72 hours after the most recent payment', async () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE ugc_creators(id TEXT,lifecycle_stage TEXT); CREATE TABLE ugc_payouts(id TEXT,creator_id TEXT,handle TEXT,status TEXT,paid_at TEXT);
+    INSERT INTO ugc_creators VALUES('a','creation'),('b','ordered'),('c','creation'),('d','posted');
+    INSERT INTO ugc_payouts VALUES('early','a','a','paid','2026-11-05T01:00:00.000Z'),('due','b','b','paid','2026-11-05T00:00:00.000Z'),('old','c','c','paid','2026-10-01T00:00:00.000Z'),('posted','d','d','paid','2026-10-01T00:00:00.000Z');`);
+  const captured=[]; globalThis.__sweep={queued:captured,noticeResults:{}};
+  const env={DB:{prepare(sql){let args=[];return {bind(...v){args=v;return this},async all(){return {results:db.prepare(sql).all(...args)}}}}}};
+  await overdueVideoReminders(env,Date.parse('2026-11-08T00:00:00.000Z'));
+  assert.deepEqual(captured.sort(),['b','c']); db.close();
 });

@@ -52,3 +52,14 @@ test('missing original conversation reports failure without inventing an alarm',
   assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_sync_state').get().n,0);
   db.close();
 });
+
+
+test('video reminder carries payment identity and date without a prepared message', async () => {
+  const {db,env}=fixture();
+  const meta={task:'video_reminder',payout_id:'p1',paid_at:'2026-11-01T12:00:00Z'};
+  await queueDianaAction(env,'creator','','video-reminder:p1',meta);
+  const event=JSON.parse(db.prepare('SELECT value FROM crm_sync_state').get().value);
+  assert.equal(event.task,meta.task); assert.equal(event.payout_id,meta.payout_id); assert.equal(event.paid_at,meta.paid_at);
+  assert.equal(Object.hasOwn(event,'text'),false);
+  db.close();
+});

@@ -49,7 +49,7 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
 // Independent of payouts and Direct. Every 3h during the Owner's working window: bloggers never checked yet (Owner 2026-10-18: «где followers»);
 // Activity-age cadence is evaluated at existing timer slots; a manual target bypasses cadence, not budget.
 // Missing values never erase previously observed values; attempts and successes differ.
-export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean; avatarUrl?: string } = {}) {
+export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 500, options: { avatarOnly?: boolean; avatarUrl?: string } = {}) {
   const lease = crypto.randomUUID();
   const lock = 'lock:erp-blogger-id';
   const claimed = await env.DB.prepare(`INSERT INTO erp_job_claims (worker,slot,lease_until) VALUES (?,?,?)
@@ -57,24 +57,29 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
     RETURNING worker`).bind(lock, lease, Date.now() + 15 * 60_000, Date.now()).first();
   if (!claimed) return { attempted: 0, updated: 0, busy: true };
   try {
-    const rows = (await env.DB.prepare(`WITH candidates AS (
+    const rows = (await env.DB.prepare(`WITH collaboration_activity AS MATERIALIZED (
+      SELECT creator_id,MAX(MAX(CASE WHEN julianday(last_contact_at)<=julianday('now') THEN julianday(last_contact_at) ELSE 0 END,CASE WHEN julianday(invited_at)<=julianday('now') THEN julianday(invited_at) ELSE 0 END,CASE WHEN julianday(accepted_at)<=julianday('now') THEN julianday(accepted_at) ELSE 0 END,CASE WHEN julianday(sample_sent_at)<=julianday('now') THEN julianday(sample_sent_at) ELSE 0 END,CASE WHEN julianday(published_at)<=julianday('now') THEN julianday(published_at) ELSE 0 END)) activity_jd FROM ugc_collaborations GROUP BY creator_id
+    ), conversation_handles AS MATERIALIZED (
+      SELECT lower(from_username) handle,conversation_id FROM ugc_ig_messages
+      WHERE direction='in' AND from_username IS NOT NULL GROUP BY lower(from_username),conversation_id
+    ), message_activity AS MATERIALIZED (
+      SELECT h.handle,MAX(julianday(m.created_at)) activity_jd FROM conversation_handles h
+      JOIN ugc_ig_messages m ON m.conversation_id=h.conversation_id
+      WHERE julianday(m.created_at)<=julianday('now') GROUP BY h.handle
+    ), candidates AS (
       SELECT cp.id,cp.normalized_handle,cp.profile_attempted_at,
-        (SELECT MAX(activity) FROM (
-          SELECT last_contact_at activity FROM ugc_collaborations WHERE creator_id=cp.creator_id
-          UNION ALL SELECT invited_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
-          UNION ALL SELECT accepted_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
-          UNION ALL SELECT sample_sent_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
-          UNION ALL SELECT published_at FROM ugc_collaborations WHERE creator_id=cp.creator_id
-          UNION ALL SELECT created_at FROM ugc_ig_messages WHERE conversation_id IN
-            (SELECT conversation_id FROM ugc_ig_messages WHERE lower(from_username)=cp.normalized_handle)
-        ) WHERE julianday(activity) IS NOT NULL AND julianday(activity)<=julianday('now')) activity_at,
+        strftime('%Y-%m-%dT%H:%M:%fZ',NULLIF(MAX(COALESCE(ca.activity_jd,0),COALESCE(ma.activity_jd,0)),0)) activity_at,
         (SELECT from_id FROM ugc_ig_messages m WHERE m.direction='in' AND lower(m.from_username)=cp.normalized_handle AND m.from_id IS NOT NULL ORDER BY m.created_at DESC LIMIT 1) igsid
-      FROM ugc_creator_platforms cp WHERE cp.platform='instagram' AND (?1 IS NULL OR cp.id=?1)
+      FROM ugc_creator_platforms cp
+      LEFT JOIN collaboration_activity ca ON ca.creator_id=cp.creator_id
+      LEFT JOIN message_activity ma ON ma.handle=cp.normalized_handle
+      WHERE cp.platform='instagram' AND (?1 IS NULL OR cp.id=?1)
         AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=cp.creator_id AND (c.archived_at IS NULL OR ?1 IS NOT NULL))
-    ) SELECT * FROM candidates WHERE ?1 IS NOT NULL OR ${dueCadenceSql('activity_at','profile_attempted_at')}
-      ORDER BY (profile_attempted_at IS NULL) DESC,profile_attempted_at ASC,id ASC LIMIT ?2`)
-      .bind(profileId ?? null, Math.min(20, Math.max(1, limit)))
-      .all<{ id: string; normalized_handle: string; igsid: string | null; activity_at: string | null; profile_attempted_at: string | null }>()).results ?? [];
+    ) SELECT *,COUNT(*) OVER() due_count FROM candidates WHERE ?1 IS NOT NULL OR ${dueCadenceSql('activity_at','profile_attempted_at')}
+      ORDER BY CASE WHEN julianday(activity_at)>=julianday('now','-10 days') THEN 0 ELSE 1 END,
+        (profile_attempted_at IS NULL) DESC,profile_attempted_at ASC,id ASC LIMIT ?2`)
+      .bind(profileId ?? null, Math.min(500, Math.max(1, limit)))
+      .all<{ id: string; normalized_handle: string; igsid: string | null; activity_at: string | null; profile_attempted_at: string | null; due_count: number }>()).results ?? [];
     const messagingToken = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
     const pageToken = messagingToken ? (await graph('1697038263872226?fields=access_token', messagingToken))?.access_token : null;
     let updated = 0, attempted = 0, apifyPending = 0;
@@ -176,7 +181,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         .bind(row.id,m.followers,m.posts ?? null,avatar,m.er,m.sample ?? null,now,success ? 1 : 0,error,Date.now(),metricMethod,erObservedAt,metricsObservedAt).run();
       if (success) updated++;
     }
-    return { attempted, updated, apify_pending: apifyPending, busy: false, ...(options.avatarOnly ? { avatars } : {}) };
+    return { due: rows[0]?.due_count ?? 0, selected: rows.length, deferred: Math.max(0,(rows[0]?.due_count ?? rows.length)-attempted)+apifyPending, time_budget_exhausted: attempted < rows.length, attempted, updated, apify_pending: apifyPending, busy: false, ...(options.avatarOnly ? { avatars } : {}) };
   } finally {
     await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock,lease).run();
   }

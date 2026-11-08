@@ -229,7 +229,7 @@ crons = ["0 0 * * *", "*/15 * * * *", "* * * * *"]
 # -----------------------------------------------------------------------------
 [vars]
 # Owner 2026-11-08: shared selective Apify fallback ceiling, both workers combined.
-APIFY_DAILY_BUDGET_USD = "0.02"
+APIFY_DAILY_BUDGET_USD = "1"
 MAIL_ARCHIVE_RECOVERY = "old"
 # Owner 2026-10-10: manually reconciled ERP stock wins over unposted F4 outbound.
 INTERNAL_STOCK_WAREHOUSES = "lbr"

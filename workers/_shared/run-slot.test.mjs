@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url), { build } = require('esbuild');
 const dir = mkdtempSync(join(tmpdir(), 'erp-schedule-slot-'));
 await build({ stdin: { contents: `export * from './run-slot'; export * from './run'; export * from './run-journal'; export * from './trigger-erp';`,
   resolveDir: fileURLToPath(new URL('.', import.meta.url)), loader: 'ts' }, bundle: true, platform: 'node', format: 'esm', outfile: join(dir, 'slots.mjs') });
-const { slotRunKey, minuteSlot, currentHttpSlot, currentHttpSchedule, dueScheduledSlot, hasScheduledDoor,
+const { slotRunKey, minuteSlot, currentHttpSlot, currentHttpSchedule, dueScheduledSlot, matchesScheduledCron, hasScheduledDoor,
   isLocalScheduledWorker, erpTriggerWorker, erpWorker, runLogged, runApiStep, claimLocalRun, finishTimerRun } = await import(pathToFileURL(join(dir, 'slots.mjs')));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 const workerName = 'erp-ugc-payouts', cron = '* * * * *', now = Date.parse('2026-10-23T20:00:30Z'), slot = minuteSlot(now);
@@ -167,12 +167,12 @@ test('broader registry includes API-backed lanes but excludes disabled and retir
   for (const name of ['erp-promo-refill', 'erp-promozon', 'erp-vn-einvoice', 'erp-fbo-sync']) assert.equal(hasScheduledDoor(name), false);
 });
 
-test('blogger HTTP requires configured working-window cron and current due minute, then dedupes CF', async t => {
-  const now = Date.parse('2026-11-07T13:00:30Z'), slot = minuteSlot(now);
+test('blogger HTTP requires configured04:00Yerevan cron and current due minute, then dedupes CF', async t => {
+  const now = Date.parse('2026-11-07T00:00:30Z'), slot = minuteSlot(now);
   const f = fixture(t, { name: 'erp-blogger-id', at: now });
   assert.equal((await f.http()).status, 400); // Missing cron is backward compatible only for minute UGC lanes.
   assert.equal((await f.http({ scheduledTime: slot, cron })).status, 400);
-  const scheduled = { scheduledTime: slot, cron: '0 4,7,10,13,16,19,22 * * *' };
+  const scheduled = { scheduledTime: slot, cron: '0 0 * * *' };
   assert.equal((await f.http(scheduled)).status, 200);
   await f.cf(now, scheduled.cron);
   assert.equal(f.effects, 1);
@@ -311,3 +311,5 @@ test('local business failure remains failed, suppresses platform replay, and is 
   assert.equal(report.ok, false); assert.equal(report.localOwned, true);
   assert.equal(f.sql('SELECT ok FROM erp_cron_runs').results[0].ok, 0);
 });
+
+test('both UGC enrichment lanes reject previous daytime schedules',()=>{for(const [worker,cron,time] of [['erp-blogger-id','0 4,7,10,13,16,19,22 * * *','2026-11-08T07:00:00Z'],['erp-ugc-link-health','23 2 * * *','2026-11-08T02:23:00Z']])assert.equal(matchesScheduledCron(worker,cron,Date.parse(time)),false)});

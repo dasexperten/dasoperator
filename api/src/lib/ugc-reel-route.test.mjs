@@ -13,7 +13,7 @@ await build({ entryPoints: [new URL('./ugc-reel-store.ts', import.meta.url).path
 await build({ entryPoints: [new URL('../routes/ugc.ts', import.meta.url).pathname], bundle:true, platform:'node', format:'esm', outfile:join(temp,'ugc.mjs'),logLevel:'silent' });
 const ownerRoute = (await import(pathToFileURL(join(temp,'ugc.mjs')).href)).default;
 const route = (await import(pathToFileURL(join(temp,'route.mjs')).href)).default;
-const { tickDiterAlarm, diterWindow, acceptLegacyReel } = await import(pathToFileURL(join(temp,'store.mjs')).href);
+const { tickDiterAlarm, tickDiterUgcAlarm, diterWindow, acceptLegacyReel } = await import(pathToFileURL(join(temp,'store.mjs')).href);
 const sqlite = new DatabaseSync(':memory:');
 sqlite.exec('CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER)');
 sqlite.exec(`CREATE TABLE ugc_content(id TEXT PRIMARY KEY,creator_platform_id TEXT,content_url TEXT,content_type TEXT); CREATE TABLE ugc_creator_platforms(id TEXT PRIMARY KEY,handle TEXT,platform TEXT);`);
@@ -43,6 +43,14 @@ test('consumer registration requires capability, excludes competing identity and
   assert.equal((await request('/alarm/pulse',{...pulse,ready:false})).status,200);
   const status=await(await request('/alarm/status')).json();assert.equal(status.state.ready,0);
   resetAlarm();
+});
+test('alarm scheduler gates seven elapsed minutes across an hour and overlapping ticks',async()=>{
+  const start=new Date('2026-11-07T18:56:00Z'); // Outside all windows; never accepts a job.
+  assert.notEqual((await tickDiterUgcAlarm(env,start)).note,'not_due');
+  for(const delta of [60000,4*60000,7*60000-1]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
+  const results=await Promise.all([tickDiterUgcAlarm(env,new Date(+start+7*60000)),tickDiterUgcAlarm(env,new Date(+start+7*60000))]);
+  assert.equal(results.filter(r=>r.note!=='not_due').length,1);
+  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+8*60000))).note,'not_due');
 });
 test('Moscow windows exactly preserve days and half-open boundaries',()=>{
   const check=(s,expected)=>assert.equal(diterWindow(Date.parse(s)),expected,s);

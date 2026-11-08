@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { ALARM, ROUND, inMoscowWindow, START_GAP_MS, freshSignal } from './diter-ugc-alarm.mjs';
+import { ALARM, ROUND, inMoscowWindow, START_GAP_MS, ALARM_STEP_MS, freshSignal } from './diter-ugc-alarm.mjs';
 import { reelTaskText, reelScope } from './ugc-reel-jobs.mjs';
 
 export const CONSUMER_TTL_MS = 90_000;
@@ -47,8 +47,17 @@ export async function reelAssignment(env: Env, consumerId: string, origin: strin
     task:reelTaskText(row,origin) };
 }
 
-// Keep the deployed ERP minute-tick export: a single alarm, never two clocks.
-export async function tickDiterUgcAlarm(env: Env, now = new Date()) { return tickDiterAlarm(env,now.getTime()); }
+// The shared ERP clock remains minute-based for its other processes. Dieter's
+// persisted atomic gate measures seven elapsed minutes, including hour rollover.
+export async function tickDiterUgcAlarm(env: Env, now = new Date()) {
+  const ms=now.getTime();
+  const due=await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+    WHERE CAST(crm_sync_state.value AS INTEGER)<=? RETURNING key`)
+    .bind('cadence:diter-ugc-alarm',String(ms),Math.floor(ms/1000),ms-ALARM_STEP_MS).first();
+  if (!due) return {ok:true,accepted:false,note:'not_due'};
+  return tickDiterAlarm(env,ms);
+}
 
 // Backward-compatible PC transport has already done real tool preflight before
 // this call. Acceptance is still performed by the same alarm, not by the model.

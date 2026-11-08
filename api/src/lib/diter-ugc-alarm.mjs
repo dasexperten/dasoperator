@@ -2,6 +2,7 @@
 export const ALARM = 'diter-ugc-alarm';
 export const ROUND = 'diter-ugc-round';
 export const START_GAP_MS = 15 * 60_000;
+export const ALARM_STEP_MS = 7 * 60_000;
 export const SIGNAL_TTL_MS = 3 * 60_000;
 export function inMoscowWindow(now = new Date()) {
   const moscow = new Date(now.getTime() + 3 * 3600_000);

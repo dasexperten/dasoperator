@@ -44,13 +44,18 @@ test('consumer registration requires capability, excludes competing identity and
   const status=await(await request('/alarm/status')).json();assert.equal(status.state.ready,0);
   resetAlarm();
 });
-test('alarm scheduler gates seven elapsed minutes across an hour and overlapping ticks',async()=>{
+test('alarm scheduler uses one fifteen-minute interval across an hour and overlapping ticks',async()=>{
   const start=new Date('2026-11-07T18:56:00Z'); // Outside all windows; never accepts a job.
   assert.notEqual((await tickDiterUgcAlarm(env,start)).note,'not_due');
-  for(const delta of [60000,4*60000,7*60000-1]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
-  const results=await Promise.all([tickDiterUgcAlarm(env,new Date(+start+7*60000)),tickDiterUgcAlarm(env,new Date(+start+7*60000))]);
+  for(const delta of [60000,7*60000,15*60000-1]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
+  const results=await Promise.all([tickDiterUgcAlarm(env,new Date(+start+15*60000)),tickDiterUgcAlarm(env,new Date(+start+15*60000))]);
   assert.equal(results.filter(r=>r.note!=='not_due').length,1);
-  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+8*60000))).note,'not_due');
+  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+16*60000))).note,'not_due');
+  // A delayed actual start must defer the check by one minute, not consume an
+  // early check and accidentally force another whole fifteen-minute wait.
+  sqlite.prepare('UPDATE ugc_reel_alarm SET last_started_at=? WHERE id=1').run(+start+16*60000);
+  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+30*60000))).note,'not_due');
+  assert.notEqual((await tickDiterUgcAlarm(env,new Date(+start+31*60000))).note,'not_due');
 });
 test('Moscow windows exactly preserve days and half-open boundaries',()=>{
   const check=(s,expected)=>assert.equal(diterWindow(Date.parse(s)),expected,s);

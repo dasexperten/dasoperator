@@ -18,6 +18,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta
       export const cronPollPerfReports=()=>call('unused');
       export const runPromoRefillSweep=()=>call('refill');
       export const detectDianaMessages=()=>call('detect');
+      export const startDailyVideoReminders=()=>call('video_batch');
       export const igDmWatch=()=>call('read'), igDmHasNew=()=>call('probe'), igDmReply=()=>call('reply');
       export const ugcPayoutSweep=()=>call('payout'), ugcPayoutEvening=()=>call('unused');
       export const incidentControl=()=>call('incidents'), captureDmLinks=()=>call('links'), refreshContentMetrics=()=>call('content');
@@ -31,7 +32,7 @@ function fixture(t, overrides = {}, initial = null) {
   t.mock.method(globalThis, 'setInterval', () => 1); t.mock.method(globalThis, 'clearInterval', () => {});
   const f = { state: initial ? JSON.stringify(initial) : null, calls: [], result: {
     read: { ok: true, activity: false, stored: 0, incoming: 0 }, reply: { replied: 0, escalated: 0, errors: 0 },
-    probe: false, payout: 0, incidents: undefined, links: { added: 0 }, content: { read: 0, removed: 0 }, ...overrides
+    probe: false, video_batch: {due:false}, payout: 0, incidents: undefined, links: { added: 0 }, content: { read: 0, removed: 0 }, ...overrides
   }, async call(name) { f.calls.push(name); const value = f.result[name]; if (value instanceof Error) throw value; return value; } };
   f.env = { DB: { prepare(sql) { let p; const q = {
     bind(...values) { p = values; return q; },
@@ -47,11 +48,11 @@ async function failsInThreeMinutes(t, worker, overrides, pattern) {
 }
 test('Direct only detects metadata; it never reads bodies, calls a reply model or changes adaptive cadence', async t => {
   const f = fixture(t, { detect: { detected: 3, dispatched: true } });
-  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true });
-  assert.deepEqual(f.calls, ['detect']); assert.equal(f.state, null);
+  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true, video_reminder_batch: {due:false} });
+  assert.deepEqual(f.calls, ['video_batch', 'detect']); assert.equal(f.state, null);
   const g = fixture(t, { detect: new Error('metadata unavailable') });
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
-  assert.deepEqual(g.calls, ['detect']);
+  assert.deepEqual(g.calls, ['video_batch', 'detect']);
 });
 test('payout link exception and content exception or partial error fail the lane', async t => {
   const f = fixture(t, { links: new Error('the payout timer must not parse chat text') });

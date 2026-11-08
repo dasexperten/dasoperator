@@ -260,7 +260,6 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     }
   }
   refreshed += await paidOrderReminders(env).catch(() => { failures.reminders++; return 0; });
-  refreshed += await overdueVideoReminders(env).catch(() => { failures.reminders++; return 0; });
   // Preserve completed work and the existing claim/retry decisions, then make
   // a partial failure visible to the adaptive runner instead of returning green.
   const failed = Object.entries(failures).filter(([, count]) => count > 0);

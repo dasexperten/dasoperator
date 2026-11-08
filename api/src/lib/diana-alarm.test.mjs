@@ -89,3 +89,13 @@ test('state, not news: a waiting chat missed once is raised again; a receipt for
   f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run('diana_metadata_tick_v2');
   assert.equal((await detectDianaMessages(f.env, at(12, 8))).detected, 1); // lost alarm comes back while the chat waits
 });
+
+test('video reminders wait for the 07:00 batch while other alarms stay available', async t => {
+  const f=fixture(); t.after(()=>f.db.close());
+  f.state.set('diana_action_pending:video',JSON.stringify({cid:'v',message_id:'v',event_id:'action:video',task:'video_reminder'}));
+  f.state.set('diana_action_pending:payout',JSON.stringify({cid:'p',message_id:'p',event_id:'action:payout'}));
+  assert.deepEqual((await pendingDianaMessages(f.env,at(6,59))).map(x=>x.cid),['p']);
+  f.state.set('diana_video_reminder_batch_day','2026-11-06');
+  assert.deepEqual((await pendingDianaMessages(f.env,at(7))).map(x=>x.cid).sort(),['p','v']);
+  assert.deepEqual((await pendingDianaMessages(f.env,at(24))).map(x=>x.cid),['p']);
+});

@@ -93,12 +93,18 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   return { inspected, detected, errors, ...(await pushed.json() as object) };
 }
 
-export async function pendingDianaMessages(env: Env) {
+// The 07:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.
+export const VIDEO_REMINDER_BATCH_KEY = 'diana_video_reminder_batch_day';
+export function yerevanDay(now = Date.now()) { return new Date(now + 4 * 3600_000).toISOString().slice(0, 10); }
+export async function pendingDianaMessages(env: Env, now = Date.now()) {
+  const batch = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(VIDEO_REMINDER_BATCH_KEY).first<{value:string}>();
+  const videoBatchOpen = batch?.value === yerevanDay(now);
   const rows = (await env.DB.prepare("SELECT key,value,updated_at FROM crm_sync_state WHERE key LIKE ?1 OR key LIKE 'diana_action_pending:%' ORDER BY updated_at").bind(ALARM_PREFIX + '%').all<{ key: string; value: string; updated_at: number }>()).results ?? [];
   const pending = [];
   for (const row of rows) {
     try {
       const alarm = JSON.parse(row.value);
+      if (alarm.task === 'video_reminder' && !videoBatchOpen) continue;
       if (!alarm.cid && row.key.startsWith(ALARM_PREFIX)) alarm.cid = row.key.slice(ALARM_PREFIX.length);
       if (!alarm.cid) continue;
       if (!alarm.event_id) {

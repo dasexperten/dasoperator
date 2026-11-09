@@ -1282,7 +1282,7 @@ ugc.put('/payouts/:id/requisites', async (c) => {
   if (!isFpsBankMemberId(bankId)) return fail(c, 422, [{ code: 'invalid_bank', message: 'fps_bank_member_id must be the 12-digit SBP id' }]);
   const firstName = textValue(body.first_name, 120);
   const lastName = textValue(body.last_name, 120);
-  if (!firstName || !lastName) return fail(c, 422, [{ code: 'name_required', message: 'first_name and last_name required by Konsol' }]);
+  if (!firstName) return fail(c, 422, [{ code: 'name_required', message: 'first_name required' }]);
   const now = Date.now();
   await c.env.DB.batch([
     c.env.DB.prepare(

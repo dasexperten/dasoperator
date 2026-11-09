@@ -1723,7 +1723,7 @@ function BodyView({ item, body, loading }: { item: MailItem; body: { text?: stri
         sandbox={HTML_SANDBOX}
         referrerPolicy="no-referrer"
         title={item.subject}
-        style={{ width: '100%', minHeight: 320, height: '100%', border: 'none', borderRadius: 0, background: '#fff' }}
+        style={{ width: '100%', minHeight: 320, height: '60dvh', border: 'none', borderRadius: 0, background: '#fff' }}
       />
     );
   }
@@ -2395,7 +2395,7 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
         <div className="detail">
           {selected ? (
             <>
-              <div className="dcard">
+              <div className="dcard" key={selected.id}>
                 <div className="dhead">
                   <button className="back-btn" onClick={() => setSelectedId(null)} aria-label="Закрыть письмо"><ChevronLeft size={16} /></button>
                   {(() => {

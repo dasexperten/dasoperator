@@ -689,16 +689,22 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .rtags { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 .dxmail .unread-dot { display: none; }
 
-.dxmail .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--white); }
+.dxmail .detail { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--white); }
 .dxmail .dcard {
-  margin: 0; flex: 1;
+  margin: 0; flex: 1; min-height: 0;
   background: transparent;
   border: none;
   border-radius: 0;
   display: flex; flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow: none;
 }
+/* Keep the whole conversation reachable on short windows and long threads.
+   The reply bar stays outside this scroller; HTML retains its sandbox. */
+.dxmail .dcard > .dhead,
+.dxmail .dcard > .dmeta { flex-shrink: 0; }
+.dxmail .dcard > .dbody { flex: none; overflow: visible; }
+.dxmail .dcard > .dbody.is-html .dbody-inner { height: auto; }
 .dxmail .dhead {
   padding: 22px 30px 18px;
   background: var(--white);

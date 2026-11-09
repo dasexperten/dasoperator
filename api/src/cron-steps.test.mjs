@@ -71,3 +71,7 @@ test('removed timer jobs have no executable ERP step', () => {
   assert.equal(STEPS['erp-promo-refill'], undefined);
   assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
 });
+
+test('recognition outage still refreshes existing payouts before reporting failed intake',async t=>{
+ const f=await failsOnPayoutClock(t,'erp-ugc-payouts',{intake:new Error('cart_recognition_pending')},/cart_recognition_pending/);assert.deepEqual(f.calls,['intake','payout']);
+});

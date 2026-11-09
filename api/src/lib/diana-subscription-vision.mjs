@@ -1,3 +1,4 @@
+import { rubMinor } from './ugc-cart-decision.mjs';
 import { summarizeImageChecks } from './diana-image-check.mjs';
 export const VISION_MODELS = ['gpt-6-luna', 'gpt-6.1-terra'];
 const kinds = ['basket','order','product_photo','other','unknown'];
@@ -10,7 +11,7 @@ export function validateImageResult(value) {
  if (!value || Object.keys(value).some(k=>!IMAGE_SCHEMA.required.includes(k)) || !kinds.includes(value.kind) || !['product','seller','amount'].every(k=>verdicts.includes(value[k])) || !IMAGE_SCHEMA.properties.seller_evidence.enum.includes(value.seller_evidence) || !Array.isArray(value.unresolved_required)||!value.unresolved_required.every(k=>IMAGE_SCHEMA.properties.unresolved_required.items.enum.includes(k))||typeof value.what!=='string' || typeof value.visible_text!=='string' || !value.requisites || Object.keys(value.requisites).length!==6 || !IMAGE_SCHEMA.properties.requisites.required.every(k=>value.requisites[k]===null||typeof value.requisites[k]==='string') || !value.observed || Object.keys(value.observed).length!==6 || !IMAGE_SCHEMA.properties.observed.required.every(k=>value.observed[k]===null||typeof value.observed[k]==='string')) throw Error('invalid_image_schema');
  const result={...value};
  if(result.product==='yes'&&!result.observed.product_name)result.product='unknown';
- if(result.amount==='yes'&&!result.observed.price)result.amount='unknown';
+ if(result.amount==='yes'&&(!result.observed.price||(result.kind==='basket'&&rubMinor(result.observed.price,result.observed.currency??'')===null)))result.amount='unknown';
  if(result.seller_evidence!=='explicit_shop'||!result.observed.seller_name) {result.seller='unknown';result.observed={...result.observed,seller_name:null};}
  return result;
 }

@@ -160,3 +160,48 @@ test('a pending clarification already claimed by a consumer is not reset on repe
   assert.equal(f.db.prepare('SELECT count(*) n FROM ugc_payouts').get().n,0);
  }finally{f.db.close()}
 });
+
+const reviewDir=mkdtempSync(join(tmpdir(),'cart-review-integration-'));
+await build({entryPoints:[fileURLToPath(new URL('./ugc-cart-review.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:join(reviewDir,'review.mjs'),plugins:[{name:'native-boundary',setup(b){
+ b.onResolve({filter:/^\.\/(?:ig-dm-image-cache|ig-dm-watch|diana-subscription\.mjs)$/},a=>({path:a.path,namespace:'fixture'}));
+ b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const imageUrls=json=>JSON.parse(json).map(a=>a.image_data.url);export const loadInstagramImage=async()=>({data:'original-image',mediaType:'image/png',size:14});export const refreshIgAttachments=async()=>null;export const subscriptionInfer=()=>async(messages,{model})=>{globalThis.__cartModels.push(model);return{text:JSON.stringify(globalThis.__cartResults.shift()),receipt:{transport:'codex-native',auth:'subscription',model}}};`}));
+}}]});
+const {reviewPayoutCart}=await import(pathToFileURL(join(reviewDir,'review.mjs')));rmSync(reviewDir,{recursive:true});
+const imageResult={kind:'basket',product:'yes',seller:'unknown',amount:'yes',seller_evidence:'absent',unresolved_required:[],what:'one selected TERMO',visible_text:'453 RUB',requisites:{holder_name:null,bank:null,phone:null,card:null,amount:null,currency:null},observed:{product_name:'Das Experten TERMO 39°',price:'453',currency:'RUB',payment_status:null,delivery_status:null,seller_name:null}};
+function archivedCart(f){
+ f.db.exec("UPDATE ugc_ig_messages SET attachments_json='[{\"image_data\":{\"url\":\"https://lookaside.fbsbx.com/original\"}}]' WHERE id='new-bank'");
+ return f.db.prepare('SELECT *,NULL text FROM ugc_ig_messages').all();
+}
+const policy=async()=>({sha:'a'.repeat(40),policy:{product:{name:'TERMO 39°'},sellers:[]}});
+test('original image → Luna fallback Terra → source receipt → atomic numeric payout; replay uses image cache',async()=>{
+ const f=fixture();try{
+  const messages=archivedCart(f);globalThis.__cartModels=[];globalThis.__cartResults=[{...imageResult,amount:'unknown'},imageResult];
+  const receipt=await reviewPayoutCart(f.env,'chat',messages,{now,policy});
+  assert.equal(receipt.amount_minor,45300);assert.deepEqual(globalThis.__cartModels,['gpt-6-luna','gpt-6.1-terra']);
+  const saved=await prepareCreatorPayout(f.env,{...facts,cart_review:undefined,amount_minor:1},now);assert.equal(saved.amount_minor,45300);
+  const proof=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_payout_intake:%'").get().value);assert.equal(proof.verified_cart.source_message_id,'new-bank');
+  await reviewPayoutCart(f.env,'chat',messages,{now,policy});assert.equal(globalThis.__cartModels.length,2);
+ }finally{f.db.close()}
+});
+test('new seller-only screen retains verified basket; later conflicting text creates clarification, never a payout',async()=>{
+ const f=fixture();try{
+  const messages=archivedCart(f);const seller={id:'seller',conversation_id:'chat',direction:'in',from_username:'alice',text:null,created_at:'2026-11-09T11:15:00Z',attachments_json:messages.find(m=>m.id==='new-bank').attachments_json};
+  f.db.prepare('INSERT INTO ugc_ig_messages VALUES(?,?,?,?,?,?)').run(seller.id,'chat','in','alice',seller.created_at,seller.attachments_json);messages.push(seller);
+  globalThis.__cartModels=[];globalThis.__cartResults=[{...imageResult,kind:'other',product:'unknown',amount:'unknown',observed:{...imageResult.observed,price:null}},imageResult];
+  assert.equal((await reviewPayoutCart(f.env,'chat',messages,{now,policy})).amount_minor,45300);
+  const quote={id:'text-price',direction:'in',text:'Цена 492 руб',created_at:'2026-11-09T11:30:00Z'};
+  f.db.prepare('INSERT INTO ugc_ig_messages VALUES(?,?,?,?,?,?)').run(quote.id,'chat','in','alice',quote.created_at,null);messages.push(quote);
+  const receipt=await reviewPayoutCart(f.env,'chat',messages,{now,policy});assert.equal(receipt.reason,'amount_conflict');
+  const saved=await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now);assert.equal(saved.registered,false);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);
+ }finally{f.db.close()}
+});
+test('an explicit incoming amount without an image is source-backed; later stale receipt cannot authorise it',async()=>{
+ const f=fixture();try{
+  f.db.exec('UPDATE ugc_ig_messages SET attachments_json=NULL');const messages=f.db.prepare('SELECT *,NULL text FROM ugc_ig_messages').all();messages.find(m=>m.id==='new-bank').text='453 руб';
+  globalThis.__cartModels=[];await reviewPayoutCart(f.env,'chat',messages,{now,policy});
+  assert.equal((await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now)).amount_minor,45300);assert.equal(globalThis.__cartModels.length,0);
+  f.db.prepare("UPDATE ugc_payouts SET amount_minor=48700").run();
+  f.db.prepare("INSERT INTO ugc_ig_messages VALUES('later','chat','in','alice','2026-11-09T11:40:00Z',NULL)").run();
+  assert.equal((await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now)).amount_minor,48700);
+ }finally{f.db.close()}
+});

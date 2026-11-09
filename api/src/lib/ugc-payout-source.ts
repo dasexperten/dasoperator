@@ -1,9 +1,10 @@
 import type {Env} from '../types';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
+import {reviewPayoutCart,payoutImagePolicy} from './ugc-cart-review';
 import {prepareCreatorPayout} from './ugc-payout-intake';
 const PAGE='1697038263872226', IG='17841466350261166';
 const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
-// Narrow, model-free payment intake. No message sends, read-state changes or payment calls.
+// Original-message intake with subscription image review; no replies, read marks or payment calls.
 export async function ingestCreatorPayouts(env:Env){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
  if(!token)throw Error('payment_source_token_missing');
@@ -16,6 +17,8 @@ export async function ingestCreatorPayouts(env:Env){
  if(!page.access_token)throw Error('payment_source_page_token_missing');
  const now=Date.now(),since=now-14*86400000;let after='',saved=0;
  const failures:string[]=[];
+ const recognitionBudget={remaining:3};let imagePolicy:ReturnType<typeof payoutImagePolicy>|undefined;
+ const policy=()=>imagePolicy??=payoutImagePolicy(env);
  for(let p=0;p<4;p++){
   const list=await graph(PAGE+'/conversations?platform=instagram&limit=25&fields=id,messages.limit(30){id,created_time,from,message,attachments{mime_type,image_data,file_url}}'+(after?'&after='+encodeURIComponent(after):''),page.access_token);
   for(const c of list.data??[]){
@@ -23,7 +26,7 @@ export async function ingestCreatorPayouts(env:Env){
    if(!rows.length)continue;
    await env.DB.batch(rows.map((m:any)=>env.DB.prepare(`INSERT INTO ugc_ig_messages(id,conversation_id,direction,from_id,from_username,text,attachments_json,created_at,seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(id) DO UPDATE SET text=CASE WHEN ugc_ig_messages.text IS NULL OR ugc_ig_messages.text='' THEN excluded.text ELSE ugc_ig_messages.text END,attachments_json=CASE WHEN ugc_ig_messages.attachments_json IS NULL OR ugc_ig_messages.attachments_json IN ('[]','') THEN excluded.attachments_json ELSE ugc_ig_messages.attachments_json END`).bind(m.id,m.conversation_id,m.direction,m.from_id,m.from_username,m.text,m.attachments_json,m.created_at,new Date(now).toISOString())));
    // Read the original archive, not last-word/read state. An acknowledgement cannot hide requisites.
-   const archived=await env.DB.prepare(`SELECT id,direction,text,created_at,from_username FROM ugc_ig_messages WHERE conversation_id=?1 AND created_at>=?2 ORDER BY created_at DESC LIMIT 500`).bind(c.id,new Date(since).toISOString()).all<any>();
+   const archived=await env.DB.prepare(`SELECT id,direction,text,created_at,from_username,attachments_json FROM ugc_ig_messages WHERE conversation_id=?1 AND created_at>=?2 ORDER BY created_at DESC LIMIT 500`).bind(c.id,new Date(since).toISOString()).all<any>();
    const messages=archived.results??[],r=latestRequisites(messages);
    if(!r)continue;
    const handle=messages.find((m:any)=>m.id===r.cycle_message_id)?.from_username?.toLowerCase();
@@ -31,14 +34,25 @@ export async function ingestCreatorPayouts(env:Env){
    // Existing 60-day cycle guard: no second payout after a transfer or failed attempt.
    const existing=await env.DB.prepare(`SELECT p.id,p.status,p.execute_claim,p.konsol_payment_id,p.creator_id,p.amount_minor FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1`).bind(handle,now-60*86400000).first<any>();
    if(existing&&(existing.execute_claim||existing.konsol_payment_id||!['awaiting_approval','approved'].includes(existing.status)))continue;
+   let observedAmount=existing?.amount_minor>=5000?existing.amount_minor:1;
+   // Never replace an Owner-entered amount. Unconfirmed/new payouts get source recognition first.
+   if(!existing||existing.amount_minor<5000){
+    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});if(review.status==='confirmed'&&review.amount_minor)observedAmount=review.amount_minor;}
+    catch{
+      failures.push(handle+':cart_recognition_pending');
+      await env.DB.batch([env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('ugc_cart_review_error:'+c.id,JSON.stringify({status:'pending',reason:'recognition_unavailable',checked_at:now}),now)]);
+      continue;
+    }
+   }
    if(existing){
     const receipt=await env.DB.prepare('SELECT value,updated_at FROM crm_sync_state WHERE key=?1').bind('diana_payout_intake:'+existing.creator_id).first<{value:string;updated_at:number}>();
     if(receipt&&Number(JSON.parse(receipt.value).source_at)>=r.source_at){
-     const context=existing.amount_minor===1?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('diana_context:'+c.id).first<{updated_at:number}>():null;
-     if(!context||context.updated_at<=receipt.updated_at)continue;
+     const context=existing.amount_minor<5000?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('diana_context:'+c.id).first<{updated_at:number}>():null;
+     const cart=existing.amount_minor<5000?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('ugc_cart_review:'+c.id).first<{updated_at:number}>():null;
+     if((!context||context.updated_at<=receipt.updated_at)&&(!cart||cart.updated_at<=receipt.updated_at))continue;
     }
    }
-   try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false)saved++;}
+   try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:observedAmount,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false)saved++;}
    catch(error){const code=error instanceof Error?error.message:'intake_failed';if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
   }
   after=list.paging?.cursors?.after??'';if(!list.paging?.next||!after)break;

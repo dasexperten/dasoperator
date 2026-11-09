@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { konsolPhone, isFpsBankMemberId, maskPhoneWide } from './ugc-payouts.mjs';
 import { confirmedCartAmount } from './ugc-cart-amount.mjs';
+import { decideCart } from './ugc-cart-decision.mjs';
 import { payoutStageStatement } from './ugc-payout-stage.mjs';
 
 // Explicit reviewed intake and the narrow deterministic payout scanner share this save boundary.
@@ -68,6 +69,21 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','{}','null','') AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(input.conversation_id).first<{at:string}>();
   let imageCheck; try { imageCheck=JSON.parse(context?.value ?? '{}').image_check; } catch {}
   let cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
+  const cartReceipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('ugc_cart_review:'+input.conversation_id).first<{value:string}>();
+  let structuredCart:any=null;
+  if(cartReceipt){
+    cartAmount=null;
+    try{
+      const proof=JSON.parse(cartReceipt.value);
+      const latestIncoming=await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in'").bind(input.conversation_id).first<{at:string}>();
+      const sameTime=(a:string|null|undefined,b:string|null|undefined)=>!a&&!b||Boolean(a&&b&&Date.parse(a)===Date.parse(b));
+      const decision=decideCart(proof.checks??[],proof.quote);
+      if(proof.version===1&&proof.conversation_id===input.conversation_id&&sameTime(proof.latest_image_at,latestImage?.at)&&sameTime(proof.latest_incoming_at,latestIncoming?.at)&&decision.status==='confirmed'&&decision.amount_minor===proof.amount_minor){
+        const source=await env.DB.prepare('SELECT direction,from_username,created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(decision.source_message_id,input.conversation_id).first<{direction:string;from_username:string;created_at:string}>();
+        if(source?.direction==='in'&&source.from_username?.toLowerCase()===handle){cartAmount=decision.amount_minor;structuredCart={receipt_key:'ugc_cart_review:'+input.conversation_id,authority:decision.authority,source_message_id:decision.source_message_id,amount_minor:decision.amount_minor};}
+      }
+    }catch{} // Invalid/stale receipt remains unconfirmed, never a guessed number.
+  }
   if(input.cart_review){
     const review=input.cart_review;
     if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>99900)throw Error('invalid_verified_cart_amount');
@@ -98,7 +114,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
-    observed_amount_minor:input.amount_minor,verified_cart:input.cart_review??null,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
+    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_creators(id,normalized_handle,lifecycle_stage,created_at,updated_at)
       VALUES(?1,?2,'agreed',?3,?3) ON CONFLICT(id) DO NOTHING`).bind(creatorId,handle,now),

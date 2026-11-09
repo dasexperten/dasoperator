@@ -8,6 +8,7 @@ import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, 
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 import { dianaCompose, queueDianaAction } from './diana-compose';
+import {queueConfirmedPayoutNotice} from './ugc-payout-handoff';
 import { alertMina } from './mina-alert';
 import { followPayoutStage } from './ugc-payout-stage.mjs';
 
@@ -102,7 +103,7 @@ function deps(env: Env) {
       try { return await notifyBloggerOnce(env, row, text, kind); }
       catch (e) {
         const error = `ERP оборвал отправку: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300);
-        await env.DB.prepare(`UPDATE ugc_payouts SET notice_status='failed', notice_error=?2, notice_at=?3 WHERE id=?1`).bind(String(row.id), error, new Date().toISOString()).run().catch(() => undefined);
+        await env.DB.prepare(`UPDATE ugc_payouts SET notice_status='failed', notice_error=?2, notice_at=?3 WHERE id=?1 AND COALESCE(notice_status,'') NOT IN ('delivered','reviewed')`).bind(String(row.id), error, new Date().toISOString()).run().catch(() => undefined);
         await alertMina(env, { payoutId: String(row.id), handle: String(row.creator_handle || row.handle || ''), error, kind }).catch(() => false);
         return { ok: false, error };
       }
@@ -113,16 +114,7 @@ function deps(env: Env) {
 }
 
 async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: string, _kind: 'paid' | 'failed') {
-  const handle = String(row.creator_handle || row.handle || '');
-  const action = await queueDianaAction(env, handle, '', `payout:${row.id}:${_kind}`);
-  if (!action.ok) throw new Error(action.error);
-  // A handoff is pending work, never proof of sending or an Instagram failure.
-  // paid_notice_at is reserved for Diana's verified delivery, not a queue claim.
-  await env.DB.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL,
-    notice_status='queued', notice_error=?2, notice_at=NULL
-    WHERE id=?1 AND COALESCE(notice_status,'') <> 'delivered'`)
-    .bind(String(row.id), 'Задача Диане: проверить выплату и отправить сообщение').run();
-  return { ok: true, queued: true };
+  return queueConfirmedPayoutNotice(env,String(row.id),_kind);
 }
 
 export async function executeUgcPayout(env: Env, id: string) {

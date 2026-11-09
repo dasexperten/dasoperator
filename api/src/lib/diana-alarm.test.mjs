@@ -161,3 +161,14 @@ test('an existing unanswered signal is dispatched during the scan without waitin
   t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.searchParams.get('fields')==='access_token')return Response.json({access_token:'fake'});pages++;if(pages===1)return Response.json({data:[chat('waiting','them')],paging:{next:'x',cursors:{after:'25'}}});assert.ok(sends>0);return Response.json({data:[]})});
   const result=await detectDianaMessages(f.env,at(12));assert.equal(result.detected,0);assert.equal(sends,2);assert.ok(f.state.get('diana_round_alarm:waiting'));
 });
+
+test('priority dispatch sends the found chat first and skips queue reads when Diana is busy',async t=>{
+  const f=fixture();t.after(()=>f.db.close());
+  for(let i=0;i<55;i++) f.state.set('diana_round_alarm:c'+i,JSON.stringify({cid:'c'+i,message_id:'m'+i,event_id:'message:m'+i,at:new Date(Date.UTC(2026,10,1,0,0,i)).toISOString()}));
+  const peer={readyState:1,meta:{role:'primary',busy:false},sent:[],deserializeAttachment(){return this.meta},serializeAttachment(v){this.meta=v},send(v){this.sent.push(JSON.parse(v))}};
+  const o=new DianaWake({getWebSockets:()=>[peer]},f.env);
+  const request=()=>new Request('https://wake/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({priority_event_id:'message:m0'})});
+  const first=await (await o.fetch(request())).json(); assert.equal(first.dispatched,true);assert.equal(peer.sent[0].messages[0].event_id,'message:m0');
+  const saved=f.env.DB;f.env.DB={prepare(){throw new Error('queue should not be read while busy')}};
+  const second=await (await o.fetch(request())).json();assert.equal(second.reason,'diana_working');f.env.DB=saved;
+});

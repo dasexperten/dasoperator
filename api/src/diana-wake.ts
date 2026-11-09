@@ -37,15 +37,19 @@ export class DianaWake {
       return new Response(null, { status: 101, webSocket: pair[0], headers: { 'Sec-WebSocket-Protocol': 'diana-wake' } });
     }
     if (url.pathname === '/status') return Response.json({ connections: this.state.getWebSockets().map(ws => ws.deserializeAttachment()) });
+    let priorityEventId: string | undefined;
+    try { const body = await request.json() as {priority_event_id?: unknown}; if (typeof body.priority_event_id === 'string') priorityEventId = body.priority_event_id; } catch { /* ordinary dispatch has no body */ }
     const peers = this.state.getWebSockets().filter(ws => ws.readyState === 1 && Date.now() - ((ws.deserializeAttachment() as Peer).seen ?? Date.now()) < 180_000)
       .sort((a,b) => RANK.indexOf((a.deserializeAttachment() as Peer).role) - RANK.indexOf((b.deserializeAttachment() as Peer).role));
     const peer = peers[0];
+    // During a scan, a busy or offline peer cannot take a priority event.
+    // Avoid re-reading the whole queue for every chat; the durable event remains.
+    if (priorityEventId && !peer) return Response.json({dispatched:false,reason:'no_machine_connected'});
+    if (priorityEventId && (peer.deserializeAttachment() as Peer).busy) return Response.json({dispatched:false,reason:'diana_working'});
     const pending = await pendingDianaMessages(this.env);
     if (!peer) return Response.json({ pending: pending.length, dispatched: false, reason: 'no_machine_connected' });
     if ((peer.deserializeAttachment() as Peer).busy) return Response.json({ pending: pending.length, dispatched: false, reason: 'diana_working' });
     if (pending.length) {
-      let priorityEventId: string | undefined;
-      try { const body = await request.json() as {priority_event_id?: unknown}; if (typeof body.priority_event_id === 'string') priorityEventId = body.priority_event_id; } catch { /* ordinary dispatch has no body */ }
       peer.serializeAttachment({ ...(peer.deserializeAttachment() as Peer), busy: true });
       try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(pending, priorityEventId) })); }
       catch { peer.close(1011, 'delivery failed'); return Response.json({ pending: pending.length, dispatched: false }); }

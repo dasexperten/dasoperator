@@ -281,13 +281,22 @@ export async function overdueVideoReminders(env: Env, now = Date.now()): Promise
       AND c.lifecycle_stage IN ('paid','ordered','creation')
       AND p.paid_at=(SELECT MAX(y.paid_at) FROM ugc_payouts y WHERE y.creator_id=c.id AND y.status='paid')
     ORDER BY p.paid_at DESC`)
-    .bind(new Date(now - 3 * 86_400_000).toISOString())
+    .bind(new Date(now - 5 * 86_400_000).toISOString())
     .all<{id:string;handle:string;paid_at:string}>()).results ?? [];
   let queued = 0, failed = 0;
   for (const row of rows) {
     if (!row.handle || !Number.isFinite(Date.parse(row.paid_at))) continue;
-    const result = await queueDianaAction(env, row.handle, '', `video-reminder:${row.id}`, {
-      task: 'video_reminder', payout_id: String(row.id), paid_at: row.paid_at,
+    const cycle = Math.floor((now - Date.parse(row.paid_at)) / (5 * 86_400_000));
+    if (cycle < 1) continue;
+    // A prior due event, including a legacy one-reminder event, must be
+    // resolved first; never accumulate multiple overdue reminders for a payout.
+    const pending = await env.DB.prepare(`SELECT 1 AS present FROM crm_sync_state
+      WHERE key LIKE 'diana_action_pending:%' AND json_valid(value)
+        AND json_extract(value,'$.task')='video_reminder'
+        AND CAST(json_extract(value,'$.payout_id') AS TEXT)=?1 LIMIT 1`).bind(String(row.id)).first();
+    if (pending) continue;
+    const result = await queueDianaAction(env, row.handle, '', `video-reminder:${row.id}:cycle:${cycle}`, {
+      task: 'video_reminder', payout_id: String(row.id), paid_at: row.paid_at, reminder_cycle: cycle,
     });
     if (!result.ok) { failed++; continue; }
     if (result.queued && result.newlyQueued) queued++;

@@ -113,6 +113,18 @@ test('green requires every persisted destination; existing verified posts count,
   assert.equal((await request('/reel-jobs/reel1/complete',{claim_id:job.claim_id,publications:proofs.slice(1)})).status,200);
   assert.equal(sqlite.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='reel1'").get().status,'published');
 });
+test('legacy wire envelope already carries real publication instructions, not check-only text',async()=>{
+ const RealDate=globalThis.Date;
+ try {
+  globalThis.Date=class extends RealDate { constructor(...args){super(...(args.length?args:[monday]));} static now(){return monday;} };
+  sqlite.exec("UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL,attempts=0,started_at=NULL;DELETE FROM ugc_reel_jobs WHERE content_id='reel2'");resetAlarm();
+  await tickDiterAlarm(env,monday);
+  const envelope=await(await request('/reel-alarm')).json();
+  assert.equal(envelope.ready,true);assert.equal(envelope.job.content_id,'reel1');
+  assert.match(envelope.job.task,/РОВНО ОДИН/);assert.doesNotMatch(envelope.job.task,/Preflight only/);
+  assert.equal(row().status,'queued','reading the envelope never claims or starts work');
+ } finally { globalThis.Date=RealDate; }
+});
 test('legacy PC preflight accepts only the single fresh alarmed id through the same alarm',async()=>{
   sqlite.exec("UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL,attempts=0,started_at=NULL;DELETE FROM ugc_reel_jobs WHERE content_id='reel2'");resetAlarm();
   assert.equal((await tickDiterAlarm(env,monday)).note,'consumer_missing');

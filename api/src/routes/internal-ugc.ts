@@ -35,8 +35,9 @@ route.use('*', async (c, next) => {
   return next();
 });
 
-// Legacy PC consumer sees a preflight signal only; the next call accepts this
-// exact content_id before it starts the tool-capable round. Never /adhoc.
+// The signal is preflight transport data; its task text is the actual upload
+// assignment. Older installed clients forward it only after an accepted claim.
+// Never send a model a contradictory "Preflight only" instruction after claim.
 route.get('/reel-alarm', async (c) => {
   const stored=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
   const signal=freshSignal(stored?.value ?? '');
@@ -44,7 +45,7 @@ route.get('/reel-alarm', async (c) => {
   const name=alarmWireName(c.req.header('X-UGC-Alarm-Name'));
   const wireSignal=stored?{...JSON.parse(stored.value),name}:null;
   return c.json({ok:true,name,alarm:ALARM,target:'diter-ugc-round',ready:Boolean(row),signal:wireSignal,
-    job:row?{...reelJobScopeView(row),task:`Preflight only. Accept this exact post once, then use the ACTUAL returned claim_id in every callback. ${reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}`}:null});
+    job:row?{...reelJobScopeView(row),task:reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}:null});
 });
 route.get('/reel-jobs', async (c) => {
   const jobs = await c.env.DB.prepare(`SELECT j.*,c.content_url,c.content_type,p.handle,p.platform FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id ORDER BY j.requested_at`).all();

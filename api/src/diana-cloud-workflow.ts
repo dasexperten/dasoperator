@@ -5,7 +5,9 @@ import { readCloudConversation, prepareCloudDecision, draftCloudDecision, delive
 
 // Each read/model step has at most three attempts. Durable send intents are never
 // blindly retried by Workflows; only their separately persisted receipts allow resume.
-const READ = {retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'15 minutes' as const};
+// The managed native login is serialized. Allow a bounded fifteen-minute
+// Dieter turn ahead of this read without cancelling/re-enqueuing the same call.
+const READ = {retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'30 minutes' as const};
 export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> {
   async run(event:WorkflowEvent<DianaCloudEvent>,step:WorkflowStep) {
     const input=event.payload;

@@ -42,3 +42,8 @@ test('Drive source readiness needs company identity, write scope and the exact o
  count=0;const good=async()=>Response.json([{access_token:'fixture',scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'}, {user:{emailAddress:'dasexperten@gmail.com'}},{id:'13fAh0oFKq_PCUkL0iG8WIOpHfPN8vM39',name:'originals',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true}}][count++]);
  assert.equal((await probeDrive(credential,good)).ready,true);
 });
+test('private runtime audit cannot persist shell text or credential-bearing errors',async()=>{
+ const {auditDieterEvents}=await import('../../subscription-runner/dieter.mjs');
+ const audit=auditDieterEvents([{type:'item.completed',item:{type:'command_execution',command:'echo secret-fixture',aggregated_output:'secret-fixture',exit_code:0,status:'completed'}},{type:'turn.failed',error:{message:'secret-fixture'}}]);
+ assert.ok(!audit.includes('secret-fixture'));assert.ok(audit.includes('command_execution'));assert.ok(audit.includes('"exit_code":0'));
+});

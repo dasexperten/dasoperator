@@ -7,9 +7,9 @@ export const DIANA_BATCH = 50;
 // Newest first, never the oldest backlog (Owner 2026-11-07: "the last 20 chats with no answer from our side").
 // A chat whose newest message is ours (last_from_us === true) comes after every unanswered one.
 const dianaTime = (item: any) => { const t = Date.parse(String(item.at ?? '')); return Number.isFinite(t) ? t : 0; };
-export function dianaBatch(pending: any[]) {
+export function dianaBatch(pending: any[], priorityEventId?: string) {
   return [...pending]
-    .sort((a, b) => (a.last_from_us === true ? 1 : 0) - (b.last_from_us === true ? 1 : 0) || dianaTime(b) - dianaTime(a))
+    .sort((a, b) => Number(b.event_id === priorityEventId && !!priorityEventId) - Number(a.event_id === priorityEventId && !!priorityEventId) || (a.last_from_us === true ? 1 : 0) - (b.last_from_us === true ? 1 : 0) || dianaTime(b) - dianaTime(a))
     .slice(0, DIANA_BATCH)
     .map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
       cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, display_name: item.display_name, at: item.at, reason: item.reason, queue_key: item.queue_key,
@@ -44,8 +44,10 @@ export class DianaWake {
     if (!peer) return Response.json({ pending: pending.length, dispatched: false, reason: 'no_machine_connected' });
     if ((peer.deserializeAttachment() as Peer).busy) return Response.json({ pending: pending.length, dispatched: false, reason: 'diana_working' });
     if (pending.length) {
+      let priorityEventId: string | undefined;
+      try { const body = await request.json() as {priority_event_id?: unknown}; if (typeof body.priority_event_id === 'string') priorityEventId = body.priority_event_id; } catch { /* ordinary dispatch has no body */ }
       peer.serializeAttachment({ ...(peer.deserializeAttachment() as Peer), busy: true });
-      try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(pending) })); }
+      try { peer.send(JSON.stringify({ type: 'messages', messages: dianaBatch(pending, priorityEventId) })); }
       catch { peer.close(1011, 'delivery failed'); return Response.json({ pending: pending.length, dispatched: false }); }
     }
     return Response.json({ pending: pending.length, dispatched: pending.length > 0 });

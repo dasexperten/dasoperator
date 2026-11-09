@@ -122,3 +122,33 @@ test('detected account name and handle are handed to Diana; missing names stay u
   assert.equal(a.handle,'usernamed'); assert.equal(a.display_name,'Creator Name');
   assert.equal(b.handle,''); assert.equal(b.display_name,'');
 });
+
+
+test('each newly detected chat is dispatched before scanning the next page and a busy peer leaves it queued', async t => {
+  const f=fixture(); t.after(()=>f.db.close());
+  let pages=0, dispatches=0;
+  f.env.DIANA_WAKE.get=()=>({async fetch(){dispatches++; assert.ok(f.state.get('diana_round_alarm:early')); return Response.json({dispatched:false,reason:'diana_working'})}});
+  t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u); if(p.searchParams.get('fields')==='access_token')return Response.json({access_token:'fake'});
+    pages++; if(pages===1)return Response.json({data:[chat('early','them')],paging:{next:'x',cursors:{after:'25'}}});
+    assert.ok(dispatches>=1, 'first signal sent before requesting the next page'); return Response.json({data:[]});});
+  const result=await detectDianaMessages(f.env,at(12));
+  assert.equal(result.inspected,1); assert.equal(result.detected,1); assert.equal(result.early_dispatched,0);
+  assert.equal(dispatches,2); assert.ok(f.state.get('diana_round_alarm:early'));
+});
+
+test('a failed immediate handoff does not stop the scan or remove its signal', async t => {
+  const f=fixture();t.after(()=>f.db.close());let calls=0;
+  f.env.DIANA_WAKE.get=()=>({async fetch(){if(++calls===1) throw new Error('offline'); return Response.json({dispatched:true})}});
+  t.mock.method(globalThis,'fetch',chatsFetch(f,[chat('early','them'),chat('later','them')]));
+  const result=await detectDianaMessages(f.env,at(12));
+  assert.equal(result.inspected,2); assert.equal(result.detected,2); assert.equal(result.errors,1);
+  assert.ok(f.state.get('diana_round_alarm:early')); assert.ok(f.state.get('diana_round_alarm:later'));
+});
+
+
+test('a freshly detected event reaches Diana even when a larger newer backlog exists',async()=>{
+  const {dianaBatch}=await load('../diana-wake.ts');
+  const pending=Array.from({length:90},(_,i)=>({cid:'c'+i,event_id:'message:'+i,at:new Date(Date.UTC(2026,10,8,0,0,i)).toISOString()}));
+  const selected=dianaBatch(pending,'message:0');
+  assert.equal(selected.length,50); assert.equal(selected[0].event_id,'message:0');
+});

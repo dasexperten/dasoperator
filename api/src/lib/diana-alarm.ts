@@ -31,7 +31,14 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     .bind(owner,Date.now(),Date.now()-180_000).run();
   if (!lock.meta.changes) return { scan_running: true, detected: 0 };
   const scanStarted = Date.now();
-  let inspected = 0, detected = 0, errors = 0, ownershipLost = false;
+  let inspected = 0, detected = 0, errors = 0, early_dispatched = 0, ownershipLost = false;
+  const channel = env.DIANA_WAKE.get(env.DIANA_WAKE.idFromName('diana'));
+  const dispatch = async (eventId?: string) => {
+    const response = await channel.fetch('https://wake.internal/dispatch', { method: 'POST',
+      ...(eventId ? {headers: {'Content-Type':'application/json'}, body: JSON.stringify({priority_event_id:eventId})} : {}) });
+    if (!response.ok) throw new Error('diana_dispatch_failed');
+    return await response.json() as {dispatched?: boolean; [key:string]: unknown};
+  };
   try {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
   if (!token) throw new Error('instagram_metadata_token_missing');
@@ -67,7 +74,12 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
               WHERE NOT json_valid(crm_sync_state.value) OR json_extract(crm_sync_state.value,'$.message_id') IS NOT ?4`)
               .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now, String(newest.id)).run();
-            if (raised.meta.changes) detected++;
+            if (raised.meta.changes) {
+              detected++;
+              // Deliver as soon as the durable event exists; a busy or disconnected Diana
+              // leaves it in the queue for a later dispatch. Never interrupt the scan.
+              try { if ((await dispatch(alarm.event_id)).dispatched) early_dispatched++; } catch { errors++; }
+            }
           }
         }
       } catch { errors++; }
@@ -83,10 +95,8 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").run();
   } // Existing durable signals still reach Diana; invalid cursors are retried from the newest page.
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan' AND value=?1").bind(owner).run();
-  const channel = env.DIANA_WAKE.get(env.DIANA_WAKE.idFromName('diana'));
-  const pushed = await channel.fetch('https://wake.internal/dispatch', { method: 'POST' });
-  if (!pushed.ok) throw new Error('diana_dispatch_failed');
-  return { inspected, detected, errors, ...(await pushed.json() as object) };
+  const pushed = await dispatch();
+  return { inspected, detected, errors, early_dispatched, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

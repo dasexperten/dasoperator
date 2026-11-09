@@ -33,3 +33,12 @@ test('ready immediately takes a new paid event, without a hot loop on the unackn
 test('financial notices have default priority while explicit new-chat priority and remaining chat order survive',()=>{
  const rows=[{event_id:'message:new',at:'2099-01-01',last_from_us:false},{event_id:'action:paid',task:'payout_paid_notice',at:'2026-01-01'},{event_id:'action:failed',task:'payout_failed_notice',at:'2026-01-02'}];assert.equal(dianaBatch(rows)[0].event_id,'action:failed');assert.equal(dianaBatch(rows,'message:new')[0].event_id,'message:new');
 });
+
+test('Owner Direct-only mode pauses other actions durably and never routes to Air',async t=>{
+ const f=fixture(t);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_execution_mode','direct_only_primary',Date.now());
+ const a=await queueConfirmedPayoutNotice(f.env,'p1','paid');assert.equal(a.dispatch.dispatched,false);assert.equal(f.peer.sent.length,0);assert.equal(events(f).length,1);
+ const msg={event_id:'message:direct',message_id:'direct',cid:'chat',handle:'creator',at:'2026-11-09T11:00:00Z'};
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_round_alarm:chat',JSON.stringify(msg),1);
+ f.peer.meta.role='secondary';const paused=await (await f.actor.fetch(new Request('https://wake/dispatch'))).json();assert.equal(paused.reason,'no_machine_connected');assert.equal(f.peer.sent.length,0);
+ f.peer.meta.role='primary';await f.actor.fetch(new Request('https://wake/dispatch'));assert.equal(f.peer.sent.length,1);assert.deepEqual(f.peer.sent[0].messages.map(x=>x.event_id),['message:direct']);assert.equal(events(f).length,1);
+});

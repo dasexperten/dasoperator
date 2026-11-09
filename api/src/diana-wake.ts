@@ -47,7 +47,9 @@ export class DianaWake {
     return{active:!!row&&Date.now()-Number(row.updated_at)<180_000,updated_at:row?.updated_at??null};
   }
   private async dispatch(priorityEventId?:string,justReturned:string[]=[]){
-    const peers=this.state.getWebSockets().filter(ws=>ws.readyState===1&&Date.now()-((ws.deserializeAttachment() as Peer).seen??Date.now())<180_000)
+    const mode=await this.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_execution_mode'").first<{value:string}>();
+    const directOnly=mode?.value==='direct_only_primary';
+    const peers=this.state.getWebSockets().filter(ws=>(!directOnly||(ws.deserializeAttachment() as Peer).role==='primary')&&ws.readyState===1&&Date.now()-((ws.deserializeAttachment() as Peer).seen??Date.now())<180_000)
       .sort((a,b)=>RANK.indexOf((a.deserializeAttachment() as Peer).role)-RANK.indexOf((b.deserializeAttachment() as Peer).role));
     const peer=peers[0];
     // Preserve main's fast path: a busy/offline peer cannot take a per-chat priority push.
@@ -55,7 +57,7 @@ export class DianaWake {
     if(priorityEventId&&(peer.deserializeAttachment() as Peer).busy)return{dispatched:false,reason:'diana_working'};
     const claim=await this.roundClaim();
     if(claim.active)return{dispatched:false,reason:'diana_round_running',claim_updated_at:claim.updated_at};
-    const pending=await pendingDianaMessages(this.env);
+    const pending=(await pendingDianaMessages(this.env)).filter(item=>!directOnly||String(item.queue_key).startsWith('diana_round_alarm:')||item.task==='owner_direct_only');
     if(!peer)return{pending:pending.length,dispatched:false,reason:'no_machine_connected'};
     if((peer.deserializeAttachment() as Peer).busy)return{pending:pending.length,dispatched:false,reason:'diana_working'};
     const deferred=justReturned.length?justReturned:(priorityEventId?((peer.deserializeAttachment() as Peer).deferred_event_ids??[]).filter(id=>id!==priorityEventId):[]);

@@ -169,6 +169,6 @@ test('priority dispatch sends the found chat first and skips queue reads when Di
   const o=new DianaWake({getWebSockets:()=>[peer]},f.env);
   const request=()=>new Request('https://wake/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({priority_event_id:'message:m0'})});
   const first=await (await o.fetch(request())).json(); assert.equal(first.dispatched,true);assert.equal(peer.sent[0].messages[0].event_id,'message:m0');
-  const saved=f.env.DB;f.env.DB={prepare(){throw new Error('queue should not be read while busy')}};
+  const saved=f.env.DB;f.env.DB={prepare(sql){if(sql.includes("key='diana_execution_mode'"))return{async first(){return null}};throw new Error('queue should not be read while busy')}};
   const second=await (await o.fetch(request())).json();assert.equal(second.reason,'diana_working');f.env.DB=saved;
 });

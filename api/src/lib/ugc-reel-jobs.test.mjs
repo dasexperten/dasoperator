@@ -26,7 +26,8 @@ test('task states exact Owner scope and real worker callbacks without a raw cred
   assert.match(text,/Юридическую маркировку/);
   assert.match(text,/Марикой/);
   assert.match(text,/EMAILER_SERVICE_SECRET/);
-  assert.match(text,/ТОЛЬКО распаковку/);
+  assert.match(text,/ugc-videos\/originals/);
+  assert.match(text,/no editorial cuts or automatic translation/);
   assert.match(text,/HeyGen/);
   assert.doesNotMatch(text,/POST .*\/claim /);
 });

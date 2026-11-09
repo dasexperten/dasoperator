@@ -7,7 +7,7 @@ permissions: {}
 jobs:
   read-pages:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Read sanitized Pages deployment metadata
         env:
@@ -83,3 +83,66 @@ jobs:
               'deployments': selected,
               'target_4c1b069c_matches': target,
           }, ensure_ascii=True, indent=2))
+      - name: Compare public UGC release assets without authentication
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect())
+          origins = (
+              'https://erp.dasexperten.com',
+              'https://4c1b069c.dasoperator.pages.dev',
+              'https://dasoperator.pages.dev',
+          )
+          header_names = ('cf-cache-status', 'cache-control', 'age', 'etag', 'last-modified', 'cf-ray', 'content-type')
+          def get(origin, path, limit):
+              if origin not in origins or not path.startswith('/') or path.startswith('//'):
+                  raise ValueError('Unexpected public target')
+              url = origin + path
+              if urllib.parse.urlsplit(url).netloc != urllib.parse.urlsplit(origin).netloc:
+                  raise ValueError('Unexpected public origin')
+              request = urllib.request.Request(url, headers={'Accept': '*/*'}, method='GET')
+              try:
+                  response = opener.open(request, timeout=25)
+              except urllib.error.HTTPError as error:
+                  response = error
+              except Exception:
+                  return {'error': 'transport error'}, None
+              with response:
+                  summary = {'status': response.code, 'headers': {
+                      name: response.headers.get(name, '')[:500] for name in header_names
+                  }}
+                  body = response.read(limit + 1)
+              if len(body) > limit:
+                  summary['error'] = 'body exceeds safe size'
+                  return summary, None
+              summary['sha256'] = hashlib.sha256(body).hexdigest()
+              return summary, body
+          output = []
+          for origin in origins:
+              html_info, html = get(origin, '/ugc', 2_000_000)
+              item = {'origin': origin, 'html': html_info}
+              if html is not None and html_info.get('status') == 200:
+                  paths = sorted(set(re.findall(rb'/_next/static/chunks/app/ugc/page-[a-f0-9]+\.js', html)))
+                  item['matched_asset_paths'] = [path.decode('ascii') for path in paths[:5]]
+                  assets = []
+                  for path in paths[:1]:
+                      path = path.decode('ascii')
+                      info, body = get(origin, path, 4_000_000)
+                      info['path'] = path
+                      if body is not None and info.get('status') == 200:
+                          info['has_safe_integer_guard'] = b'isSafeInteger' in body
+                          info['has_mandatory_amount_marker'] = 'нужна подтверждённая сумма'.encode('utf-8') in body
+                          info['has_not_ready_title'] = 'Без подтверждённой суммы выплата не готова'.encode('utf-8') in body
+                      assets.append(info)
+                  item['assets'] = assets
+              output.append(item)
+          print(json.dumps(output, ensure_ascii=True, indent=2))

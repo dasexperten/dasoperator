@@ -2,6 +2,7 @@ import type {Env} from '../types';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
 import {prepareCreatorPayout} from './ugc-payout-intake';
 const PAGE='1697038263872226', IG='17841466350261166';
+const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
 // Narrow, model-free payment intake. No message sends, read-state changes or payment calls.
 export async function ingestCreatorPayouts(env:Env){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
@@ -31,10 +32,13 @@ export async function ingestCreatorPayouts(env:Env){
    const existing=await env.DB.prepare(`SELECT p.id,p.status,p.execute_claim,p.konsol_payment_id,p.creator_id,p.amount_minor FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1`).bind(handle,now-60*86400000).first<any>();
    if(existing&&(existing.execute_claim||existing.konsol_payment_id||!['awaiting_approval','approved'].includes(existing.status)))continue;
    if(existing){
-    const receipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_payout_intake:'+existing.creator_id).first<{value:string}>();
-    if(receipt&&existing.amount_minor!==1&&Number(JSON.parse(receipt.value).source_at)>=r.source_at)continue;
+    const receipt=await env.DB.prepare('SELECT value,updated_at FROM crm_sync_state WHERE key=?1').bind('diana_payout_intake:'+existing.creator_id).first<{value:string;updated_at:number}>();
+    if(receipt&&Number(JSON.parse(receipt.value).source_at)>=r.source_at){
+     const context=existing.amount_minor===1?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('diana_context:'+c.id).first<{updated_at:number}>():null;
+     if(!context||context.updated_at<=receipt.updated_at)continue;
+    }
    }
-   try{await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:r.bank},now);saved++;}
+   try{await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);saved++;}
    catch(error){const code=error instanceof Error?error.message:'intake_failed';if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
   }
   after=list.paging?.cursors?.after??'';if(!list.paging?.next||!after)break;

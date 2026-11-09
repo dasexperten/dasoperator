@@ -12,7 +12,7 @@ export function dianaBatch(pending: any[]) {
     .sort((a, b) => (a.last_from_us === true ? 1 : 0) - (b.last_from_us === true ? 1 : 0) || dianaTime(b) - dianaTime(a))
     .slice(0, DIANA_BATCH)
     .map(item => String(item.event_id ?? '').startsWith('action:') ? item : ({
-      cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, at: item.at, reason: item.reason, queue_key: item.queue_key,
+      cid: item.cid, message_id: item.message_id, event_id: item.event_id, handle: item.handle, display_name: item.display_name, at: item.at, reason: item.reason, queue_key: item.queue_key,
     }));
 }
 

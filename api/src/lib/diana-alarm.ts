@@ -60,7 +60,8 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
           } else if (known.get('diana_message_done:' + conversation.id) !== newest.id) {
             const participant = (conversation.participants?.data ?? []).find((p: any) => String(p.id) === String(newest.from.id));
             const handle = String(newest.from.username ?? participant?.username ?? '').toLowerCase();
-            const alarm = { handle, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
+            const display_name = String(newest.from.name ?? participant?.name ?? '');
+            const alarm = { handle, display_name, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
             // An alarm already ringing for this very message is left as it is (its first ring time stays).
             const raised = await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at

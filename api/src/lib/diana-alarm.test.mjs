@@ -70,7 +70,7 @@ test('dispatch carries the newest 50 identifiers only', async t => {
   const { dianaBatch } = await load('../diana-wake.ts');
   const many = Array.from({ length: 300 }, (_, i) => ({ cid: 'c' + i, message_id: 'm' + i, event_id: 'message:m' + i, handle: 'h', at: new Date(Date.UTC(2026, 10, 1, 0, 0, i)).toISOString(), reason: 'new_message', queue_key: 'k' + i, text: 'must not travel' }));
   const batch = dianaBatch(many);
-  assert.equal(batch.length, 50); assert.equal(batch[0].cid, 'c299'); assert.ok(!('text' in batch[0]));
+  assert.equal(batch.length, 50); assert.equal(batch[0].cid, 'c299'); assert.ok(!('text' in batch[0])); assert.equal(batch[0].handle, 'h');
 });
 
 test('state, not news: a waiting chat missed once is raised again; a receipt for that message closes it', async t => {
@@ -107,4 +107,18 @@ test('an old-rule reminder stays pending but is not delivered before five full d
   assert.equal((await pendingDianaMessages(f.env,Date.parse('2026-11-09T02:59:59.000Z'))).length,0);
   assert.equal((await pendingDianaMessages(f.env,Date.parse('2026-11-09T03:00:00.000Z'))).length,1);
   assert.ok(f.state.get('diana_action_pending:video'));
+});
+
+
+test('detected account name and handle are handed to Diana; missing names stay unknown', async t => {
+  const f=fixture(); t.after(()=>f.db.close());
+  const named=chat('named','them'); named.messages.data[0].from.name='Creator Name';
+  const unknown=chat('unknown','them'); delete unknown.messages.data[0].from.username; unknown.participants.data[0]={id:'uunknown'};
+  t.mock.method(globalThis,'fetch',chatsFetch(f,[named,unknown]));
+  await detectDianaMessages(f.env,at(12));
+  const {dianaBatch}=await load('../diana-wake.ts');
+  const result=dianaBatch(await pendingDianaMessages(f.env));
+  const a=result.find(x=>x.cid==='named'), b=result.find(x=>x.cid==='unknown');
+  assert.equal(a.handle,'usernamed'); assert.equal(a.display_name,'Creator Name');
+  assert.equal(b.handle,''); assert.equal(b.display_name,'');
 });

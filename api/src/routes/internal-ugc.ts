@@ -232,4 +232,8 @@ route.post('/cloud/preflight',async c=>{
  const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/preflight',{method:'POST'}));
  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
+route.get('/cloud/contract',async c=>{
+ const response=await c.env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/contract');
+ return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
+});
 export default route;

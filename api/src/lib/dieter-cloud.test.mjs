@@ -10,7 +10,7 @@ function fixture(t){
  INSERT INTO ugc_reel_jobs(content_id,status,attempts,requested_at) VALUES('one','queued',0,'2026-11-09'),('two','queued',0,'2026-11-10');
  INSERT INTO crm_sync_state VALUES('dieter_cloud_mode','enabled',0);`);
  const env={DB:{prepare(sql){let args=[];const st={bind(...a){args=a;return st;},async first(){return db.prepare(sql).get(...args)??null;},async run(){return {meta:{changes:db.prepare(sql).run(...args).changes}};}};return st;}},
- DIANA_SUBSCRIPTION:{async fetch(){return Response.json({text:JSON.stringify({ready:true,activation_ready:true,org_sha:'fixture',tools:{}})});}},DIETER_CLOUD:{async create(p){created.push(p);},async get(){return{async status(){if(missing)throw Error('not found');return{status:'running'};}};}}};
+ DIETER_SUBSCRIPTION:{async fetch(){return Response.json({text:JSON.stringify({ready:true,activation_ready:true,org_sha:'fixture',tools:{}})});}},DIETER_CLOUD:{async create(p){created.push(p);},async get(){return{async status(){if(missing)throw Error('not found');return{status:'running'};}};}}};
  const created=[];let missing=false;const wake=new DieterWake({},env),now=Date.parse('2026-11-10T05:00:00Z');t.mock.method(Date,'now',()=>now);
  const request=()=>new Request('https://dieter.internal/dispatch',{method:'POST',body:JSON.stringify({now})});
  return {db,env,created,wake,request,missing(){missing=true;}};
@@ -21,7 +21,7 @@ test('overlapping cloud ticks accept only one real job and preserve the next red
  assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,1);
 });
 test('an unavailable cloud runtime never makes a red job yellow',async t=>{
- const f=fixture(t);f.env.DIANA_SUBSCRIPTION.fetch=async()=>Response.json({error:'unavailable'},{status:503});await assert.rejects(f.wake.fetch(f.request()),/unavailable/);
+ const f=fixture(t);f.env.DIETER_SUBSCRIPTION.fetch=async()=>Response.json({error:'unavailable'},{status:503});await assert.rejects(f.wake.fetch(f.request()),/unavailable/);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM ugc_reel_jobs WHERE status='working'").get().n,0);assert.equal(f.created.length,0);
 });
 test('lost create acknowledgement recovers the same claim and instance without another attempt',async t=>{

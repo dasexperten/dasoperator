@@ -8,8 +8,9 @@ export class CodexRunner extends Container {
  defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();
  async seed(auth){return this.serial(async()=>{if(await this.ctx.storage.get('auth'))throw Error('auth_already_seeded');if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('managed_chatgpt_auth_required');await this.ctx.storage.put('auth',await seal(auth,this.env.AUTH_KEY));return {seeded:true};});}
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
+ async contract(){return {version:'dieter-tools-v1',operations:['image','context','reply','dieter_round'],managed_login_present:Boolean(await this.ctx.storage.get('auth'))};}
  async infer(body){return this.serial(async()=>{
-  if(!body.requestId||!['image','context','reply','dieter_round'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request'},{status:400});
+  if(!body.requestId||!['image','context','reply','dieter_round'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request',contract:'dieter-tools-v1',request_id_present:Boolean(body.requestId),operation_supported:['image','context','reply','dieter_round'].includes(body.operation),model_supported:['gpt-6-luna','gpt-6.1-terra'].includes(body.model)},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const cacheKey='result:'+body.requestId;const previous=await this.ctx.storage.get(cacheKey);
   if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}
@@ -40,7 +41,18 @@ export class CodexRunner extends Container {
  });}
 }
 export class InferenceService extends WorkerEntrypoint {
- async fetch(request){if(request.method!=='POST')return new Response('',{status:405});return this.env.RUNNER.getByName('subscription-singleton').infer(await request.json());}
+ async fetch(request){if(request.method!=='POST')return new Response('',{status:405});const body=await request.json();if(body.operation==='dieter_round')return Response.json({error:'use_dieter_execution_service'},{status:400});return this.env.RUNNER.getByName('subscription-singleton').infer(body);}
+}
+// A distinct internal capability for tool execution, sharing the same managed
+// native login. Diana's inference entrypoint remains extraction/replies only.
+export class DieterExecutionService extends WorkerEntrypoint {
+ async fetch(request){
+  const runner=this.env.RUNNER.getByName('subscription-singleton');
+  if(request.method==='GET'&&new URL(request.url).pathname==='/contract')return Response.json(await runner.contract());
+  if(request.method!=='POST')return new Response('',{status:405});
+  const body=await request.json();if(body.operation!=='dieter_round')return Response.json({error:'dieter_operation_required'},{status:400});
+  return runner.infer(body);
+ }
 }
 export default {
  async fetch(request,env){

@@ -114,7 +114,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
-    observed_amount_minor:input.amount_minor,verified_cart:input.cart_review??structuredCart,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
+    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_creators(id,normalized_handle,lifecycle_stage,created_at,updated_at)
       VALUES(?1,?2,'agreed',?3,?3) ON CONFLICT(id) DO NOTHING`).bind(creatorId,handle,now),

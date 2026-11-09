@@ -4,7 +4,7 @@ import {reviewPayoutCart,payoutImagePolicy} from './ugc-cart-review';
 import {prepareCreatorPayout} from './ugc-payout-intake';
 const PAGE='1697038263872226', IG='17841466350261166';
 const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
-// Narrow, model-free payment intake. No message sends, read-state changes or payment calls.
+// Original-message intake with subscription image review; no replies, read marks or payment calls.
 export async function ingestCreatorPayouts(env:Env){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
  if(!token)throw Error('payment_source_token_missing');
@@ -34,9 +34,10 @@ export async function ingestCreatorPayouts(env:Env){
    // Existing 60-day cycle guard: no second payout after a transfer or failed attempt.
    const existing=await env.DB.prepare(`SELECT p.id,p.status,p.execute_claim,p.konsol_payment_id,p.creator_id,p.amount_minor FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1`).bind(handle,now-60*86400000).first<any>();
    if(existing&&(existing.execute_claim||existing.konsol_payment_id||!['awaiting_approval','approved'].includes(existing.status)))continue;
+   let observedAmount=existing?.amount_minor>=5000?existing.amount_minor:1;
    // Never replace an Owner-entered amount. Unconfirmed/new payouts get source recognition first.
    if(!existing||existing.amount_minor<5000){
-    try{await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});}
+    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});if(review.status==='confirmed'&&review.amount_minor)observedAmount=review.amount_minor;}
     catch{
       failures.push(handle+':cart_recognition_pending');
       await env.DB.batch([env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('ugc_cart_review_error:'+c.id,JSON.stringify({status:'pending',reason:'recognition_unavailable',checked_at:now}),now)]);
@@ -51,7 +52,7 @@ export async function ingestCreatorPayouts(env:Env){
      if((!context||context.updated_at<=receipt.updated_at)&&(!cart||cart.updated_at<=receipt.updated_at))continue;
     }
    }
-   try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false)saved++;}
+   try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:observedAmount,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false)saved++;}
    catch(error){const code=error instanceof Error?error.message:'intake_failed';if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
   }
   after=list.paging?.cursors?.after??'';if(!list.paging?.next||!after)break;

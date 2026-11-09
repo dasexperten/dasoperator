@@ -100,8 +100,12 @@ route.post('/reel-jobs/:id/caption-plan', async (c) => {
     const item=platforms[key],p=item?.product_keyword_provenance;
     return active.includes(key)&&typeof item.caption==='string'&&item.caption.trim().length>0&&Array.isArray(item.hashtags)&&item.hashtags.length>0
       &&item.native_topic_applied===false&&typeof item.selection_evidence==='string'&&item.selection_evidence.trim().length>0
-      &&p&&Array.isArray(p.verified_products)&&p.verified_products.length>0&&Array.isArray(p.selected_keyword_phrases)
-      &&(p.keyword_status==='missing_pool'||(p.keyword_status==='sourced_pool'&&typeof p.keyword_pool_id==='string'&&typeof p.source_ref==='string'&&/^[a-f0-9]{64}$/.test(p.source_sha256)));
+      &&p&&Array.isArray(p.verified_products)&&Array.isArray(p.selected_keyword_phrases)
+      &&((p.verified_products.length>0&&(p.keyword_status==='missing_pool'||(p.keyword_status==='sourced_pool'&&typeof p.keyword_pool_id==='string'&&typeof p.source_ref==='string'&&/^[a-f0-9]{64}$/.test(p.source_sha256))))
+        ||(p.verified_products.length===0&&p.keyword_status==='source_caption_only'&&p.product_resolution?.status==='unresolved'
+          &&['author','source_caption','evidence'].every(field=>typeof p.product_resolution[field]==='string'&&p.product_resolution[field].trim().length>0)
+          &&item.caption.toLowerCase().includes(p.product_resolution.author.toLowerCase())
+          &&p.keyword_pool_id===null&&p.selected_keyword_phrases.length===0));
   });
   if(!valid||JSON.stringify(plan).length>100000) return c.json({ok:false,error:'source_specific_caption_provenance_plan_required'},422);
   const key=`ugc-caption-plan:${id}:${body.claim_id}`,value=JSON.stringify(plan);

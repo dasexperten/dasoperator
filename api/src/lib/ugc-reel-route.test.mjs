@@ -231,3 +231,21 @@ test('caption plan is claim-bound immutable evidence, not a publication proof or
  sqlite.prepare("UPDATE ugc_reel_jobs SET status='queued' WHERE content_id=?").run(id);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,409);
 });
+
+test('Owner caption-only fallback saves an unresolved product without inventing a pool; author and original text are mandatory',async()=>{
+ const id='caption-fallback',claim='source-caption-claim';
+ sqlite.prepare("INSERT INTO ugc_content VALUES(?,?,?,?)").run(id,'profile','https://instagram.com/reel/FALLBACK/','video');
+ sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id,required_destinations) VALUES(?,?,?,?,?,?,?)").run(id,'owner','now','now','working',claim,'["threads"]');
+ const provenance={verified_products:[],keyword_status:'source_caption_only',keyword_pool_id:null,selected_keyword_phrases:[],product_resolution:{status:'unresolved',author:'source_author',source_caption:'My original morning routine',evidence:'ERP and caption contain no clear product identity'}};
+ const item={caption:'source_author: a fresh morning routine. #MorningRoutine',hashtags:['MorningRoutine'],native_topic_applied:false,selection_evidence:'Owner source-caption fallback',product_keyword_provenance:provenance};
+ const plan={content_id:id,policy_id:'diter-source-caption-2026-11-09-v3',platforms:{threads:item}};
+ for(const field of ['author','source_caption','evidence']){
+  const bad=structuredClone(plan);bad.platforms.threads.product_keyword_provenance.product_resolution[field]='';
+  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan:bad})).status,422);
+ }
+ const bad=structuredClone(plan);bad.platforms.threads.caption='No credit';
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan:bad})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan})).status,200);
+ assert.equal(sqlite.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').get(id).status,'working');
+ sqlite.prepare('DELETE FROM ugc_reel_jobs WHERE content_id=?').run(id);
+});

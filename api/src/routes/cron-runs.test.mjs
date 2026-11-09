@@ -78,9 +78,9 @@ test('real failures stay red even on a calendar date when no work was expected',
 
 test('healthy adaptive idle ticks stay green transport without claiming business work', async t => {
   const name = 'erp-ugc-payouts', start = Date.parse('2026-11-10T06:00:00Z');
-  const rows = Array.from({ length: 1440 }, (_, i) => receipt(name, new Date(start + i * 60_000).toISOString(), { note: 'ig_dm: not due' }));
+  const rows = Array.from({ length: 144 }, (_, i) => receipt(name, new Date(start + i * 600_000).toISOString(), { note: 'ig_dm: not due' }));
   const r = find(await guard(t, '2026-11-11T06:20:00Z', rows), name);
-  assert.equal(r.expected, 1440); assert.equal(r.journal_ok, 1440); assert.equal(r.idle, 1440);
+  assert.equal(r.expected, 144); assert.equal(r.journal_ok, 144); assert.equal(r.idle, 144);
   assert.equal(r.work_ok, 0); assert.equal(r.last_ok, null); assert.equal(r.verdict, 'green');
 });
 

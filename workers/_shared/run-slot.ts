@@ -50,8 +50,8 @@ export function currentHttpSchedule(worker: string, input: unknown, now: number)
   const provided = (input as { cron?: unknown }).cron;
   // Keep phase1 clients compatible, but do not infer an hourly/daily job from an
   // arbitrary request that forgot to name the configured cron.
-  const cron = provided === undefined && (worker === 'erp-ugc-direct' || worker === 'erp-ugc-payouts')
-    ? MINUTE_CRON : provided;
+  const cron = provided === undefined && worker === 'erp-ugc-payouts' ? '*/10 * * * *'
+    : provided === undefined && worker === 'erp-ugc-direct' ? MINUTE_CRON : provided;
   if (typeof cron !== 'string' || !dueScheduledSlot(worker, cron, scheduledTime)) return null;
   return { scheduledTime, cron };
 }

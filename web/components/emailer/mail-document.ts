@@ -3,6 +3,9 @@ export function mailDocument(html: string, originalFormatting = false): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   // CSP is placed first below. Remove sender document controls in both modes.
   doc.querySelectorAll('script,meta,base,link,iframe,object,embed,form').forEach(el => el.remove());
+  // Newsletter pictures are usually HTTPS resources, not MIME attachments.
+  // Keep the sender from overriding the viewer's no-referrer policy.
+  doc.querySelectorAll('img').forEach(el => el.setAttribute('referrerpolicy', 'no-referrer'));
   if (!originalFormatting) {
     // Inline !important declarations outrank our stylesheet: remove just the
     // paint properties, keeping the sender's layout and semantic content.
@@ -22,5 +25,5 @@ export function mailDocument(html: string, originalFormatting = false): string {
     body a,body a * {color:#0D199E!important;-webkit-text-fill-color:#0D199E!important;text-decoration:underline!important}
     body *::before,body *::after {color:#282229!important;background:transparent!important;text-shadow:none!important}
   `;
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">${doc.head.innerHTML}<style>html{color-scheme:only light}body{font:14px/1.6 Arial,sans-serif;overflow-wrap:anywhere;margin:12px;color:#282229;background:#fff}img{max-width:100%;height:auto}table{max-width:100%}${readable}</style></head>${doc.body.outerHTML}</html>`;
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src https: data: blob:; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">${doc.head.innerHTML}<style>html{color-scheme:only light}body{font:14px/1.6 Arial,sans-serif;overflow-wrap:anywhere;margin:12px;color:#282229;background:#fff}img{max-width:100%;height:auto}table{max-width:100%}${readable}</style></head>${doc.body.outerHTML}</html>`;
 }

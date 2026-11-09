@@ -28,7 +28,7 @@ export async function stateWrite(env: Env, key: string, value: unknown) {
 }
 async function modeCheck(env: Env, event?: DianaCloudEvent) {
   if (event?.dryRun === true) return;
-  if (await stateRead(env, 'diana_execution_mode') !== 'cloud_direct') throw Error('diana_cloud_paused');
+  if (await stateRead(env, 'diana_cloud_mode') !== 'enabled') throw Error('diana_cloud_paused');
   const claim = await env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();
   if (claim && Number(claim.updated_at) > Date.now() - 180_000) throw Error('diana_machine_still_working');
 }

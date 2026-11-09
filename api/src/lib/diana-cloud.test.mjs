@@ -36,7 +36,7 @@ function fixture(t){
  f.event={cid:'chat',message_id:'incoming',event_id:'message:incoming',handle:'creator',at:'2026-11-10T09:00:00.000Z'};
  f.set=(k,v)=>db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,?)').run(k,typeof v==='string'?v:JSON.stringify(v),Date.now());
  f.state=k=>db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(k)?.value;
- f.set('diana_execution_mode','cloud_direct');f.set('diana_round_alarm:chat',f.event);
+ f.set('diana_cloud_mode','enabled');f.set('diana_round_alarm:chat',f.event);
  const DB={prepare(sql){let values=[];const st={bind(...v){values=v;return st;},async first(){return db.prepare(sql).get(...values)??null;},async all(){return{results:db.prepare(sql).all(...values)};},async run(){return{meta:{changes:Number(db.prepare(sql).run(...values).changes)}};}};return st;},async batch(st){return Promise.all(st.map(s=>s.run()));}};
  f.env={DB,META_IG_MESSAGING_TOKEN:'fixture',GITHUB_TOKEN:'fixture',inferences:[],decision:{reply:'Расскажу)',replies:null,escalate:false,reason:'programme',send_cards:false,send_ozon_photo:false,requisites:null},
  DOCS:{async put(k,v){f.files.set(k,v);},async get(k){return f.files.has(k)?{json:async()=>JSON.parse(f.files.get(k))}:null;},async head(k){return f.files.has(k)?{}:null;}},
@@ -61,7 +61,7 @@ test('original -> full context -> Terra -> Meta -> verified ERP ACK; retry never
  await cloud.deliverCloudDecision(f.env,draft.key);await cloud.completeCloudEvent(f.env,f.event,delivered);assert.equal(f.sends.length,1);
 });
 test('preview exercises the same chain with zero sends and no live ACK',async t=>{
- const f=fixture(t);f.set('diana_execution_mode','direct_only_primary');const event={...f.event,dryRun:true};
+ const f=fixture(t);f.set('diana_cloud_mode','disabled');const event={...f.event,dryRun:true};
  const {draft}=await f.prepare(event),outcome=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(outcome.status,'preview');
  await cloud.completeCloudEvent(f.env,event,outcome);assert.equal(f.sends.length,0);assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.state('diana_message_done:chat'),undefined);assert.equal(f.state('diana_cloud_event:'+event.event_id),undefined);
 });
@@ -81,8 +81,8 @@ test('unsupported or unreadable current attachment cannot produce an invented an
  await assert.rejects(cloud.prepareCloudDecision(f.env,source.key),/current_image_unavailable/);assert.equal(f.sends.length,0);
 });
 test('rollback/pause and an active M1 claim prevent cloud execution',async t=>{
- const f=fixture(t);f.set('diana_execution_mode','direct_only_primary');await assert.rejects(cloud.readCloudConversation(f.env,f.event),/cloud_paused/);
- f.set('diana_execution_mode','cloud_direct');f.set('diana_round_claim','primary:running');await assert.rejects(cloud.readCloudConversation(f.env,f.event),/machine_still_working/);assert.equal(f.sends.length,0);
+ const f=fixture(t);f.set('diana_cloud_mode','disabled');await assert.rejects(cloud.readCloudConversation(f.env,f.event),/cloud_paused/);
+ f.set('diana_cloud_mode','enabled');f.set('diana_round_claim','primary:running');await assert.rejects(cloud.readCloudConversation(f.env,f.event),/machine_still_working/);assert.equal(f.sends.length,0);
 });
 test('failed original-message readback does not acknowledge delivery',async t=>{
  const f=fixture(t),{draft}=await f.prepare(),out=await cloud.deliverCloudDecision(f.env,draft.key);f.originals=[];

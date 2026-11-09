@@ -161,7 +161,7 @@ test('real Owner endpoint authorizes selection and persists one queued job witho
   const again=await post('owner-session-token');assert.equal((await again.json()).result.created,false);
   await Promise.all(pending);
   assert.equal(row().status,'queued');assert.equal(row().requested_by,'owner');assert.equal(calls.length,0);
-  assert.deepEqual(JSON.parse(row().required_destinations),['instagram','threads','youtube','facebook','vk']);
+  assert.deepEqual(JSON.parse(row().required_destinations),['instagram','threads','youtube','facebook','vk','rutube']);
   assert.equal(sqlite.prepare('SELECT COUNT(*) n FROM ugc_reel_jobs').get().n,1);
 });
 test('later verified platform URLs append idempotently without changing original published status/date or proofs',async()=>{
@@ -188,13 +188,18 @@ test('legacy five requirements remain intact while active four reconcile existin
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,required_destinations,publications)VALUES(?,?,?,?,?,?)").run(id,'owner',stamp,stamp,JSON.stringify(source),JSON.stringify(proofs));
  const get=()=>sqlite.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?').get(id);const before=get();
  assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'wrong'})).status,422);
- let res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-vk-2026-11-09'});assert.equal(res.status,200);let body=await res.json();
+ let res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-rutube-2026-11-09'});assert.equal(res.status,200);let body=await res.json();
  assert.deepEqual(body.destination_scope.active,['instagram','threads','vk','youtube']);assert.deepEqual(body.destination_scope.deferred,['tiktok']);assert.equal(get().required_destinations,before.required_destinations);assert.equal(get().publications,before.publications);assert.equal(get().claim_id,null);assert.equal(get().status,'published');
  const audit=JSON.parse(sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-reel-scope:'+id).value);assert.equal(audit.completion,'attended_existing_proofs');assert.equal(audit.original_required_destinations.length,5);
 });
-test('deferred-only or unknown historical scope cannot become green or start a model round',async()=>{
+test('historical Rutube becomes active but needs its own saved proof before green',async()=>{
  const id='scope-paused';sqlite.prepare("INSERT INTO ugc_content VALUES(?,?,?,?)").run(id,'profile','https://instagram.com/reel/PAUSEDORIGINAL/','video');const stamp=new Date().toISOString();
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,required_destinations)VALUES(?,?,?,?,?)").run(id,'owner',stamp,stamp,'["tiktok","rutube"]');
- assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-vk-2026-11-09'})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-rutube-2026-11-09'})).status,422);
  assert.equal(sqlite.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').get(id).status,'queued');
+ const proof={platform:'rutube',url:'https://rutube.ru/video/0123456789abcdef0123456789abcdef/',account:'59945486',verified:true,verified_at:stamp,evidence:'Official company channel public playable video checked'};
+ sqlite.prepare('UPDATE ugc_reel_jobs SET publications=? WHERE content_id=?').run(JSON.stringify([proof]),id);
+ const result=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-rutube-2026-11-09'});assert.equal(result.status,200);
+ const body=await result.json();assert.deepEqual(body.destination_scope.active,['rutube']);assert.deepEqual(body.destination_scope.deferred,['tiktok']);
+ assert.equal(sqlite.prepare('SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=?').get(id).required_destinations,'["tiktok","rutube"]');
 });

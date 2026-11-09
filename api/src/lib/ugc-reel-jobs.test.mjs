@@ -82,3 +82,13 @@ test('two product outputs across seven platforms are not truncated by the old tw
  const outputs=[0,1].flatMap(i=>platforms.map(([platform,url])=>({...proof,platform,url:url(i),account:'dasexperten'})));
  assert.equal(reelPublicationProof(outputs,'https://t.me/source/123')?.length,14);
 });
+
+
+test('new jobs activate verified six accounts while old saved scopes remain exact',async()=>{
+ const {reelScope,ACTIVE_REEL_DESTINATIONS}=await import('./ugc-reel-jobs.mjs');
+ assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube']);
+ const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');
+ assert.deepEqual(reelScope({required_destinations:'["youtube"]'}).active,['youtube']);
+ const text=reelTaskText({content_id:'rutube-new',content_url:'https://youtube.com/watch?v=AbC123def_0',claim_id:'private-placeholder',handle:'author'},'https://erp.test');
+ assert.match(text,/jobs\/diter-rutube-upload\/runner.py/);assert.match(text,/59945486/);assert.match(text,/модерация не равны публичной/);
+});

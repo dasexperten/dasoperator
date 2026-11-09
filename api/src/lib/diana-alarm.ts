@@ -74,12 +74,10 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
               WHERE NOT json_valid(crm_sync_state.value) OR json_extract(crm_sync_state.value,'$.message_id') IS NOT ?4`)
               .bind(ALARM_PREFIX + conversation.id, JSON.stringify(alarm), now, String(newest.id)).run();
-            if (raised.meta.changes) {
-              detected++;
-              // Deliver as soon as the durable event exists; a busy or disconnected Diana
-              // leaves it in the queue for a later dispatch. Never interrupt the scan.
-              try { if ((await dispatch(alarm.event_id)).dispatched) early_dispatched++; } catch { errors++; }
-            }
+            if (raised.meta.changes) detected++;
+            // Deliver each waiting chat as soon as its durable event exists, including
+            // previously queued events. A busy or disconnected Diana leaves it pending.
+            try { if ((await dispatch(alarm.event_id)).dispatched) early_dispatched++; } catch { errors++; }
           }
         }
       } catch { errors++; }

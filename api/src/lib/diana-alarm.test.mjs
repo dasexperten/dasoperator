@@ -152,3 +152,12 @@ test('a freshly detected event reaches Diana even when a larger newer backlog ex
   const selected=dianaBatch(pending,'message:0');
   assert.equal(selected.length,50); assert.equal(selected[0].event_id,'message:0');
 });
+
+test('an existing unanswered signal is dispatched during the scan without waiting for the final page', async t => {
+  const f=fixture();t.after(()=>f.db.close());
+  f.state.set('diana_round_alarm:waiting', JSON.stringify({cid:'waiting',message_id:'mwaiting',event_id:'message:mwaiting'}));
+  let sends=0, pages=0;
+  f.env.DIANA_WAKE.get=()=>({async fetch(){sends++;return Response.json({dispatched:false,reason:'diana_working'})}});
+  t.mock.method(globalThis,'fetch',async u=>{const p=new URL(u);if(p.searchParams.get('fields')==='access_token')return Response.json({access_token:'fake'});pages++;if(pages===1)return Response.json({data:[chat('waiting','them')],paging:{next:'x',cursors:{after:'25'}}});assert.ok(sends>0);return Response.json({data:[]})});
+  const result=await detectDianaMessages(f.env,at(12));assert.equal(result.detected,0);assert.equal(sends,2);assert.ok(f.state.get('diana_round_alarm:waiting'));
+});

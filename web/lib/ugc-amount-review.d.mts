@@ -1,0 +1,9 @@
+export type AmountReviewRequest = { creator_id: string; expected_snapshot: string; amount_minor: number; request_id: string };
+export type AmountReview = { id: string; creator_id: string; amount_minor: number; status: string; payout_hold: boolean; review_snapshot: string; can_edit: boolean; saved_request?: { request_id: string; expected_snapshot: string; amount_minor: number } | null };
+export type AmountReviewSaved = { id: string; creator_id: string; amount_minor: number; status: string; payout_hold: boolean; updated_at?: number; request_id?: string; saved_request?: { request_id: string; expected_snapshot: string; amount_minor: number } | null };
+export type AmountReviewState = { phase: 'loading' | 'ready' | 'saving' | 'checking' | 'retry' | 'blocked' | 'error' | 'saved'; review: AmountReview | AmountReviewSaved | null; request: AmountReviewRequest | null; error: string };
+export type AmountReviewSession = { getState(): AmountReviewState; subscribe(listener: (state: AmountReviewState) => void): () => void; open(): Promise<void>; submit(value: string): Promise<void> };
+export function parseReviewAmount(value: string): { amount_minor: number; error?: undefined } | { error: string; amount_minor?: undefined };
+export function reviewAmountInput(minor: number): string;
+export function matchesReviewReceipt(row: AmountReview | null, request: AmountReviewRequest | null, id: string): boolean;
+export function createAmountReviewSession(options: { id: string; creatorId: string; read: (id: string, requestId?: string) => Promise<{ success: boolean; result: AmountReview | null }>; save: (id: string, request: AmountReviewRequest) => Promise<{ success: boolean; result: AmountReviewSaved | null }>; requestId: () => string; onSaved?: (row: AmountReviewSaved) => void }): AmountReviewSession;

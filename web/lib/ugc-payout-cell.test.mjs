@@ -123,3 +123,64 @@ test('unknown and one-kopeck amounts are neutral and not payable, regardless of 
 test('historical sent/paid rows without provider proof cannot make an unknown amount brown',()=>{
  for(const status of ['sent','paid'])assert.equal(payoutCell({status,amount_minor:1,has_requisites:1,payout_date:new Date().toISOString().slice(0,10)}).tone,'grey');
 });
+
+import { canSetPayoutAmount, canMarkPaidOutside } from './ugc-payout-cell.mjs';
+
+test('placeholder is neutral, never payable or markable, even when requisites are complete', () => {
+  for (const has_requisites of [false, true]) {
+    const p = { status: 'awaiting_approval', amount_minor: 1, has_requisites };
+    assert.equal(payoutCell(p).tone, 'grey');
+    assert.equal(payoutCell(p).text, 'сумма?');
+    assert.equal(canPay(p), false);
+    assert.equal(canMarkPaidOutside(p), false);
+    assert.equal(canSetPayoutAmount(p), true);
+  }
+});
+
+test('453 and 394 RUB held amounts stay neutral and unavailable for either paid action', () => {
+  for (const amount_minor of [45300, 39400]) for (const has_requisites of [false, true]) {
+    const p = { status: 'approved', amount_minor, has_requisites, payout_hold: true };
+    assert.equal(payoutCell(p).tone, 'grey');
+    assert.equal(payoutCell(p).text, `${amount_minor / 100} ₽`);
+    assert.equal(payoutCell(p).reason, 'требует проверки');
+    assert.equal(canPay(p), false); assert.equal(canMarkPaidOutside(p), false); assert.equal(canSetPayoutAmount(p), false);
+  }
+});
+
+test('save amount only admits pending one-kopeck placeholders without claims, provider or conflicts', () => {
+  const p = { status: 'approved', amount_minor: 1, has_requisites: false };
+  assert.equal(canSetPayoutAmount(p), true);
+  assert.equal(canSetPayoutAmount({ ...p, payout_hold: true }), true);
+  assert.equal(payoutCell({ ...p, payout_hold: true }).text, 'сумма?');
+  for (const patch of [{ status: 'paid' }, { status: 'sent' }, { status: 'failed' }, { amount_minor: 2 }, { amount_minor: 0 }, { amount_minor: 45300 }, { execute_claim: 'claim' }, { konsol_payment_id: 'payment' }, { konsol_status: 'pending' }, { konsol_contractor_id: 'contractor' }, { payout_review_required: true }]) {
+    assert.equal(canSetPayoutAmount({ ...p, ...patch }), false);
+  }
+});
+
+test('explicit review hold dominates all payment-action eligibility', () => {
+  const ready = { status: 'approved', amount_minor: 45300, has_requisites: true };
+  assert.equal(canMarkPaidOutside(ready), true);
+  for (const patch of [{ payout_hold: true }, { payout_review_required: true }, { execute_claim: 'claim' }, { konsol_payment_id: 'payment' }]) {
+    assert.equal(canPay({ ...ready, ...patch }), false);
+    assert.equal(canMarkPaidOutside({ ...ready, ...patch }), false);
+  }
+});
+
+
+test('paid-outside keeps existing known historical and over-limit brown eligibility', async () => {
+  const { canMarkPaidOutside } = await import('./ugc-payout-cell.mjs');
+  const known = { amount_minor: 45300, has_requisites: 1, status: 'approved' };
+  for (const change of [{ status: 'sent', sent_at: new Date().toISOString() }, { status: 'paid' }, { over_limit: true }]) {
+    const row = { ...known, ...change };
+    assert.equal(canMarkPaidOutside(row), true);
+    for (const lock of [{ payout_hold: true }, { payout_review_required: true }, { execute_claim: 'held' }, { konsol_payment_id: 'linked' }, { amount_minor: 1 }]) {
+      assert.equal(canMarkPaidOutside({ ...row, ...lock }), false);
+    }
+  }
+});
+
+
+test('contractor presence flag blocks editing without exposing a provider identity', async () => {
+ const { canSetPayoutAmount } = await import('./ugc-payout-cell.mjs');
+ assert.equal(canSetPayoutAmount({ status: 'approved', amount_minor: 1, has_konsol_contractor: true }), false);
+});

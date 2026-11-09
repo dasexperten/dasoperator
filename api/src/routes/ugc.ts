@@ -1,3 +1,5 @@
+import { readAmountReview, saveAmountReview } from '../lib/ugc-amount-review.mjs';
+import { patchPayout } from '../lib/ugc-payout-patch.mjs';
 import { ACTIVE_REEL_DESTINATIONS } from '../lib/ugc-reel-jobs.mjs';
 import { Hono } from 'hono';
 import { contentEngagement } from '../lib/ugc-content-metrics.mjs';
@@ -325,8 +327,9 @@ ugc.get('/', async (c) => {
       `SELECT p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
               p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
               p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.execute_claimed_at, p.created_at, p.updated_at,
-              p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
+              p.konsol_payment_id, (CASE WHEN COALESCE(p.konsol_contractor_id,'')<>'' THEN 1 ELSE 0 END) has_konsol_contractor, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
+              EXISTS(SELECT 1 FROM crm_sync_state WHERE key='payout_hold:' || p.id) payout_hold,
               -- requisites received? (yes/no only; the phone and name never leave that table)
               (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id AND TRIM(COALESCE(r.first_name,''))<>''
                 AND r.fps_mobile_phone GLOB '+79[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]')
@@ -336,7 +339,7 @@ ugc.get('/', async (c) => {
               (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
        FROM ugc_payouts p ORDER BY p.updated_at DESC`
     ).all<Record<string, any>>();
-    payoutRows = annotateMissingInfo(annotateOverLimit(result.results ?? []));
+    payoutRows = annotateMissingInfo(annotateOverLimit((result.results ?? []).map(row => ({ ...row, payout_hold: Boolean(row.payout_hold), has_konsol_contractor: Boolean(row.has_konsol_contractor) }))));
   } catch { /* table not yet migrated */ }
   const sourceIndex = sourceRecordIndex([...(sourceRows.results ?? []), ...payoutProductRecords(payoutRows)]);
   const payoutsByCreator = new Map<string, Record<string, any>[]>();
@@ -1076,7 +1079,7 @@ ugc.post('/collaborations', async (c) => {
 const PAYOUT_COLUMNS = `p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
   p.currency, p.status, p.payout_date, p.marketplace, p.phone_masked, p.bank_ref, p.note,
   p.approved_at, p.approved_by, p.sent_at, p.paid_at, p.failed_at, p.created_by,
-  p.created_at, p.updated_at, c.display_name creator_display_name, c.normalized_handle creator_handle`;
+  p.created_at, p.updated_at, EXISTS(SELECT 1 FROM crm_sync_state WHERE key='payout_hold:' || p.id) payout_hold, c.display_name creator_display_name, c.normalized_handle creator_handle`;
 
 type PayoutCreator = { creatorId: string; profileId: string | null; platform: string | null; handle: string | null };
 
@@ -1143,7 +1146,7 @@ ugc.get('/payouts', async (c) => {
      WHERE (?1 IS NULL OR p.creator_id = ?1) AND (?2 IS NULL OR p.status = ?2)
      ORDER BY p.updated_at DESC LIMIT 500`
   ).bind(creatorId, status).all<Record<string, any>>();
-  return ok(c, { payouts: rows.results ?? [] });
+  return ok(c, { payouts: (rows.results ?? []).map(row => ({ ...row, payout_hold: Boolean(row.payout_hold) })) });
 });
 
 // Save Diana's verified intake as one operation before any payment approval.
@@ -1200,6 +1203,34 @@ ugc.post('/payouts', async (c) => {
   return ok(c, { id, creator_id: creator.creatorId, amount_minor: amount.amount_minor, status, payout_date: day, updated_at: now });
 });
 
+// Explicit Owner save of a missing amount. This never pays and never releases review.
+ugc.get('/payouts/:id/amount-review', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner can review payout amounts' }]);
+  const result = await readAmountReview(c.env.DB, c.req.param('id'), c.req.query('request_id') ?? null);
+  if (!result.ok) return fail(c, result.http, [{ code: result.code, message: 'Amount review could not be read' }]);
+  c.header('Cache-Control', 'no-store');
+  return ok(c, result.payout);
+});
+ugc.post('/payouts/:id/amount-review', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner can review payout amounts' }]);
+  const body = await c.req.json().catch(() => null);
+  const allowed = ['creator_id','expected_snapshot','amount_minor','request_id'];
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))) {
+    return fail(c, 422, [{ code: 'invalid_amount_review', message: 'Only an exact amount review is accepted' }]);
+  }
+  const result = await saveAmountReview(c.env.DB, { ...body, id: c.req.param('id'), actor_id: access.id, now: Date.now() });
+  if (!result.ok) return fail(c, result.http, [{ code: result.code, message: result.http === 409
+    ? 'Payout changed. Refresh and review the same record before retrying'
+    : result.http === 422 ? 'Enter an exact amount from 50 to 999 RUB'
+    : 'Save is not verified. Reconcile this request before retrying' }]);
+  c.header('Cache-Control', 'no-store');
+  return ok(c, { ...result.payout, replay: result.replay });
+});
+
 ugc.patch('/payouts/:id', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
@@ -1207,33 +1238,37 @@ ugc.patch('/payouts/:id', async (c) => {
   try { body = await c.req.json(); } catch {
     return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return fail(c, 422, [{ code: 'invalid_payout_patch', message: 'Body must be a JSON object' }]);
+  }
   const id = c.req.param('id');
-  const current = await c.env.DB.prepare(`SELECT * FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  // Optional early 404 only. No financial values from this precheck are written.
+  const current = await c.env.DB.prepare('SELECT id FROM ugc_payouts WHERE id=?1').bind(id).first();
   if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
-  let amountMinor = Number(current.amount_minor);
-  if (body.amount_rub !== undefined || body.amount_minor !== undefined) {
+  const now = Date.now();
+  const has = (name: string) => Object.prototype.hasOwnProperty.call(body, name);
+  // Keep legacy compatibility: extra body keys are ignored, never forwarded.
+  // An empty or unknown-only body still fails as an empty canonical patch.
+  const patch: Record<string, string | number | null> = {};
+  if (has('amount_rub') || has('amount_minor')) {
     const amount = parsePayoutAmount(body);
     if (!amount.ok) return fail(c, 422, [{ code: amount.code, message: amount.message }]);
-    amountMinor = amount.amount_minor;
+    patch.amount_minor = amount.amount_minor;
   }
-  const day = body.payout_date === undefined ? String(current.payout_date) : payoutDate(body.payout_date, Date.now());
-  // Waiting payouts are not scheduled reservations. Keep checks on sent/paid records.
-  const amountOrDate = body.amount_rub !== undefined || body.amount_minor !== undefined || body.payout_date !== undefined;
-  if (amountOrDate && (current.status === 'sent' || current.status === 'paid')) {
-    const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
-    if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
-  }
-  const keep = (name: string, max: number) => (body[name] === undefined ? current[name] : textValue(body[name], max));
-  const now = Date.now();
-  await c.env.DB.prepare(
-    `UPDATE ugc_payouts SET amount_minor=?1, payout_date=?2, marketplace=?3, phone_masked=?4,
-       bank_ref=?5, note=?6, updated_at=?7 WHERE id=?8`
-  ).bind(
-    amountMinor, day, keep('marketplace', 40),
-    body.phone === undefined && body.phone_masked === undefined ? current.phone_masked : maskPhone(body.phone ?? body.phone_masked),
-    keep('bank_ref', 200), keep('note', 1000), now, id,
-  ).run();
-  return ok(c, { id, amount_minor: amountMinor, payout_date: day, updated_at: now });
+  if (has('payout_date')) patch.payout_date = payoutDate(body.payout_date, now);
+  if (has('marketplace')) patch.marketplace = textValue(body.marketplace, 40);
+  if (has('phone') || has('phone_masked')) patch.phone_masked = maskPhone(body.phone ?? body.phone_masked);
+  if (has('bank_ref')) patch.bank_ref = textValue(body.bank_ref, 200);
+  if (has('note')) patch.note = textValue(body.note, 1000);
+  const result = await patchPayout(c.env.DB, { id, patch, now });
+  if (!result.ok) return fail(c, result.http, [{
+    code: result.code,
+    message: result.http === 404 ? 'Payout not found'
+      : result.http === 409 ? 'Financial payout fields cannot be edited while claimed, submitted or settled'
+      : result.http === 422 ? 'Invalid or empty payout patch'
+      : 'Could not verify payout persistence; refresh before retrying',
+  }]);
+  return ok(c, { ...result.payout, changes: result.changes });
 });
 
 // Explicit original-message proof only; never sends a message or repeats a payment.
@@ -1253,6 +1288,9 @@ ugc.post('/payouts/:id/status', async (c) => {
   try { body = await c.req.json(); } catch {
     return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return fail(c, 422, [{ code: 'invalid_status', message: 'Body must be a JSON object' }]);
+  }
   const status = textValue(body.status, 40);
   if (!status || !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'status must be awaiting_approval, approved, sent, paid or failed' }]);
   const id = c.req.param('id');
@@ -1264,12 +1302,33 @@ ugc.post('/payouts/:id/status', async (c) => {
   // The column name comes from a fixed map, never from the request.
   const stampSql = column ? `, ${column}=?5` : '';
   const approvedBySql = column === 'approved_at' ? ', approved_by=?6' : '';
-  await c.env.DB.prepare(
-    `UPDATE ugc_payouts SET status=?1, updated_at=?2,
-       bank_ref=COALESCE(?3, bank_ref), note=COALESCE(?4, note)${stampSql}${approvedBySql}
-     WHERE id=?7`
-  ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id).run();
-  await followPayoutStage(c.env.DB, current.creator_id, status, now);
+  let results: D1Result<Record<string, unknown>>[];
+  try {
+    results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE ugc_payouts SET status=?1, updated_at=?2,
+           bank_ref=COALESCE(?3, bank_ref), note=COALESCE(?4, note)${stampSql}${approvedBySql}
+         WHERE id=?7 AND COALESCE(execute_claim,'')='' AND COALESCE(konsol_payment_id,'')=''
+           AND COALESCE(konsol_status,'')<>'paid_outside'
+           AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='payout_hold:' || ugc_payouts.id)`
+      ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id),
+      c.env.DB.prepare('SELECT id,creator_id,status,updated_at FROM ugc_payouts WHERE id=?1').bind(id),
+    ]);
+  } catch { return fail(c, 503, [{ code: 'payout_write_unavailable', message: 'Status not verified; refresh before retrying' }]); }
+  const row = results[1]?.results?.[0];
+  const changes = results[0]?.meta?.changes;
+  if (results.length !== 2 || results.some(r => r.success !== true) || ![0, 1].includes(changes!)
+    || !Array.isArray(results[1]?.results) || results[1].results.length > 1 || (row && row.id !== id)) {
+    return fail(c, 503, [{ code: 'payout_write_not_verified', message: 'Status not verified; refresh before retrying' }]);
+  }
+  if (changes === 0) return fail(c, row ? 409 : 404, [{
+    code: row ? 'payout_not_editable' : 'not_found',
+    message: row ? 'Provider or claimed payouts can only change through verified reconciliation' : 'Payout not found',
+  }]);
+  if (!row || row.status !== status || row.updated_at !== now) {
+    return fail(c, 503, [{ code: 'payout_write_not_verified', message: 'Status not verified; refresh before retrying' }]);
+  }
+  await followPayoutStage(c.env.DB, row.creator_id as string | null, status, now);
   return ok(c, { id, status, at, updated_at: now });
 });
 
@@ -1335,7 +1394,8 @@ ugc.post('/payouts/paid-outside', async (c) => {
          note=TRIM(COALESCE(note,'') || ' Оплачено вне ERP, слово Владельца ' || ?3), updated_at=?4
        WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL AND amount_minor>=5000
          AND status IN ('awaiting_approval','approved','sent','paid')
-         AND EXISTS (SELECT 1 FROM ugc_payout_requisites q WHERE q.payout_id = ugc_payouts.id)`
+         AND EXISTS (SELECT 1 FROM ugc_payout_requisites q WHERE q.payout_id = ugc_payouts.id)
+         AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='payout_hold:' || ugc_payouts.id)`
     ).bind(id, iso, iso.slice(0, 10), now).run();
     if (!(r.meta?.changes ?? 0)) continue;
     marked.push(id);

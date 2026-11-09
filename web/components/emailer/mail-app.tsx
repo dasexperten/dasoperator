@@ -14,7 +14,7 @@
 // =============================================================================
 
 import { ArchiveHeaderControls } from './archive-header';
-import React, { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore, useId } from 'react';
 import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
@@ -1312,8 +1312,6 @@ interface Thread {
 // "AW:" and forwards with "WG:", neither of which was listed — so the subject edge
 // failed and a four-letter exchange fell apart into two threads of two. Every locale
 // we actually write to is listed here now; adding one is cheaper than losing a thread.
-/** How many letters the thread strip shows before 'show all' (Owner 2026-08-09). */
-const THREAD_COLLAPSED = 5;
 
 function threadWith(letters: MailItem[]): string {
   const names: string[] = [];
@@ -1351,33 +1349,23 @@ function ThreadStrip({
   onOpen: (letter: MailItem) => void;
   onToggle: () => void;
 }) {
-  const shown = expanded || thread.count <= THREAD_COLLAPSED
-    ? thread.letters.slice().reverse()
-    : thread.letters.slice().reverse().slice(0, THREAD_COLLAPSED);
+  const contentId = useId();
+  const shown = thread.letters.filter((letter) => letter.id !== selectedId).slice().reverse();
+  if (!shown.length) return null;
   return (
     <div className={`thstrip ${expanded ? 'open' : ''}`}>
-      <div className="thhead">
-        {threadWith(thread.letters) ? (
-          <div className="thwith">с {threadWith(thread.letters)}</div>
-        ) : null}
-        <div className="thsubj">{displaySubject(thread.head.subject) || thread.head.subject}</div>
+      <button type="button" className="thtoggle" onClick={onToggle} aria-expanded={expanded} aria-controls={contentId}>
+        <ChevronDown size={16} aria-hidden="true" />
+        <span>Другие письма · {shown.length}</span>
+      </button>
+      <div id={contentId} className="thmessages" hidden={!expanded}>
+        {shown.map((letter) => (
+          <button key={letter.id} type="button" className={`thline ${letter.unread ? 'unread' : ''}`} onClick={() => onOpen(letter)}>
+            <span className="thwho">от {threadSender(letter)}</span>
+            <span className="thtime">{fmtTime(letter.timestamp)}</span>
+          </button>
+        ))}
       </div>
-      {shown.map((l) => (
-        <button
-          key={l.id}
-          type="button"
-          className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
-          onClick={() => { if (l.id !== selectedId) onOpen(l); }}
-        >
-          <span className="thwho">от {threadSender(l)}</span>
-          <span className="thtime">{fmtTime(l.timestamp)}</span>
-        </button>
-      ))}
-      {thread.count > THREAD_COLLAPSED && (
-        <button type="button" className="thmore" onClick={onToggle}>
-          {expanded ? 'Свернуть' : `Показать все ${thread.count}`}
-        </button>
-      )}
     </div>
   );
 }
@@ -2064,9 +2052,7 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
   const [activeFolder, setActiveFolder] = useState<FolderId>(initialFolder);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Thread strip: collapsed shows the five newest letters, a click opens the rest
-  // (Owner 2026-08-09). The old fixed 168px cap hid everything past the fifth
-  // behind a scroll nobody noticed, so a long thread read as a short one.
+  // Other messages stay collapsed until the reader opens the conversation history.
   const [threadExpanded, setThreadExpanded] = useState(false);
   const [compose, setCompose] = useState<ComposeInit | null>(null);
   const agentDraft = useAgentDraft(setCompose, toast);
@@ -2354,7 +2340,6 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
                 onFocus={() => prefetchBodySoon(e.mailbox, e.key)}
               >
                 <RowCheck on={sel.checked.has(e.id)} onToggle={() => sel.toggle(e.id)} />
-                <div className="ava" style={{ background: e.color }}>{e.initial}</div>
                 <div className="rmain">
                   <div className="rtop">
                     <div className={`rfrom ${t.unread ? '' : 'read'}`}>
@@ -2482,7 +2467,6 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
                     <AttachmentList key={selected.key} item={selected} attachments={body?.attachments} />
                   </div>
                 </div>
-              </div>
 
               {letterLearn.reportFor(selected.key) && (
                 <div className="learncard">
@@ -2538,6 +2522,7 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
                   </div>
                 </div>
               )}
+              </div>
 
               <div className="replybar">
                 <input

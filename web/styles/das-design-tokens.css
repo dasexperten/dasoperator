@@ -718,7 +718,7 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .rtags { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 .dxmail .unread-dot { display: none; }
 
-.dxmail .detail { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--white); }
+.dxmail .detail { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; background: var(--white); }
 .dxmail .dcard {
   margin: 0; flex: 1; min-height: 0;
   background: transparent;
@@ -726,6 +726,8 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   border-radius: 0;
   display: flex; flex-direction: column;
   overflow-y: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
   box-shadow: none;
 }
 /* Keep the whole conversation reachable on short windows and long threads.
@@ -733,7 +735,8 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .dcard > .dhead,
 .dxmail .dcard > .dmeta { flex-shrink: 0; }
 .dxmail .dcard > .dbody { flex: none; overflow: visible; }
-.dxmail .dcard > .dbody.is-html .dbody-inner { height: auto; }
+.dxmail .dcard > .learncard { flex: none; }
+.dxmail .dcard > .dbody.is-html .dbody-inner { height: auto; padding: 8px; }
 .dxmail .dhead {
   padding: 22px 30px 18px;
   background: var(--white);
@@ -781,11 +784,13 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
    conversation's other letters above the open one. */
 .dxmail .thcount { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 5px; margin-left: 7px; border-radius: 999px; background: var(--panel); color: var(--slate); font-size: 10.5px; font-weight: 800; vertical-align: middle; }
 .dxmail .row.unread .thcount { background: var(--green-soft); color: var(--green-dark); }
-/* Collapsed the strip holds five letters and the 'show all' line; expanded it grows
-   to half the panel and scrolls (Owner 2026-08-09). The old flat 168px cap hid the
-   sixth letter onwards behind a scrollbar nobody looked for. */
-.dxmail .thstrip { flex-shrink: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); overflow-y: auto; }
-.dxmail .thstrip.open { max-height: 50vh; }
+/* Conversation history opens downwards on demand (Owner 2026-11-09). */
+.dxmail .thstrip { flex-shrink: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+.dxmail .thtoggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 16px; border: 0; background: var(--white); color: var(--navy); font: 700 13px/1.4 'Manrope', sans-serif; text-align: left; cursor: pointer; }
+.dxmail .thtoggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dxmail .thtoggle:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
+.dxmail .thmessages { max-height: min(40dvh, 320px); overflow-y: auto; }
+.dxmail .thmessages[hidden] { display: none; }
 .dxmail .thhead { padding: 10px 30px 8px; }
 .dxmail .thwith { font-size: 12px; font-weight: 700; color: var(--muted); }
 .dxmail .thsubj { font-size: 14px; font-weight: 800; color: var(--navy); line-height: 1.3; margin-top: 2px; }
@@ -844,8 +849,10 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   font-size: 12px; font-weight: 700; color: var(--slate);
 }
 .dxmail .replybar {
-  margin: 0 30px 22px 30px;
-  max-width: calc(74ch + 40px);
+  margin: 8px;
+  min-width: 0;
+  min-height: 64px;
+  overflow-x: auto;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: 14px;

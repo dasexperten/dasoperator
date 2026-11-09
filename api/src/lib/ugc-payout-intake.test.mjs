@@ -80,9 +80,19 @@ test('a verified exact current basket fills only an unconfirmed amount',async()=
   const a=await prepareCreatorPayout(f.env,facts,now);
   const check={status:'yes',checks:[{kind:'basket',product:'yes',amount:'yes',seller:'yes',unresolved_required:[],label:'сообщения 2026-11-09T11:00:00Z, вложение 1',observed:{currency:'RUB',price:'453'}}]};
   f.db.prepare("UPDATE ugc_ig_messages SET attachments_json='[{}]' WHERE id='new-bank'").run();
+  f.db.prepare("INSERT INTO ugc_ig_messages VALUES('empty','chat','in','alice','2026-11-09T11:30:00Z','{}')").run();
   f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_context:chat',JSON.stringify({image_check:check}),now);
   assert.equal((await prepareCreatorPayout(f.env,facts,now)).amount_minor,45300);
   f.db.prepare('UPDATE ugc_payouts SET amount_minor=48700 WHERE id=?').run(a.id);
   assert.equal((await prepareCreatorPayout(f.env,facts,now)).amount_minor,48700);
+ }finally{f.db.close()}
+});
+
+test('explicit original-image review saves its amount; old or absent image proof cannot',async()=>{
+ const f=fixture();try{
+  f.db.prepare("UPDATE ugc_ig_messages SET attachments_json='[{}]' WHERE id='new-bank'").run();
+  const a=await prepareCreatorPayout(f.env,{...facts,cart_review:{source_message_id:'new-bank',amount_minor:45300}},now);assert.equal(a.amount_minor,45300);
+  await assert.rejects(prepareCreatorPayout(f.env,{...facts,cart_review:{source_message_id:'amount',amount_minor:49200}},now),/current_original/);
+  assert.equal(f.db.prepare('SELECT amount_minor FROM ugc_payouts').get().amount_minor,45300);
  }finally{f.db.close()}
 });

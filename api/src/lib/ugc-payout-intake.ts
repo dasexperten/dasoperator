@@ -9,6 +9,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   verified: boolean; handle: string; conversation_id: string; cycle_message_id: string;
   source_message_ids: string[]; amount_minor: number; phone: string; first_name?: string | null;
   fps_bank_member_id: string; bank_ref: string;
+  cart_review?: {source_message_id:string;amount_minor:number};
 }, now = Date.now()) {
   const handle = String(input.handle ?? '').replace(/^@/, '').toLowerCase();
   const phone = konsolPhone(input.phone);
@@ -64,12 +65,19 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const context = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_context:'+input.conversation_id).first<{value:string}>();
   const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','{}','null','') AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(input.conversation_id).first<{at:string}>();
   let imageCheck; try { imageCheck=JSON.parse(context?.value ?? '{}').image_check; } catch {}
-  const cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
+  let cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
+  if(input.cart_review){
+    const review=input.cart_review;
+    if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>99900)throw Error('invalid_verified_cart_amount');
+    const source=await env.DB.prepare("SELECT created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2 AND direction='in' AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(review.source_message_id,input.conversation_id).first<{created_at:string}>();
+    if(!source||!latestImage?.at||Date.parse(source.created_at)!==Date.parse(latestImage.at))throw Error('verified_cart_must_be_current_original');
+    cartAmount=review.amount_minor;
+  }
   const amount = open && open.amount_minor !== 1 ? open.amount_minor : (cartAmount ?? 1);
   const id = open?.id ?? await stable('ugcpay',creatorId+':'+input.cycle_message_id);
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
-    observed_amount_minor:input.amount_minor,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
+    observed_amount_minor:input.amount_minor,verified_cart:input.cart_review??null,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_creators(id,normalized_handle,lifecycle_stage,created_at,updated_at)
       VALUES(?1,?2,'agreed',?3,?3) ON CONFLICT(id) DO NOTHING`).bind(creatorId,handle,now),

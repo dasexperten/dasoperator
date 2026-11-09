@@ -203,3 +203,25 @@ test('historical Rutube becomes active but needs its own saved proof before gree
  const body=await result.json();assert.deepEqual(body.destination_scope.active,['rutube']);assert.deepEqual(body.destination_scope.deferred,['tiktok']);
  assert.equal(sqlite.prepare('SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=?').get(id).required_destinations,'["tiktok","rutube"]');
 });
+
+test('caption plan is claim-bound immutable evidence, not a publication proof or a missing-pool approval gate',async()=>{
+ const id='caption-plan-source',stamp=new Date().toISOString(),claim='caption-only-test-claim';
+ sqlite.prepare('INSERT INTO ugc_content VALUES(?,?,?,?)').run(id,'profile','https://youtube.com/watch?v=source123','video');
+ sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id,required_destinations)VALUES(?,?,?,?,?,?,?)").run(id,'owner',stamp,stamp,'working',claim,'["facebook"]');
+ const get=()=>sqlite.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?').get(id);
+ const item={caption:'Verified brand Product. Author credit. #Context',hashtags:['Context'],native_topic_applied:false,selection_evidence:'Exact-source product and observed context check',product_keyword_provenance:{verified_products:[{brand:'Verified brand',canonical_name:'Product'}],keyword_status:'missing_pool',selected_keyword_phrases:[],keyword_pool_id:null}};
+ const plan={content_id:id,policy_id:'reviewed-caption-policy',platforms:{facebook:item}},body={claim_id:claim,plan};
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body,false)).status,401);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,claim_id:'other'})).status,409);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:{...plan,content_id:'other'}})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:{...plan,platforms:{tiktok:item}}})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,200);
+ assert.equal((await(await request('/reel-jobs/'+id+'/caption-plan',body)).json()).caption_plan_saved,true);
+ const saved=sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-caption-plan:'+id+':'+claim).value;
+ assert.deepEqual(JSON.parse(saved),plan);assert.equal(get().status,'working');assert.equal(get().publications,'[]');
+ const revised={...plan,platforms:{facebook:{...item,caption:'Changed after immutable intent'}}};
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:revised})).status,409);
+ assert.equal(sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-caption-plan:'+id+':'+claim).value,saved);
+ sqlite.prepare("UPDATE ugc_reel_jobs SET status='queued' WHERE content_id=?").run(id);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,409);
+});

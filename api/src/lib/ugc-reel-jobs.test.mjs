@@ -92,3 +92,9 @@ test('new jobs activate verified six accounts while old saved scopes remain exac
  const text=reelTaskText({content_id:'rutube-new',content_url:'https://youtube.com/watch?v=AbC123def_0',claim_id:'private-placeholder',handle:'author'},'https://erp.test');
  assert.match(text,/jobs\/diter-rutube-upload\/runner.py/);assert.match(text,/59945486/);assert.match(text,/модерация не равны публичной/);
 });
+
+test('assignment includes verified identity, canonical keyword provenance and ERP plan before provider intent',()=>{
+ const text=reelTaskText({content_id:'caption-source',claim_id:'plan-test-claim',content_url:'https://youtube.com/watch?v=abc',handle:'actual_creator',required_destinations:['facebook']},'https://erp.test');
+ for(const value of ['product_keyword_pools.source_ref','body_keyword_realizations','source SHA256','missing_pool','editorial priorities','39°C measurement','/reel-jobs/caption-source/caption-plan','verified_products','Jurgen']) assert.ok(text.includes(value),value);
+ assert.match(text,/не переноси имя Юлия/);assert.match(text,/без ручного approval gate/);
+});

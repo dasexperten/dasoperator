@@ -83,6 +83,32 @@ route.post('/alarm/ack', async (c) => {
   return c.json({ok:Boolean(result.meta.changes)},result.meta.changes?200:409);
 });
 // Persist each verified placement while remaining yellow until the task is done.
+// Exact caption/provenance plan is immutable for one execution claim. It is
+// evidence before provider intent, never proof that an external post exists.
+route.post('/reel-jobs/:id/caption-plan', async (c) => {
+  const id=c.req.param('id');
+  const body=await c.req.json().catch(()=>null) as {claim_id?:string;plan?:any}|null;
+  if(!body?.claim_id) return c.json({ok:false,error:'claim_id_required'},422);
+  const job=await c.env.DB.prepare('SELECT status,claim_id,required_destinations FROM ugc_reel_jobs WHERE content_id=?').bind(id).first<{status:string;claim_id:string;required_destinations:string}>();
+  if(!job||job.status!=='working'||job.claim_id!==body.claim_id) return c.json({ok:false,error:'working_claim_required'},409);
+  const plan=body.plan, platforms=plan?.platforms;
+  const keys=platforms&&typeof platforms==='object'&&!Array.isArray(platforms)?Object.keys(platforms):[];
+  const active=reelScope(job).active;
+  const valid=plan?.content_id===id&&typeof plan.policy_id==='string'&&plan.policy_id.length>0&&keys.length>0&&keys.every(key=>{
+    const item=platforms[key],p=item?.product_keyword_provenance;
+    return active.includes(key)&&typeof item.caption==='string'&&item.caption.trim().length>0&&Array.isArray(item.hashtags)&&item.hashtags.length>0
+      &&item.native_topic_applied===false&&typeof item.selection_evidence==='string'&&item.selection_evidence.trim().length>0
+      &&p&&Array.isArray(p.verified_products)&&p.verified_products.length>0&&Array.isArray(p.selected_keyword_phrases)
+      &&(p.keyword_status==='missing_pool'||(p.keyword_status==='sourced_pool'&&typeof p.keyword_pool_id==='string'&&typeof p.source_ref==='string'&&/^[a-f0-9]{64}$/.test(p.source_sha256)));
+  });
+  if(!valid||JSON.stringify(plan).length>100000) return c.json({ok:false,error:'source_specific_caption_provenance_plan_required'},422);
+  const key=`ugc-caption-plan:${id}:${body.claim_id}`,value=JSON.stringify(plan);
+  await c.env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='working' AND claim_id=?) ON CONFLICT(key) DO NOTHING`).bind(key,value,Date.now(),id,body.claim_id).run();
+  const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<{value:string}>();
+  if(!saved) return c.json({ok:false,error:'working_claim_changed'},409);
+  if(saved.value!==value) return c.json({ok:false,error:'caption_plan_already_saved_different_do_not_overwrite'},409);
+  return c.json({ok:true,content_id:id,caption_plan_saved:true,platforms:keys});
+});
 route.post('/reel-jobs/:id/progress', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => null) as {claim_id?:string;publications?:unknown}|null;

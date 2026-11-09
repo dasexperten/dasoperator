@@ -47,6 +47,13 @@ class Bucket {
 }
 const setup=()=>{const primary=new Bucket(),old=new Bucket(),raw={ARCHIVE:primary,ARCHIVE_OLD:old,MAIL_ARCHIVE_RECOVERY:'old'};return{primary,old,raw,env:mailArchiveEnv(raw)};};
 
+test('workspace original MIME and repair receipts use the same healthy archive overlay',async()=>{
+  const {primary,old,env}=setup();primary.failWrites=true;
+  for(const key of ['Workspace/raw/sales@dasexperten.com/message.eml','Workspace/receipts/sales@dasexperten.com/message.json']){
+    await env.ARCHIVE.put(key,'preserved original');assert.equal(await(await env.ARCHIVE.get(key)).text(),'preserved original');assert.ok(old.data.has(RECOVERY_PREFIX+key));
+  }
+});
+
 test('durable overlay preserves canonical history and leaves unrelated writes alone',async()=>{
   const {primary,old,env}=setup();await primary.put('Inbox/a/sent/old.json','история');primary.failWrites=true;
   assert.equal(await (await env.ARCHIVE.get('Inbox/a/sent/old.json')).text(),'история');

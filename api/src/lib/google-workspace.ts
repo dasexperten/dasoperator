@@ -80,6 +80,35 @@ export async function syncWorkspacePage(env: Env, email: string, pageToken?: str
   return { email, receipts, nextPageToken: page.nextPageToken || null, complete: !page.nextPageToken };
 }
 
+export async function workspaceReceiptComplete(env: Env, receipt: { keys?: string[]; attachments?: number }): Promise<boolean> {
+  if (!receipt.keys?.length || !Number.isSafeInteger(receipt.attachments) || receipt.attachments! < 0) return false;
+  for (const key of receipt.keys) {
+    if (!key.startsWith('Inbox/') || !key.endsWith('.json')) return false;
+    const object=await env.ARCHIVE.get(key);
+    if (!object) return false;
+    const record=await object.json() as {attachments?: {key?:string;size?:number;skipped?:string}[]};
+    const files=record.attachments || [];
+    if (files.length!==receipt.attachments) return false;
+    for(const file of files) {
+      if(file.skipped || !file.key?.startsWith(key.slice(0,-5)+'/att/'))return false;
+      const stored=await env.ARCHIVE.head(file.key);
+      if(!stored || stored.size!==file.size)return false;
+    }
+  }
+  return true;
+}
+
+// Explicit, bounded recovery from connected Gmail originals. Never sends mail
+// and never changes the normal sync cursor or Gmail labels.
+export async function repairWorkspaceMessages(env: Env, email: string, ids: string[]) {
+  const account=workspaceAccounts(env).find(a=>a.email===email);
+  if(!account)throw new Error('Business mailbox is not connected');
+  const token=await workspaceToken(env,account);
+  const profile=await gmailRequest<{emailAddress:string}>(token,'profile');
+  if(profile.emailAddress.toLowerCase()!==email)throw new Error('Connected mailbox identity mismatch');
+  return archiveWorkspaceMessages(env,email,token,ids.map(id=>({id})));
+}
+
 async function archiveWorkspaceMessages(env: Env, email: string, token: string, messages: { id: string }[]) {
   const { default: PostalMime } = await import('postal-mime');
   const { archiveEmail } = await import('./inbox-archive');
@@ -88,7 +117,10 @@ async function archiveWorkspaceMessages(env: Env, email: string, token: string, 
     if (!/^[a-z0-9]+$/i.test(message.id)) throw new Error('Invalid Gmail message identifier');
     const receiptKey = `Workspace/receipts/${email}/${message.id}.json`;
     const receipt = await env.ARCHIVE.get(receiptKey);
-    if (receipt) { receipts.push(await receipt.json()); continue; }
+    if (receipt) {
+      const saved=await receipt.json() as {keys?:string[];attachments?:number};
+      if(await workspaceReceiptComplete(env,saved)){receipts.push(saved);continue;}
+    }
     let raw: { raw: string; threadId: string; internalDate: string; labelIds?: string[] };
     try { raw = await gmailRequest(token, `messages/${message.id}?format=raw`); }
     catch (error) {
@@ -121,6 +153,7 @@ async function archiveWorkspaceMessages(env: Env, email: string, token: string, 
       keys.push(key);
     }
     const result = { messageId: message.id, direction, keys, attachments: parsed.attachments.length };
+    if (!(await workspaceReceiptComplete(env,result))) throw new Error('Attachment bytes readback failed');
     await env.ARCHIVE.put(receiptKey, JSON.stringify(result));
     receipts.push(result);
   }

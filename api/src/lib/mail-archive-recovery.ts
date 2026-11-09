@@ -7,7 +7,7 @@ export const RECOVERY_PREFIX = 'Recovery/self-learning/mail-v1/';
 const DELETED = 'mailRecoveryDeleted';
 const rawEnvs = new WeakMap<Env, Env>();
 type R2PutValue = ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob;
-const scoped = (key: string) => /^(Inbox\/|MailOutbox\/|MailSendRequests\/|MailDraftFiles\/)/.test(key);
+const scoped = (key: string) => /^(Inbox\/|MailOutbox\/|MailSendRequests\/|MailDraftFiles\/|Workspace\/)/.test(key);
 const physical = (key: string) => RECOVERY_PREFIX + key;
 const deleted = (o: R2Object | null) => o?.customMetadata?.[DELETED] === '1';
 const mailboxIndex = (key: string) => /^Inbox\/[^/]+\.json$/.test(key);

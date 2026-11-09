@@ -14,8 +14,17 @@ import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
 import { sendHumanResend, extractEmailAddr } from '../lib/resend-human';
 import { reconcileMailRecovery } from '../lib/mail-archive-recovery';
+import { repairWorkspaceMessages } from '../lib/google-workspace';
 
 const route = new Hono<{ Bindings: Env }>();
+
+route.post('/archive-recovery/workspace', async (c) => {
+  if (!c.env.EMAILER_SERVICE_SECRET || c.req.header('X-Emailer-Service-Secret') !== c.env.EMAILER_SERVICE_SECRET) return c.json({success:false},401);
+  const parsed=z.object({account:z.string().email(),message_ids:z.array(z.string().regex(/^[a-z0-9]+$/i)).min(1).max(5)}).safeParse(await c.req.json().catch(()=>null));
+  if(!parsed.success)return c.json({success:false,error:'connected_account_and_up_to_five_message_ids_required'},422);
+  try{return c.json({success:true,receipts:await repairWorkspaceMessages(c.env,parsed.data.account,[...new Set(parsed.data.message_ids)])});}
+  catch{return c.json({success:false,error:'source_or_attachment_archive_not_verified'},503);}
+});
 
 // Protected maintenance, never sends mail. Recovery objects are retained:
 // reconciliation is not permission to turn the overlay off while writers run.

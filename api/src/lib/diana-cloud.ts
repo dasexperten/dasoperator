@@ -90,7 +90,7 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   const history = originals.slice().reverse().map(m=>({id:String(m.id),direction:[BRAND,PAGE].includes(String(m.from.id))?'out':'in',
     text: m.message || m.shares?.data?.map((s:any)=>s.link).join('\n') || '',attachments_json:JSON.stringify(m.attachments?.data??[]),
     unsupported:m.is_unsupported===true,created_at:new Date(m.created_time).toISOString()}));
-  let creator = await env.DB.prepare("SELECT c.* FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1")
+  let creator = await env.DB.prepare("SELECT c.* FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform IN ('instagram','other') AND p.normalized_handle=?1 ORDER BY CASE WHEN p.platform='instagram' THEN 0 ELSE 1 END LIMIT 1")
     .bind(handle).first<any>();
   if (!creator && !event.dryRun) {
     // Same deterministic creator identity as Diana's original Direct intake.
@@ -157,6 +157,10 @@ export async function deliverCloudDecision(env: Env, key: string) {
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
   if (decision.escalate) return {status:'needs_review',reason:decision.reason};
   if (!decision.reply) return {status:'no_reply',reason:decision.reason};
+  const currentCreator=await env.DB.prepare('SELECT * FROM ugc_creators WHERE id=?1').bind(source.creator.id).first<any>();
+  const currentPayouts=(await env.DB.prepare('SELECT id,amount_minor,status,product,paid_at,sent_at,created_at,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC')
+    .bind(source.creator.id).all()).results??[];
+  if(currentCreator?.updated_at!==source.creator.updated_at || JSON.stringify(currentPayouts)!==JSON.stringify(source.payouts))return {status:'needs_review',reason:'erp_facts_changed_during_inference'};
   const cards=[...(decision.sendCards?SCENARIO_CARDS:[]),...(decision.sendOzonPhoto?[OZON_CARD_PHOTO]:[])];
   const deliveryKey=igDeliveryKey(source.event.cid,source.at);
   const result=await deliverIgReply(env,{conversationId:source.event.cid,incomingAt:source.at,handle:source.handle,

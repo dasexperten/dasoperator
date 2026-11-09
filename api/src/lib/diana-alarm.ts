@@ -93,7 +93,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   return { inspected, detected, errors, ...(await pushed.json() as object) };
 }
 
-// The 07:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.
+// The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.
 export const VIDEO_REMINDER_BATCH_KEY = 'diana_video_reminder_batch_day';
 export function yerevanDay(now = Date.now()) { return new Date(now + 4 * 3600_000).toISOString().slice(0, 10); }
 export async function pendingDianaMessages(env: Env, now = Date.now()) {

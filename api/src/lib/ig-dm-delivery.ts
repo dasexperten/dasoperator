@@ -3,6 +3,7 @@ import type { Env } from '../types';
 export type IgDeliveryPlan = {
   conversationId: string;
   incomingAt: string;
+  actionId?: string;
   handle: string;
   parts: string[];
   cards?: string[];
@@ -24,7 +25,7 @@ export type IgDeliveryResult = {
 };
 const PREFIX = 'ig_reply_delivery:';
 const LEASE_MS = 5 * 60_000;
-export const igDeliveryKey = (conversationId: string, incomingAt: string) => `${PREFIX}${conversationId}:${incomingAt}`;
+export const igDeliveryKey = (conversationId: string, incomingAt: string, actionId?:string) => `${PREFIX}${conversationId}:${incomingAt}${actionId?':action:'+actionId:''}`;
 
 function decode(value: string): State {
   const state = JSON.parse(value) as State;
@@ -42,9 +43,9 @@ async function read(env: Env, key: string): Promise<string | null> {
 
 /** A fixed plan is immutable after creation, including when a later model draft differs. */
 export async function deliverIgReply(env: Env, plan: IgDeliveryPlan, send: IgDeliverySender): Promise<IgDeliveryResult> {
-  const key = igDeliveryKey(plan.conversationId, plan.incomingAt);
+  const key = igDeliveryKey(plan.conversationId, plan.incomingAt,plan.actionId);
   const state: State = { version: 1, conversationId: plan.conversationId, incomingAt: plan.incomingAt,
-    handle: plan.handle, ...(plan.humanAgent !== undefined ? { humanAgent: plan.humanAgent } : {}),
+    handle: plan.handle, ...(plan.actionId?{actionId:plan.actionId}:{}), ...(plan.humanAgent !== undefined ? { humanAgent: plan.humanAgent } : {}),
     ...(plan.completion ? { completion: plan.completion } : {}), status: 'pending',
     items: [...plan.parts.filter(Boolean).map(text => ({ text, status: 'pending' as const })),
       ...(plan.cards ?? []).map(imageUrl => ({ imageUrl, status: 'pending' as const }))] };

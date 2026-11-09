@@ -29,18 +29,18 @@ function fixture(t){
  CREATE TABLE ugc_ig_messages(id TEXT PRIMARY KEY,conversation_id TEXT,direction TEXT,from_id TEXT,from_username TEXT,text TEXT,attachments_json TEXT,created_at TEXT,seen_at TEXT);
  CREATE TABLE ugc_creators(id TEXT PRIMARY KEY,normalized_handle TEXT,lifecycle_stage TEXT,updated_at INTEGER);
  CREATE TABLE ugc_creator_platforms(creator_id TEXT,normalized_handle TEXT,platform TEXT);
- CREATE TABLE ugc_payouts(id TEXT,creator_id TEXT,amount_minor INTEGER,status TEXT,product TEXT,paid_at TEXT,sent_at TEXT,created_at INTEGER,konsol_payment_id TEXT);
+ CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,creator_id TEXT,amount_minor INTEGER,status TEXT,product TEXT,paid_at TEXT,failed_at TEXT,sent_at TEXT,created_at INTEGER,konsol_payment_id TEXT,konsol_status TEXT,konsol_error TEXT,notice_status TEXT,notice_message_id TEXT,handle TEXT,notice_at TEXT,notice_error TEXT,paid_notice_at TEXT,updated_at INTEGER,execute_claim TEXT);
  INSERT INTO ugc_creators VALUES('creator-id','creator','replied',1);
  INSERT INTO ugc_creator_platforms VALUES('creator-id','creator','instagram');`);
- const f={db,files:new Map(),sends:[],originals:[{id:'incoming',from:{id:'person',username:'creator'},message:'Расскажите о программе',created_time:'2026-11-10T09:00:00Z'}]};
- f.event={cid:'chat',message_id:'incoming',event_id:'message:incoming',handle:'creator',at:'2026-11-10T09:00:00.000Z'};
+ const f={db,files:new Map(),sends:[],originals:[{id:'incoming',from:{id:'person',username:'creator'},message:'Расскажите о программе',created_time:'2026-11-09T09:00:00Z'}]};
+ f.event={cid:'chat',message_id:'incoming',event_id:'message:incoming',handle:'creator',at:'2026-11-09T09:00:00.000Z'};
  f.set=(k,v)=>db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,?)').run(k,typeof v==='string'?v:JSON.stringify(v),Date.now());
  f.state=k=>db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(k)?.value;
  f.set('diana_cloud_mode','enabled');f.set('diana_round_alarm:chat',f.event);
  const DB={prepare(sql){let values=[];const st={bind(...v){values=v;return st;},async first(){return db.prepare(sql).get(...values)??null;},async all(){return{results:db.prepare(sql).all(...values)};},async run(){return{meta:{changes:Number(db.prepare(sql).run(...values).changes)}};}};return st;},async batch(st){return Promise.all(st.map(s=>s.run()));}};
  f.env={DB,META_IG_MESSAGING_TOKEN:'fixture',GITHUB_TOKEN:'fixture',inferences:[],decision:{reply:'Расскажу)',replies:null,escalate:false,reason:'programme',send_cards:false,send_ozon_photo:false,requisites:null},
  DOCS:{async put(k,v){f.files.set(k,v);},async get(k){return f.files.has(k)?{json:async()=>JSON.parse(f.files.get(k))}:null;},async head(k){return f.files.has(k)?{}:null;}},
- async send(handle,text,opts){f.sends.push({handle,text,opts});const id='out-'+f.sends.length;f.originals.unshift({id,from:{id:'17841466350261166'},message:text,created_time:'2026-11-10T09:01:00Z'});return{ok:true,messageId:id};}};
+ async send(handle,text,opts){f.sends.push({handle,text,opts});const id='out-'+f.sends.length;f.originals.unshift({id,from:{id:'17841466350261166'},message:text,created_time:'2026-11-09T09:01:00Z'});return{ok:true,messageId:id};}};
  t.mock.method(globalThis,'fetch',async url=>{
   const u=new URL(url),id=u.pathname.split('/').at(-1);
   if(u.searchParams.get('fields')==='access_token')return Response.json({access_token:'fixture-page'});
@@ -66,7 +66,7 @@ test('preview exercises the same chain with zero sends and no live ACK',async t=
  await cloud.completeCloudEvent(f.env,event,outcome);assert.equal(f.sends.length,0);assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.state('diana_message_done:chat'),undefined);assert.equal(f.state('diana_cloud_event:'+event.event_id),undefined);
 });
 test('a newer incoming message while Diana thinks prevents every send',async t=>{
- const f=fixture(t),{draft}=await f.prepare();f.originals.unshift({id:'new',from:{id:'person',username:'creator'},message:'Передумала',created_time:'2026-11-10T09:02:00Z'});
+ const f=fixture(t),{draft}=await f.prepare();f.originals.unshift({id:'new',from:{id:'person',username:'creator'},message:'Передумала',created_time:'2026-11-09T09:02:00Z'});
  const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'needs_review');assert.equal(f.sends.length,0);assert.ok(f.state('diana_round_alarm:chat'));
 });
 test('ambiguous Meta outcome stays open and is never automatically sent again',async t=>{
@@ -101,4 +101,33 @@ test('dispatcher creates exactly one durable event, waits on its real status and
  assert.ok(f.state('diana_action_pending:action:reminder'));
  instances.set(creates[0].id,'complete');f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
  assert.equal((await dispatchDianaCloud(f.env)).reason,'cloud_events_await_review');assert.equal(creates.length,1);
+});
+test('confirmed paid action can notify after our last reply, with a separate outbox and verified payout receipt',async t=>{
+ const f=fixture(t);
+ f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,amount_minor,status,paid_at,konsol_payment_id,konsol_status,notice_status,created_at,updated_at) VALUES('p1','creator-id','creator',45300,'paid','2026-11-09T08:59:00Z','payment1','executed','queued',1,1)`).run();
+ f.originals.unshift({id:'previous-out',from:{id:'17841466350261166'},message:'Проверяем',created_time:'2026-11-09T09:00:05Z'});
+ const event={...f.event,event_id:'action:paid',task:'payout_paid_notice',payout_id:'p1'};f.set('diana_action_pending:'+event.event_id,event);
+ f.env.decision.reply='Перевели 453 ₽ по СБП. Проверьте, пожалуйста.';
+ const {draft}=await f.prepare(event),out=await cloud.deliverCloudDecision(f.env,draft.key);
+ assert.equal(out.status,'delivered');assert.match(out.deliveryKey,/:action:action:paid$/);
+ await cloud.completeCloudEvent(f.env,event,out);
+ const row=f.db.prepare("SELECT status,notice_status,notice_message_id,konsol_payment_id FROM ugc_payouts WHERE id='p1'").get();
+ assert.equal(row.status,'paid');assert.equal(row.konsol_payment_id,'payment1');assert.equal(row.notice_status,'delivered');assert.equal(row.notice_message_id,'out-1');
+ assert.equal(f.state('diana_action_pending:action:paid'),undefined);assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.sends.length,1);
+ await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);
+});
+test('failed payout notice keeps the provider outcome and saves only actual message delivery',async t=>{
+ const f=fixture(t);f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,amount_minor,status,failed_at,konsol_payment_id,konsol_status,notice_status,created_at,updated_at) VALUES('p2','creator-id','creator',45300,'failed','2026-11-09T08:59:00Z','payment2','failed','queued',1,1)`).run();
+ const event={...f.event,event_id:'action:failed',task:'payout_failed_notice',payout_id:'p2'};f.set('diana_action_pending:'+event.event_id,event);
+ const {draft}=await f.prepare(event),out=await cloud.deliverCloudDecision(f.env,draft.key);await cloud.completeCloudEvent(f.env,event,out);
+ const row=f.db.prepare("SELECT status,notice_status,notice_message_id FROM ugc_payouts WHERE id='p2'").get();assert.equal(row.status,'failed');assert.equal(row.notice_status,'delivered');assert.equal(row.notice_message_id,'out-1');
+});
+test('an unconfirmed payment cannot become a paid notice even if the queue says paid',async t=>{
+ const f=fixture(t);f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,amount_minor,status,konsol_payment_id,konsol_status,created_at,updated_at) VALUES('p1','creator-id','creator',45300,'sent','payment1','processing',1,1)`).run();
+ await assert.rejects(cloud.readCloudConversation(f.env,{...f.event,event_id:'action:bad',task:'payout_paid_notice',payout_id:'p1'}),/outcome_not_confirmed/);assert.equal(f.sends.length,0);
+});
+test('dispatcher prioritizes confirmed financial actions without restarting proactive reminders',async t=>{
+ const f=fixture(t),created=[];f.env.DIANA_CLOUD={async create(p){created.push(p);},async get(){return{async status(){return{status:'complete'};}};}};
+ f.set('diana_action_pending:action:paid',{...f.event,event_id:'action:paid',task:'payout_paid_notice',payout_id:'p1'});
+ await dispatchDianaCloud(f.env);assert.equal(created[0].params.task,'payout_paid_notice');assert.equal(created[0].params.payout_id,'p1');assert.ok(f.state('diana_round_alarm:chat'));
 });

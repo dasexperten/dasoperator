@@ -3,7 +3,7 @@
 // =============================================================================
 
 export interface Env {
-  DIANA_CLOUD: Workflow<{cid:string;message_id:string;event_id:string;at:string;handle?:string;dryRun?:boolean}>;
+  DIANA_CLOUD: Workflow<{cid:string;message_id:string;event_id:string;at:string;handle?:string;dryRun?:boolean;task?:'payout_paid_notice'|'payout_failed_notice';payout_id?:string}>;
   // Selective bounded fallback; absent budget/token disables paid requests.
   APIFY_TOKEN?: string;
   APIFY_DAILY_BUDGET_USD?: string;

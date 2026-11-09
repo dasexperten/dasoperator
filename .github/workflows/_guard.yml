@@ -93,6 +93,9 @@ jobs:
       - name: Test mail images guard (broken picture removed, never an empty frame)
         run: node --test api/src/lib/mail-images.test.mjs
 
+      - name: Test Diana cloud execution and delivery recovery
+        run: node --test api/src/lib/diana-cloud.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-subscription-transport.test.mjs
+
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs workers/erp-site-sales-rebuild/src/index.test.mjs
 

@@ -18,6 +18,35 @@ route.get('/status', async c => {
   const response=await c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch('https://wake.internal/status');
   return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
+// Private preview executes the real read/context/model chain with send/ACK disabled.
+route.post('/cloud-preview',async c=>{
+  const input=await c.req.json<{cid?:string}>();
+  if(!input.cid)return c.json({ok:false},400);
+  const row=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_round_alarm:'+input.cid).first<{value:string}>();
+  if(!row)return c.json({ok:false,error:'pending_event_missing'},404);
+  let source:any;try{source=JSON.parse(row.value);}catch{return c.json({ok:false},409);}
+  if(!source.message_id||source.event_id!=='message:'+source.message_id)return c.json({ok:false,error:'original_message_identity_missing'},409);
+  const id='preview-'+crypto.randomUUID();
+  await c.env.DIANA_CLOUD.create({id,params:{cid:source.cid,message_id:source.message_id,event_id:source.event_id,handle:source.handle,at:source.at,dryRun:true}});
+  return c.json({ok:true,id,dry_run:true});
+});
+route.get('/cloud-status/:id',async c=>{
+  const id=c.req.param('id');
+  if(!/^(?:preview-[a-f0-9-]{36}|direct-v1-[a-f0-9]{64})$/.test(id))return c.json({ok:false},400);
+  const status=await(await c.env.DIANA_CLOUD.get(id)).status();
+  return c.json({ok:true,id,...status});
+});
+route.get('/cloud-preview-result/:id',async c=>{
+  const id=c.req.param('id');
+  if(!/^preview-[a-f0-9-]{36}$/.test(id))return c.json({ok:false},400);
+  const status=await(await c.env.DIANA_CLOUD.get(id)).status();
+  const output=status.output as any;
+  if(status.status!=='complete'||output?.status!=='preview'||!/^diana\/cloud-direct\/v1\/[a-f0-9]{64}\/decision\.json$/.test(output.decisionKey??''))return c.json({ok:false,status:status.status,output:output??null},409);
+  const artifact=await c.env.DOCS.get(output.decisionKey);
+  if(!artifact)return c.json({ok:false},404);
+  const draft=await artifact.json<any>();
+  return c.json({ok:true,dry_run:true,sent:0,decision:{reply:draft.decision.reply,escalate:draft.decision.escalate,reason:draft.decision.reason,sendCards:draft.decision.sendCards},receipt:draft.receipt});
+});
 // Explicit attended recovery uses the same dispatch and ownership checks as metadata scans.
 route.post('/dispatch', async c => {
   const response=await c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana'))

@@ -357,3 +357,4 @@ export default {
 // Private service entrypoint: no public proxy URL.
 export { WbGateway } from './wb-entrypoint';
 export { DianaWake } from './diana-wake';
+export { DianaCloudWorkflow } from './diana-cloud-workflow';

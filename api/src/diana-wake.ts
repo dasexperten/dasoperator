@@ -1,5 +1,6 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
+import { dispatchDianaCloud } from './lib/diana-cloud-dispatch';
 
 // Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 50 identifiers
 // (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
@@ -22,6 +23,7 @@ const RANK = ['primary', 'backup', 'secondary'];
 
 // Persistent delivery channel, not another polling clock or model executor.
 export class DianaWake {
+  private cloudQueue: Promise<unknown> = Promise.resolve();
   constructor(private state: DurableObjectState, private env: Env) {}
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -48,6 +50,10 @@ export class DianaWake {
   }
   private async dispatch(priorityEventId?:string,justReturned:string[]=[]){
     const mode=await this.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_execution_mode'").first<{value:string}>();
+    if(mode?.value==='cloud_direct'){
+      const result=this.cloudQueue.then(()=>dispatchDianaCloud(this.env,priorityEventId));
+      this.cloudQueue=result.catch(()=>undefined);return result;
+    }
     const directOnly=mode?.value==='direct_only_primary';
     const peers=this.state.getWebSockets().filter(ws=>(!directOnly||(ws.deserializeAttachment() as Peer).role==='primary')&&ws.readyState===1&&Date.now()-((ws.deserializeAttachment() as Peer).seen??Date.now())<180_000)
       .sort((a,b)=>RANK.indexOf((a.deserializeAttachment() as Peer).role)-RANK.indexOf((b.deserializeAttachment() as Peer).role));

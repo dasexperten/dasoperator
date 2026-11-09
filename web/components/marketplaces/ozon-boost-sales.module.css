@@ -68,5 +68,6 @@
   .tableWrap > table.table.table td:nth-child(7), .tableWrap > table.table.table th:nth-child(7) { text-align: right !important; white-space: nowrap !important; }
   .tableWrap > table.table.table thead th { font-size: 13px !important; white-space: nowrap !important; overflow: hidden; }
   .tableWrap > table.table.table td:nth-child(7) span { font-size: clamp(11px, 3.6vw, 15px) !important; }
-  .tableWrap > table.table.table td:nth-child(1) span { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+  .tableWrap > table.table.table tbody th span, .tableWrap > table.table.table td:nth-child(1) span { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; line-height: 1.2; }
+  .tableWrap > table.table.table tbody th { white-space: normal !important; overflow: visible !important; }
 }

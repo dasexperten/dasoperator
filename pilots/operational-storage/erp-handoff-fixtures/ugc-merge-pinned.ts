@@ -1,0 +1,1322 @@
+import { Hono } from 'hono';
+import type { Env } from '../types';
+import { fail, ok } from '../lib/responses';
+import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
+import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
+import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
+import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
+import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
+import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
+import { followPayoutStage, shownStage } from '../lib/ugc-payout-stage.mjs';
+import { cooldownLeft, fireText, isTarget, queueItems } from '../lib/browser-queue.mjs';
+import { buildManualStage, manualStageKey, MANUAL_STAGE_PREFIX, markReviewed, parseManualStage } from '../lib/ugc-manual-stage.mjs';
+import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
+
+// Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
+// word, at most 7 letters. Main path, then side statuses.
+// Owner 2026-11-05: stages where a dialogue about specifics is already going.
+const DIALOGUE_STAGES = new Set(['agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold']);
+const UGC_STAGES = new Set([
+  '', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold',
+  'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner',
+]);
+// Who started: we invited (brown magnifier) or the creator came herself (green hand).
+const UGC_ORIGINS = new Set(['invited', 'self']);
+
+type ImportRow = {
+  handle?: unknown;
+  platform?: unknown;
+  display_name?: unknown;
+  followers?: unknown;
+  engagement_rate?: unknown;
+  metrics_as_of?: unknown;
+  content_url?: unknown;
+  content_type?: unknown;
+  views?: unknown;
+  comments?: unknown;
+  product_codes?: unknown;
+  product_text?: unknown;
+  usage_label?: unknown;
+  source_rating?: unknown;
+  source_valid?: unknown;
+  audio_label?: unknown;
+  download_url?: unknown;
+  source_workbook?: unknown;
+  source_sheet?: unknown;
+  source_row?: unknown;
+};
+
+const ugc = new Hono<{ Bindings: Env }>();
+
+function bearer(header: string | undefined): string | null {
+  const match = header ? /^Bearer\s+(.+)$/i.exec(header) : null;
+  return match?.[1]?.trim() || null;
+}
+
+async function userFor(c: any): Promise<AuthUser | null> {
+  const token = bearer(c.req.header('Authorization'));
+  return token ? validateSession(c.env.DB, token) : null;
+}
+
+async function requireAccess(c: any, write = false): Promise<AuthUser | Response> {
+  const user = await userFor(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'Valid ERP session required' }]);
+  if (!hasModuleAccess(user, '/ugc')) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'UGC module access required' }]);
+  }
+  const access = user.role === 'admin' ? 'full' : user.permissions?.['/ugc'];
+  if (write && access !== 'full' && access !== 'rw') {
+    return fail(c, 403, [{ code: 'read_only', message: 'UGC write access required' }]);
+  }
+  return user;
+}
+
+function textValue(value: unknown, max = 500): string | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function numberValue(value: unknown, integer = false): number | null {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return integer ? Math.round(number) : number;
+}
+
+function normalizeHandle(value: unknown): string {
+  let handle = String(value ?? '').trim().toLowerCase();
+  try {
+    if (/^https?:\/\//.test(handle)) {
+      const url = new URL(handle);
+      handle = url.pathname.split('/').filter(Boolean)[0] || '';
+    }
+  } catch { /* keep source text */ }
+  return handle.replace(/^@+/, '').replace(/\s+/g, '').slice(0, 160);
+}
+
+function normalizePlatform(value: unknown): string {
+  const raw = String(value ?? '').trim().toLowerCase().replace(/[._-]+/g, ' ');
+  if (!raw) return 'other';
+  if (raw.includes('instagram')) return 'instagram';
+  if (raw === 'tik tok' || raw.includes('tiktok')) return 'tiktok';
+  if (raw === 'vk' || raw.includes('vkontakte')) return 'vk';
+  if (raw.includes('shopee')) return 'shopee';
+  if (raw.includes('lazada')) return 'lazada';
+  if (raw.includes('facebook')) return 'facebook';
+  if (raw.includes('telegram')) return 'telegram';
+  if (raw.includes('youtube')) return 'youtube';
+  return 'other';
+}
+
+async function stableId(prefix: string, input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${prefix}_${hex.slice(0, 24)}`;
+}
+
+// Owner 2026-11-04: one old card of a renamed Instagram creator folds into the card that already carries the new name.
+// Everything that hangs on the old card moves to the live one (payments, content, collaborations; payout requisites follow their payout),
+// the old account name goes into the history, and the old card is removed. One transaction: if anything still points
+// at the old card (for example the same payment row on both), nothing changes.
+ugc.post('/creators/merge', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ from_creator_id?: unknown; into_creator_id?: unknown }>().catch(() => null);
+  const from = typeof body?.from_creator_id === 'string' ? body.from_creator_id : '';
+  const into = typeof body?.into_creator_id === 'string' ? body.into_creator_id : '';
+  if (!from || !into || from === into) return fail(c, 422, [{ code: 'invalid_merge', message: 'from_creator_id and into_creator_id must be two different cards' }]);
+  const db = c.env.DB;
+  const profiles = (await db.prepare('SELECT id, creator_id, platform, normalized_handle FROM ugc_creator_platforms WHERE creator_id IN (?1, ?2)').bind(from, into).all<{ id: string; creator_id: string; platform: string; normalized_handle: string }>()).results ?? [];
+  const oldProfiles = profiles.filter((p) => p.creator_id === from);
+  const target = profiles.find((p) => p.creator_id === into && p.platform === 'instagram');
+  if (!oldProfiles.length || !target) return fail(c, 404, [{ code: 'not_found', message: 'Both cards need an Instagram profile' }]);
+  if (oldProfiles.some((p) => p.platform !== 'instagram')) return fail(c, 422, [{ code: 'other_platforms', message: 'The old card has non-Instagram profiles; merge by hand' }]);
+  const now = new Date().toISOString();
+  const moved: Record<string, number> = {};
+  for (const table of ['ugc_content', 'ugc_collaborations', 'ugc_source_records', 'ugc_payouts'] as const) {
+    const row = await db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE creator_id=?`).bind(from).first<{ n: number }>();
+    moved[table] = row?.n ?? 0;
+  }
+  const oldIds = oldProfiles.map((p) => p.id);
+  const marks = oldIds.map((_, i) => `?${i + 2}`).join(',');
+  const statements = [
+    db.prepare('UPDATE ugc_content SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    db.prepare('UPDATE ugc_collaborations SET creator_id=?1 WHERE creator_id=?2').bind(into, from),
+    db.prepare('UPDATE ugc_source_records SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    db.prepare('UPDATE ugc_payouts SET creator_id=?1, creator_platform_id=?2 WHERE creator_id=?3').bind(into, target.id, from),
+    ...oldProfiles.map((p) => db.prepare('INSERT INTO ugc_handle_history (id, creator_platform_id, platform, old_handle, new_handle, evidence, changed_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(crypto.randomUUID(), target.id, 'instagram', p.normalized_handle, target.normalized_handle, 'склейка карточек по решению владельца 2026-11-04', now)),
+    db.prepare(`DELETE FROM ugc_creator_platforms WHERE creator_id=?1 AND id IN (${marks})`).bind(from, ...oldIds),
+    db.prepare('DELETE FROM ugc_creators WHERE id=?1').bind(from),
+  ];
+  try { await db.batch(statements); }
+  catch (e) { return fail(c, 409, [{ code: 'merge_blocked', message: `Nothing changed: ${e instanceof Error ? e.message : String(e)}` }]); }
+  return ok(c, { merged_into: into, profile: target.normalized_handle, old_handles: oldProfiles.map((p) => p.normalized_handle), moved });
+});
+
+// Owner 2026-11-04: check every greyed Instagram creator for a changed account name now.
+ugc.post('/profiles/rename-check', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ profile_id?: string }>().catch(() => ({} as { profile_id?: string }));
+  const { checkInstagramRenames } = await import('../lib/ugc-rename-check');
+  return ok(c, await checkInstagramRenames(c.env, body.profile_id, 50));
+});
+
+ugc.post('/profiles/refresh', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ profile_id?: string; avatar_only?: boolean; avatar_url?: string }>().catch(() => ({} as { profile_id?: string; avatar_only?: boolean; avatar_url?: string }));
+  const { refreshBloggerProfiles } = await import('../lib/ugc-blogger-profiles');
+  // Owner 2026-11-04: a greyed Instagram creator is first checked for a changed account name.
+  if (body.profile_id && body.avatar_only !== true) {
+    const grey = await c.env.DB.prepare("SELECT 1 FROM ugc_creator_platforms WHERE id=? AND platform='instagram' AND availability_status='unavailable'").bind(body.profile_id).first();
+    if (grey) { const { checkInstagramRenames } = await import('../lib/ugc-rename-check'); await checkInstagramRenames(c.env, body.profile_id, 1).catch(() => null); }
+  }
+  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2, { avatarOnly: body.avatar_only === true, ...(body.profile_id && typeof body.avatar_url === 'string' ? { avatarUrl: body.avatar_url } : {}) }));
+});
+
+ugc.get('/profiles/:id/avatar', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const row = await c.env.DB.prepare('SELECT avatar_key FROM ugc_creator_platforms WHERE id=?').bind(c.req.param('id')).first<{ avatar_key: string | null }>();
+  const image = row?.avatar_key ? await c.env.DOCS.get(row.avatar_key) : null;
+  if (!image) return fail(c, 404, [{ code: 'not_found', message: 'Avatar not loaded' }]);
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return ok(c, { data_url: `data:${image.httpMetadata?.contentType ?? 'image/jpeg'};base64,${btoa(binary)}` });
+});
+
+// Owner 2026-10-19: the blogger's photo behind an exclamation mark, for the hover card.
+ugc.get('/dm-messages/:id/image/:index', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const id = c.req.param('id'); const index = Number(c.req.param('index')) || 0;
+  const row = await c.env.DB.prepare(`SELECT attachments_json a FROM ugc_ig_messages WHERE id=?1 AND direction='in'`).bind(id).first<{ a: string | null }>();
+  if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Message not found' }]);
+  const { imageUrls, loadInstagramImage } = await import('../lib/ig-dm-image-cache');
+  const { refreshIgAttachments } = await import('../lib/ig-dm-watch');
+  try {
+    let url: string | undefined;
+    try { url = imageUrls(row.a)[index]; } catch { url = undefined; }
+    let image;
+    try { if (!url) throw new Error('no url'); image = await loadInstagramImage(c.env, id, index, url); }
+    catch { const fresh = await refreshIgAttachments(c.env, id); const u = fresh ? imageUrls(fresh)[index] : undefined; if (!u) throw new Error('unavailable'); image = await loadInstagramImage(c.env, id, index, u); }
+    return ok(c, { data_url: `data:${image.mediaType};base64,${image.data}` });
+  } catch { return fail(c, 404, [{ code: 'image_unavailable', message: 'Фото не открывается у нас, оно есть в переписке в приложении' }]); }
+});
+
+// Owner 2026-10-18: confirmed unavailable Instagram accounts remain in the list,
+// with a faded whole row. A failed photo fetch alone is not that confirmation.
+ugc.patch('/profiles/:id/availability', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ status?: unknown; note?: unknown }>().catch(() => null);
+  if (!body || !['available', 'unavailable', null].includes(body.status as any)) {
+    return fail(c, 422, [{ code: 'invalid_availability', message: 'status must be available, unavailable or null' }]);
+  }
+  const note = textValue(body.note, 500);
+  if (body.status !== null && !note) return fail(c, 422, [{ code: 'evidence_required', message: 'Observed account evidence required' }]);
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT platform FROM ugc_creator_platforms WHERE id=?').bind(id).first<{ platform: string }>();
+  if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Profile not found' }]);
+  if (row.platform !== 'instagram') return fail(c, 422, [{ code: 'instagram_required', message: 'Instagram profile required' }]);
+  const checkedAt = body.status === null ? null : new Date().toISOString();
+  await c.env.DB.prepare('UPDATE ugc_creator_platforms SET availability_status=?,availability_checked_at=?,availability_note=? WHERE id=?')
+    .bind(body.status, checkedAt, body.status === null ? null : note, id).run();
+  return ok(c, { id, availability_status: body.status, availability_checked_at: checkedAt });
+});
+
+ugc.get('/', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+
+  const platform = normalizePlatform(c.req.query('platform'));
+  const usePlatform = c.req.query('platform') && c.req.query('platform') !== 'all' ? platform : null;
+  const search = textValue(c.req.query('search'), 120)?.toLowerCase() ?? '';
+  const stage = textValue(c.req.query('stage'), 80);
+  const archiveOnly = stage === 'archived';
+  const inactiveOnly = c.req.query('inactive') === '1';
+  const product = baseProductSku(c.req.query('product'));
+
+  const profiles = await c.env.DB.prepare(
+    `SELECT
+       c.id creator_id, c.normalized_handle creator_handle, c.display_name, c.city,
+       c.category, c.audience_market, c.audience_language, c.lifecycle_stage, c.origin,
+       c.priority, c.owner, c.notes, c.archived_at, c.updated_at creator_updated_at, c.accepted_at,
+       p.id profile_id, p.platform, p.handle, p.profile_url, p.followers,
+       p.engagement_rate, p.engagement_rate_method, p.avg_video_views,
+       p.median_video_views, p.avg_comments, p.posting_cadence,
+       p.commerce_clicks, p.commerce_orders, p.commerce_gmv_minor,
+       p.commerce_currency, p.metrics_as_of, p.source, p.updated_at profile_updated_at,
+       p.avatar_key, p.posts_count, p.er_sample_posts, p.profile_checked_at, p.profile_attempted_at, p.profile_error, p.er_checked_at,
+       p.availability_status, p.availability_checked_at, p.availability_note
+     FROM ugc_creators c
+     JOIN ugc_creator_platforms p ON p.creator_id = c.id
+     WHERE (?1 IS NULL OR p.platform = ?1)
+       AND (?2 = '' OR LOWER(COALESCE(c.display_name, '') || ' ' || p.handle) LIKE '%' || ?2 || '%')
+       AND (?3 IS NULL OR c.lifecycle_stage = ?3)
+       AND (?5=1 OR ((?4=1 AND c.archived_at IS NOT NULL) OR (?4=0 AND c.archived_at IS NULL)))
+       AND ((?5=1 AND p.platform='instagram' AND p.availability_status='unavailable')
+         OR (?5=0 AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
+     ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
+     LIMIT 1500`
+  ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0, inactiveOnly ? 1 : 0).all<Record<string, any>>();
+
+  const metricRows = await c.env.DB.prepare(
+    `SELECT id, creator_id, creator_platform_id, content_url, content_type,
+            published_at, views, likes, comments, engagement_rate, metrics_checked_at, product_codes, source_sheet,
+            source_row, imported_at, link_status, link_checked_at,
+            link_http_status, link_final_url, link_check_note,
+            product_status, product_source, product_confidence,
+            product_evidence, product_checked_at
+     FROM ugc_content
+     ORDER BY COALESCE(published_at, '') DESC, imported_at DESC,
+              source_sheet DESC, source_row DESC`
+  ).all<Record<string, any>>();
+
+  const sourceRows = await c.env.DB.prepare(
+    `SELECT creator_id, creator_platform_id, kind, source_document, source_sheet,
+            source_row, source_text, amount_minor, product_codes, content_url
+     FROM ugc_source_records ORDER BY source_document, source_row`
+  ).all<Record<string, any>>();
+
+  const contentCounts = await c.env.DB.prepare(
+    `SELECT creator_id, creator_platform_id, COUNT(*) content_count
+     FROM ugc_content GROUP BY creator_id, creator_platform_id`
+  ).all<{ creator_id: string; creator_platform_id: string; content_count: number }>();
+
+  const collaborations = await c.env.DB.prepare(
+    `SELECT * FROM ugc_collaborations ORDER BY updated_at DESC`
+  ).all<Record<string, any>>();
+
+  // ugc_payouts arrives with migration 0116; until it is applied the screen
+  // must keep working, so a missing table reads as "no payouts".
+  let payoutRows: Record<string, any>[] = [];
+  try {
+    const result = await c.env.DB.prepare(
+      `SELECT p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
+              p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
+              p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.execute_claimed_at, p.created_at, p.updated_at,
+              p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
+              (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
+              -- requisites received? (yes/no only; the phone and name never leave that table)
+              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites,
+              p.product, p.notice_status, p.notice_error, p.notice_at,
+              (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
+              (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
+       FROM ugc_payouts p ORDER BY p.updated_at DESC`
+    ).all<Record<string, any>>();
+    payoutRows = annotateMissingInfo(annotateOverLimit(result.results ?? []));
+  } catch { /* table not yet migrated */ }
+  const sourceIndex = sourceRecordIndex([...(sourceRows.results ?? []), ...payoutProductRecords(payoutRows)]);
+  const payoutsByCreator = new Map<string, Record<string, any>[]>();
+  for (const row of payoutRows) {
+    const list = payoutsByCreator.get(String(row.creator_id)) ?? [];
+    list.push(row);
+    payoutsByCreator.set(String(row.creator_id), list);
+  }
+  const contentByCreator = new Map<string, Record<string, any>[]>();
+  for (const row of metricRows.results ?? []) {
+    const list = contentByCreator.get(String(row.creator_id)) ?? [];
+    list.push({ imported_at: row.imported_at, published_at: row.published_at });
+    contentByCreator.set(String(row.creator_id), list);
+  }
+
+  const followersByProfile = new Map<string, number>();
+  for (const row of profiles.results ?? []) if (row.profile_id && Number(row.followers) > 0) followersByProfile.set(String(row.profile_id), Number(row.followers));
+  const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number; content: Record<string, unknown>[] }>();
+  for (const row of metricRows.results ?? []) {
+    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
+    if (row.views != null) entry.views.push(Number(row.views));
+    if (row.comments != null) entry.comments.push(Number(row.comments));
+    let productCodes: string[] = [];
+    if (row.product_codes) {
+      try {
+        const parsed = JSON.parse(String(row.product_codes));
+        if (Array.isArray(parsed)) productCodes = parsed.map(String);
+      } catch { /* preserve an empty list for malformed legacy values */ }
+    }
+    const productIdentity = identifyExplicitProducts(productCodes);
+    entry.content.push({
+      id: row.id,
+      content_url: row.content_url,
+      content_type: row.content_type,
+      published_at: row.published_at,
+      views: row.views,
+      likes: row.likes,
+      metrics_checked_at: row.metrics_checked_at,
+      comments: row.comments,
+      // Owner 2026-11-04: ER of a publication = (likes + comments) / followers of the account, in percent.
+      engagement_rate: (() => {
+        const followers = followersByProfile.get(String(row.creator_platform_id));
+        if (!followers || followers < 50 || (row.likes == null && row.comments == null)) return null; // under 50 followers the follower count is not reliable
+        return Math.round(((Number(row.likes ?? 0) + Number(row.comments ?? 0)) / followers) * 1000) / 10;
+      })(),
+      product_codes: productCodes,
+      products: productIdentity.matches.map((match) => ({ ...match, source: row.product_source ?? match.source })),
+      product_labels: publicationProductLabels(row.product_evidence),
+      unknown_product_codes: productIdentity.unknown_codes,
+      source_sheet: row.source_sheet,
+      source_row: row.source_row,
+      link_status: row.link_status,
+      link_checked_at: row.link_checked_at,
+      link_http_status: row.link_http_status,
+      link_final_url: row.link_final_url,
+      link_check_note: row.link_check_note,
+      product_status: row.product_status,
+      product_source: row.product_source,
+      product_confidence: row.product_confidence,
+      product_evidence: row.product_evidence,
+      product_checked_at: row.product_checked_at,
+    });
+    byProfile.set(row.creator_platform_id, entry);
+  }
+  for (const row of contentCounts.results ?? []) {
+    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
+    entry.content_count = Number(row.content_count || 0);
+    byProfile.set(row.creator_platform_id, entry);
+  }
+
+  const latestCollaboration = new Map<string, Record<string, any>>();
+  for (const row of collaborations.results ?? []) {
+    if (!latestCollaboration.has(String(row.creator_id))) latestCollaboration.set(String(row.creator_id), row);
+  }
+
+  // Only unresolved incidents for the current incoming message are shown.
+  const incidents = await c.env.DB.prepare(`
+    WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
+    SELECT state.value, latest.conversation_id cid,
+      COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
+        (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1)) creator_id
+    FROM crm_sync_state state
+      JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
+      JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
+    WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
+  `).all<{value: string; cid: string; creator_id: string | null}>();
+  // Owner 2026-10-19: hovering the exclamation mark shows the blogger's last words, or her photo.
+  const cids = [...new Set((incidents.results ?? []).map((r) => r.cid).filter(Boolean))];
+  const lastIn = new Map<string, Array<{ id: string; text: string; images: number; at: string }>>();
+  if (cids.length) {
+    const msgs = await c.env.DB.prepare(`SELECT id, conversation_id cid, text, attachments_json a, created_at FROM ugc_ig_messages m
+      WHERE m.direction='in' AND m.conversation_id IN (${cids.map((_, i) => `?${i + 1}`).join(',')})
+        AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM ugc_ig_messages o WHERE o.conversation_id=m.conversation_id AND o.direction='out'), '')
+      ORDER BY m.created_at`).bind(...cids).all<{ id: string; cid: string; text: string | null; a: string | null; created_at: string }>().catch(() => ({ results: [] as any[] }));
+    for (const m of msgs.results ?? []) {
+      let images = 0;
+      try { const att = JSON.parse(m.a ?? '[]'); images = Array.isArray(att) ? att.filter((x: any) => x?.image_data || /^image\//.test(String(x?.mime_type ?? ''))).length : 0; } catch { images = 0; }
+      if (!m.text && !images) {
+        // An attachment Instagram does not hand to programs still tells the Owner something was sent.
+        if (m.a == null || m.a === '' || m.a === '[]') { const list = lastIn.get(m.cid) ?? []; list.push({ id: m.id, text: 'Вложение, которое ERP не открыл. Оно есть в переписке в приложении.', images: 0, at: m.created_at }); lastIn.set(m.cid, list.slice(-4)); }
+        continue;
+      }
+      const list = lastIn.get(m.cid) ?? [];
+      list.push({ id: m.id, text: String(m.text ?? '').slice(0, 400), images, at: m.created_at });
+      lastIn.set(m.cid, list.slice(-4));
+    }
+  }
+  const attentionByCreator = new Map<string, ReturnType<typeof replyAttention> & { last_in?: Array<{ id: string; text: string; images: number; at: string }> }>();
+  for (const row of incidents.results ?? []) {
+    const state = readReplyState(row.value);
+    if (state && row.creator_id) attentionByCreator.set(row.creator_id, { ...replyAttention(state), last_in: lastIn.get(row.cid) ?? [] });
+  }
+
+  // Owner 2026-11-05: statuses changed by hand, shown as a mark until Diana has studied them.
+  const manualStageRows = await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE ?1`)
+    .bind(`${MANUAL_STAGE_PREFIX}%`).all<{ key: string; value: string }>().catch(() => ({ results: [] as any[] }));
+  const manualStageByCreator = new Map<string, NonNullable<ReturnType<typeof parseManualStage>>>();
+  for (const row of manualStageRows.results ?? []) {
+    const parsed = parseManualStage(row.value);
+    if (parsed) manualStageByCreator.set(String(row.key).slice(MANUAL_STAGE_PREFIX.length), parsed);
+  }
+  const creators = new Map<string, Record<string, any>>();
+  for (const row of profiles.results ?? []) {
+    const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
+    const profile = {
+      id: row.profile_id,
+      has_avatar: Boolean(row.avatar_key),
+      avatar_version: row.profile_updated_at,
+      availability_status: row.availability_status ?? null,
+      availability_checked_at: row.availability_checked_at ?? null,
+      availability_note: row.availability_note ?? null,
+      posts_count: row.posts_count,
+      er_sample_posts: row.er_sample_posts,
+      er_checked_at: row.er_checked_at,
+      profile_checked_at: row.profile_checked_at,
+      profile_attempted_at: row.profile_attempted_at,
+      profile_error: row.profile_error,
+      platform: row.platform,
+      handle: row.handle,
+      profile_url: row.profile_url,
+      followers: row.followers,
+      engagement_rate: row.engagement_rate,
+      engagement_rate_method: row.engagement_rate_method,
+      ...profileAverages(row, metrics),
+      latest_observed_views: metrics.views.length === 1 ? metrics.views[0] : null,
+      view_observations: metrics.views.length,
+      posting_cadence: row.posting_cadence,
+      commerce_clicks: row.commerce_clicks,
+      commerce_orders: row.commerce_orders,
+      commerce_gmv_minor: row.commerce_gmv_minor,
+      commerce_currency: row.commerce_currency,
+      metrics_as_of: row.metrics_as_of,
+      source: row.source,
+      source_products: sourceIndex.products.get(String(row.profile_id)) ?? [],
+      source_product_labels: Array.from(new Map([
+        ...(sourceIndex.productLabels.get(String(row.profile_id)) ?? []),
+        ...metrics.content.flatMap((item) => Array.isArray(item.product_labels) ? item.product_labels : []),
+      ].map((label: any) => [label.name, label])).values()),
+      content_count: metrics.content_count,
+      content: metrics.content,
+      updated_at: row.profile_updated_at,
+    };
+    const creatorId = String(row.creator_id);
+    // Filter against the same evidence shown in the table, including products
+    // explicitly entered on a payout. No publication inherits an account order.
+    if (product && !profile.source_products.some((p: any) => p.sku === product)
+      && !profile.content.some((item: any) => item.products.some((p: any) => p.sku === product))) continue;
+    const creatorPayouts = payoutsByCreator.get(creatorId) ?? [];
+    const creator = creators.get(creatorId) ?? {
+      id: creatorId,
+      normalized_handle: row.creator_handle,
+      display_name: row.display_name,
+      city: row.city ?? null,
+      attention: attentionByCreator.get(creatorId) ?? null,
+      manual_stage: manualStageByCreator.get(creatorId) ?? null,
+      category: row.category,
+      audience_market: row.audience_market,
+      audience_language: row.audience_language,
+      lifecycle_stage: shownStage(row.lifecycle_stage, creatorPayouts),
+      origin: row.origin ?? null,
+      priority: row.priority,
+      owner: row.owner,
+      notes: row.notes,
+      archived_at: row.archived_at,
+      accepted_at: row.accepted_at ?? null,
+      updated_at: row.creator_updated_at,
+      profiles: [],
+      collaboration: latestCollaboration.get(creatorId) ?? null,
+      payout: creatorPayouts[0] ?? null,
+      payment_register: sourceIndex.payments.get(creatorId) ?? [],
+      payment_sources: sourceIndex.paymentSources.get(creatorId) ?? [],
+      payouts: creatorPayouts.slice(0, 20),
+      paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid' && item.konsol_payment_id).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
+      last_activity_at: Math.max(Date.parse(attentionByCreator.get(creatorId)?.at ?? '') || 0, latestActivityMs({
+        collaboration: latestCollaboration.get(creatorId) ?? null,
+        payouts: creatorPayouts,
+        content: contentByCreator.get(creatorId) ?? [],
+      }) ?? 0) || null,
+    };
+    creator.profiles.push(profile);
+    creators.set(creatorId, creator);
+  }
+
+  const platformCounts = await c.env.DB.prepare(
+    `SELECT platform, COUNT(DISTINCT creator_id) creator_count
+     FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id
+     WHERE ((?1=1 AND p.platform='instagram' AND p.availability_status='unavailable')
+       OR (?1=0 AND c.archived_at IS NULL AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
+     GROUP BY platform ORDER BY creator_count DESC`
+  ).bind(inactiveOnly ? 1 : 0).all<{ platform: string; creator_count: number }>();
+  const inactiveCount = await c.env.DB.prepare("SELECT COUNT(DISTINCT creator_id) count FROM ugc_creator_platforms WHERE platform='instagram' AND availability_status='unavailable'")
+    .first<{ count: number }>();
+  const totals = await c.env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM ugc_creators WHERE archived_at IS NULL) creators,
+       (SELECT COUNT(*) FROM ugc_creator_platforms) profiles,
+       (SELECT COUNT(*) FROM ugc_content) content_items,
+       (SELECT COUNT(*) FROM ugc_content WHERE content_url IS NOT NULL AND TRIM(content_url) <> '') linked_content,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'active') links_active,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'missing') links_missing,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'restricted') links_restricted,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'unknown') links_unknown,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'invalid') links_invalid,
+       (SELECT COUNT(*) FROM ugc_content WHERE content_url IS NOT NULL AND TRIM(content_url) <> '' AND link_checked_at IS NULL) links_unchecked,
+       (SELECT COUNT(*) FROM ugc_content WHERE datetime(link_checked_at) > datetime('now', '-30 days')) links_checked_30d,
+       (SELECT MAX(link_checked_at) FROM ugc_content) links_last_checked_at,
+       (SELECT COUNT(*) FROM ugc_link_checks) link_check_history,
+       (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'identified') product_identified,
+       (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'queued') product_queued,
+       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('sent','replied','agreed','cart','paid','ordered','creation')) active_outreach,
+       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('posted','gold')) published
+    `
+  ).first<Record<string, any>>();
+  const payoutSummary = {
+    payouts_awaiting: payoutRows.filter((row) => row.status === 'awaiting_approval').length,
+    payouts_open: payoutRows.filter((row) => row.status === 'approved' || row.status === 'sent').length,
+    // Paid = executed in Konsol with its payment id (Owner 2026-10-15).
+    payouts_paid: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).length,
+    payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
+    paid_konsol: paidCounters(payoutRows),
+    // Owner 2026-10-20: own RUB in Konsol next to the paid line, and what the queue needs (with the 30 ₽ fee).
+    konsol_own_minor: await import('../lib/konsol-balance').then((m) => m.konsolOwnRub(c.env)).catch(() => null),
+    queue_need_minor: payoutRows.filter((row) => (row.status === 'awaiting_approval' || row.status === 'approved') && !row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0) + 3000, 0),
+  };
+  const productCounts = new Map<string, number>();
+  for (const row of metricRows.results ?? []) {
+    let codes: string[] = [];
+    try { const parsed = JSON.parse(String(row.product_codes ?? '[]')); if (Array.isArray(parsed)) codes = parsed.map(String); } catch { /* raw evidence remains in DB */ }
+    for (const match of identifyExplicitProducts(codes).matches) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
+  }
+
+  for (const list of sourceIndex.products.values()) {
+    for (const match of list) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
+  }
+
+  // Default order: most recent activity first (Owner 2026-10-14).
+  const creatorList = Array.from(creators.values()).sort((a, b) => compareByRecent(
+    { last_activity_at: a.last_activity_at, followers: Math.max(-1, ...a.profiles.map((p: any) => p.followers ?? -1)), name: a.display_name ?? a.normalized_handle },
+    { last_activity_at: b.last_activity_at, followers: Math.max(-1, ...b.profiles.map((p: any) => p.followers ?? -1)), name: b.display_name ?? b.normalized_handle },
+  ));
+
+  return ok(c, {
+    creators: creatorList,
+    inactive_count: inactiveCount?.count ?? 0,
+    payout_summary: payoutSummary,
+    summary: { ...(totals ?? {
+      creators: 0, profiles: 0, content_items: 0, linked_content: 0,
+      links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0,
+      links_invalid: 0, links_unchecked: 0, links_checked_30d: 0,
+      links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0,
+      active_outreach: 0, published: 0,
+    }), creators: creatorList.length, profiles: creatorList.reduce((sum, creator) => sum + creator.profiles.length, 0) },
+    platforms: platformCounts.results ?? [],
+    products: Array.from(productCounts, ([sku, content_count]) => ({ sku, name: UGC_PRODUCTS[sku] ?? sku, content_count }))
+      .sort((a, b) => b.content_count - a.content_count || a.name.localeCompare(b.name)),
+  });
+});
+
+ugc.post('/link-health/run', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: { limit?: unknown } = {};
+  try { body = await c.req.json(); } catch { /* optional empty body */ }
+  const limit = Math.max(1, Math.min(10, Math.trunc(Number(body.limit) || 5)));
+  return ok(c, await runUgcLinkHealthBatch(c.env, limit));
+});
+
+// Diana 2026-10-16 (Owner: «check like and views one by one»): counts read from
+// each publication on its platform. Only figures the platform showed are written;
+// a missing figure leaves the stored one untouched.
+ugc.post('/content/metrics', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: { items?: unknown };
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length || items.length > 100) return fail(c, 413, [{ code: 'batch_size', message: 'Send 1 to 100 items per request' }]);
+  // Owner 2026-11-04: ER is re-read from day 5 to day 10 after posting; after the 10th day the numbers stay as they are.
+  const count = (value: unknown) => (value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Math.round(Number(value)));
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  for (const raw of items as Record<string, unknown>[]) {
+    const id = typeof raw?.id === 'string' ? raw.id.slice(0, 80) : null;
+    const checkedAt = typeof raw?.checked_at === 'string' && !Number.isNaN(Date.parse(raw.checked_at)) ? raw.checked_at : null;
+    if (!id || !checkedAt) continue;
+    statements.push(c.env.DB.prepare(
+      `UPDATE ugc_content SET views = COALESCE(?, views), likes = COALESCE(?, likes), comments = COALESCE(?, comments),
+              metrics_checked_at = ?, metrics_source = ?, updated_at = ? WHERE id = ?
+        AND (published_at IS NULL OR views IS NULL OR published_at >= date('now', '-10 day'))`
+    ).bind(count(raw.views), count(raw.likes), count(raw.comments), checkedAt, typeof raw.source === 'string' ? raw.source.slice(0, 40) : 'platform', now, id));
+  }
+  if (!statements.length) return fail(c, 400, [{ code: 'no_valid_items', message: 'Each item needs id and checked_at' }]);
+  const results = await c.env.DB.batch(statements);
+  return ok(c, { updated: results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0), sent: items.length });
+});
+
+ugc.post('/import', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+
+  let body: { rows?: ImportRow[] };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  if (!rows.length || rows.length > 30) {
+    return fail(c, 413, [{ code: 'batch_size', message: 'Import 1 to 30 sanitized rows per request' }]);
+  }
+
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  let accepted = 0;
+  let rejected = 0;
+  for (const row of rows) {
+    const normalizedHandle = normalizeHandle(row.handle);
+    if (!normalizedHandle) { rejected += 1; continue; }
+    const platform = normalizePlatform(row.platform);
+    // Owner 2026-11-05: a blogger on any platform other than Instagram is in the ERP only after she agreed
+    // to work with us (specifics are being discussed). A scouting row alone creates no card.
+    if (platform !== 'instagram') {
+      const knownId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+      const known = await c.env.DB.prepare(`SELECT lifecycle_stage FROM ugc_creators WHERE id = ?1`).bind(knownId).first<{ lifecycle_stage: string }>();
+      if (!known || !DIALOGUE_STAGES.has(String(known.lifecycle_stage ?? ''))) { rejected += 1; continue; }
+    }
+    // A matching handle on two platforms is not proof of one person. Keep a
+    // creator per platform profile until an explicit link is recorded.
+    const creatorId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+    const profileId = await stableId('ugcp', `${platform}:${normalizedHandle}`);
+    const handle = textValue(row.handle, 180) ?? normalizedHandle;
+    const displayName = textValue(row.display_name, 180);
+    const sourceWorkbook = textValue(row.source_workbook, 180) ?? 'Blooger Database.xlsx';
+    const sourceSheet = textValue(row.source_sheet, 80) ?? 'unknown';
+    const sourceRow = numberValue(row.source_row, true);
+
+    statements.push(c.env.DB.prepare(
+      `INSERT INTO ugc_creators
+         (id, normalized_handle, display_name, lifecycle_stage, created_at, updated_at)
+       VALUES (?1, ?2, ?3, '', ?4, ?4)
+       ON CONFLICT(id) DO UPDATE SET
+         display_name = COALESCE(excluded.display_name, ugc_creators.display_name),
+         updated_at = excluded.updated_at`
+    ).bind(creatorId, normalizedHandle, displayName, now));
+
+    statements.push(c.env.DB.prepare(
+      `INSERT INTO ugc_creator_platforms
+         (id, creator_id, platform, handle, normalized_handle, followers,
+          engagement_rate, engagement_rate_method, metrics_as_of, source, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+       ON CONFLICT(platform, normalized_handle) DO UPDATE SET
+         handle = excluded.handle,
+         followers = COALESCE(excluded.followers, ugc_creator_platforms.followers),
+         engagement_rate = COALESCE(excluded.engagement_rate, ugc_creator_platforms.engagement_rate),
+         engagement_rate_method = COALESCE(excluded.engagement_rate_method, ugc_creator_platforms.engagement_rate_method),
+         metrics_as_of = COALESCE(excluded.metrics_as_of, ugc_creator_platforms.metrics_as_of),
+         source = excluded.source,
+         updated_at = excluded.updated_at`
+    ).bind(
+      profileId, creatorId, platform, handle, normalizedHandle,
+      numberValue(row.followers, true), numberValue(row.engagement_rate),
+      row.engagement_rate != null ? 'source_reported' : null,
+      textValue(row.metrics_as_of, 40), sourceWorkbook, now,
+    ));
+
+    const hasContent = row.content_url != null || row.views != null || row.comments != null
+      || (Array.isArray(row.product_codes) && row.product_codes.length > 0)
+      || row.usage_label != null || row.source_rating != null || row.audio_label != null;
+    if (hasContent && sourceRow != null) {
+      const contentId = await stableId('ugcc', `${sourceWorkbook}:${sourceSheet}:${sourceRow}`);
+      const rawProducts = Array.isArray(row.product_codes)
+        ? row.product_codes.map((value) => textValue(value, 60)).filter(Boolean)
+        : [];
+      const productText = textValue(row.product_text, 2000);
+      const products = [...new Set([...rawProducts, ...identifySourceProductNames([productText, ...rawProducts].join(';'))])];
+      const productClassification = initialProductClassification(products, Boolean(textValue(row.content_url, 1000)));
+      const labels = sourceProductLabels(productText, identifyExplicitProducts(products).matches.map((p) => p.sku));
+      if (productText) {
+        productClassification.evidence = JSON.stringify({ source_document: sourceWorkbook, source_sheet: sourceSheet, source_row: sourceRow, source_text: productText, labels });
+        if (labels.length && productClassification.status !== 'identified') {
+          productClassification.status = 'unknown'; productClassification.source = 'explicit_import';
+        }
+      }
+      statements.push(c.env.DB.prepare(
+        `INSERT INTO ugc_content
+           (id, creator_id, creator_platform_id, content_url, content_type, views,
+            comments, product_codes, usage_label, source_rating, source_valid,
+            audio_label, download_url, source_workbook, source_sheet, source_row,
+            imported_at, updated_at, product_status, product_source,
+            product_confidence, product_evidence, product_checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18, ?19, ?20, ?21, ?22)
+         ON CONFLICT(source_workbook, source_sheet, source_row) DO UPDATE SET
+           creator_id = excluded.creator_id,
+           creator_platform_id = excluded.creator_platform_id,
+           content_url = excluded.content_url,
+           content_type = excluded.content_type,
+           views = excluded.views,
+           comments = excluded.comments,
+           product_codes = excluded.product_codes,
+           product_status = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_status ELSE ugc_content.product_status END,
+           product_source = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_source ELSE ugc_content.product_source END,
+           product_confidence = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_confidence ELSE ugc_content.product_confidence END,
+           product_evidence = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_evidence ELSE ugc_content.product_evidence END,
+           product_checked_at = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_checked_at ELSE ugc_content.product_checked_at END,
+           usage_label = excluded.usage_label,
+           source_rating = excluded.source_rating,
+           source_valid = excluded.source_valid,
+           audio_label = excluded.audio_label,
+           download_url = excluded.download_url,
+           link_status = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_status ELSE NULL END,
+           link_checked_at = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_checked_at ELSE NULL END,
+           link_http_status = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_http_status ELSE NULL END,
+           link_final_url = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_final_url ELSE NULL END,
+           link_check_note = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_check_note ELSE NULL END,
+           updated_at = excluded.updated_at`
+      ).bind(
+        contentId, creatorId, profileId, textValue(row.content_url, 1000),
+        textValue(row.content_type, 80), numberValue(row.views, true),
+        numberValue(row.comments, true), products.length ? JSON.stringify(products) : null,
+        textValue(row.usage_label, 160), numberValue(row.source_rating),
+        textValue(row.source_valid, 80), textValue(row.audio_label, 160),
+        textValue(row.download_url, 1000), sourceWorkbook, sourceSheet, sourceRow, now,
+        productClassification.status, productClassification.source,
+        productClassification.confidence, productClassification.evidence,
+        productClassification.source ? new Date(now).toISOString() : null,
+      ));
+    }
+    accepted += 1;
+  }
+
+  if (statements.length) await c.env.DB.batch(statements);
+  return ok(c, { accepted, rejected, statements: statements.length });
+});
+
+ugc.patch('/creators/:id', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT * FROM ugc_creators WHERE id = ?1`).bind(id).first<Record<string, any>>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+  // Owner 2026-10-18: new and sent removed — no status is an empty word.
+  const nextStage = body.lifecycle_stage === '' ? '' : (textValue(body.lifecycle_stage, 40) ?? current.lifecycle_stage);
+  if (!UGC_STAGES.has(nextStage)) return fail(c, 422, [{ code: 'invalid_stage', message: 'Unknown lifecycle stage' }]);
+  const nextOrigin = body.origin === undefined ? (current.origin ?? null) : (body.origin === null || body.origin === '' ? null : textValue(body.origin, 10));
+  if (nextOrigin !== null && !UGC_ORIGINS.has(nextOrigin)) return fail(c, 422, [{ code: 'invalid_origin', message: 'origin is invited or self' }]);
+  if (body.archived !== undefined && typeof body.archived !== 'boolean') return fail(c, 422, [{ code: 'invalid_archive', message: 'archived must be boolean' }]);
+  const updatedAt = Date.now();
+  const archivedAt = body.archived === undefined ? current.archived_at : body.archived ? (current.archived_at ?? updatedAt) : null;
+  await c.env.DB.prepare(
+    `UPDATE ugc_creators SET
+       display_name=?1, category=?2, audience_market=?3, audience_language=?4,
+       lifecycle_stage=?5, priority=?6, owner=?7, notes=?8, updated_at=?9, origin=?11, archived_at=?12
+     WHERE id=?10`
+  ).bind(
+    body.display_name === undefined ? current.display_name : textValue(body.display_name, 180),
+    body.category === undefined ? current.category : textValue(body.category, 120),
+    body.audience_market === undefined ? current.audience_market : textValue(body.audience_market, 120),
+    body.audience_language === undefined ? current.audience_language : textValue(body.audience_language, 120),
+    nextStage,
+    body.priority === undefined ? current.priority : textValue(body.priority, 40),
+    body.owner === undefined ? current.owner : textValue(body.owner, 120),
+    body.notes === undefined ? current.notes : textValue(body.notes, 3000),
+    updatedAt, id, nextOrigin, archivedAt,
+  ).run();
+  // Owner 2026-11-05: a status changed by hand (double click in the ERP) is remembered so Diana sees it
+  // at her next round, takes it as her own miss and learns from it. Only the double-click sends manual_edit.
+  if (body.manual_edit === true) {
+    const change = buildManualStage({ from: current.lifecycle_stage, to: nextStage, by: access.name ?? null, at: updatedAt });
+    if (change) {
+      await c.env.DB.prepare(BQ_UPSERT).bind(manualStageKey(id), JSON.stringify(change), updatedAt).run();
+    }
+  }
+  return ok(c, { id, updated_at: updatedAt });
+});
+
+// Owner 2026-11-05: Diana marks a manual status change as studied once her conclusion is written down.
+ugc.post('/creators/:id/manual-stage/reviewed', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key = ?1`).bind(manualStageKey(id)).first<{ value: string }>();
+  const record = parseManualStage(row?.value);
+  if (!record) return fail(c, 404, [{ code: 'not_found', message: 'No manual status change for this creator' }]);
+  const now = Date.now();
+  await c.env.DB.prepare(BQ_UPSERT).bind(manualStageKey(id), JSON.stringify(markReviewed(record, now)), now).run();
+  return ok(c, { id, reviewed_at: now });
+});
+
+// Owner 2026-10-19: «Очередь браузера · N» on /ugc. The click starts the browser task at once on the
+// Owner's PC or Mac; the task reports each blogger back through /browser-queue/done with a one-run key.
+const BQ_UPSERT = `INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`;
+async function browserQueueRows(c: any) {
+  return ((await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'browser_queue:%' ORDER BY updated_at`).all()).results ?? []) as Array<{ key: string; value: string }>;
+}
+ugc.get('/browser-queue', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const items = queueItems(await browserQueueRows(c));
+  const last = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+  let lastRun: unknown = null; try { lastRun = last ? JSON.parse(last.value) : null; } catch { lastRun = null; }
+  // Owner 2026-10-19: in the corner — payouts to bloggers, today (green) and yesterday, by Yerevan day.
+  const dayMs = 86_400_000, offset = 4 * 3_600_000;
+  const todayStart = Math.floor((Date.now() + offset) / dayMs) * dayMs - offset;
+  const sumDay = async (from: number, to: number) => {
+    const r = await c.env.DB.prepare(`SELECT COUNT(*) n, COALESCE(SUM(amount_minor),0) minor FROM ugc_payouts WHERE status='paid' AND paid_at >= ?1 AND paid_at < ?2`)
+      .bind(new Date(from).toISOString(), new Date(to).toISOString()).first<{ n: number; minor: number }>();
+    return { n: Number(r?.n ?? 0), minor: Number(r?.minor ?? 0) };
+  };
+  const pay = { today: await sumDay(todayStart, todayStart + dayMs), yesterday: await sumDay(todayStart - dayMs, todayStart) };
+  return ok(c, { count: items.length, pay, handles: items.map((i) => i.handle), configured: Boolean(c.env.BROWSER_QUEUE_FIRE_URL && c.env.BROWSER_QUEUE_FIRE_TOKEN), last_run: lastRun });
+});
+ugc.post('/browser-queue/run', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { body = {}; }
+  const target = String(body.target ?? '');
+  if (!isTarget(target)) return fail(c, 422, [{ code: 'target', message: 'Выберите ПК или Mac' }]);
+  if (!c.env.BROWSER_QUEUE_FIRE_URL || !c.env.BROWSER_QUEUE_FIRE_TOKEN) return fail(c, 503, [{ code: 'not_configured', message: 'Запуск ещё не подключён' }]);
+  const items = queueItems(await browserQueueRows(c));
+  if (!items.length) return fail(c, 409, [{ code: 'empty', message: 'Очередь пуста' }]);
+  const now = Date.now();
+  const lastRow = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+  let lastAt = 0; try { lastAt = Number(JSON.parse(lastRow?.value ?? '{}').at_ms) || 0; } catch { lastAt = 0; }
+  const wait = cooldownLeft(lastAt, now);
+  if (wait) return fail(c, 409, [{ code: 'cooldown', message: `Отправка уже идёт. Повторить через ${Math.ceil(wait / 60)} мин` }]);
+  const run = crypto.randomUUID();
+  const key = crypto.randomUUID().replace(/-/g, '');
+  const doneUrl = `${new URL(c.req.url).origin}/api/ugc/browser-queue/done`;
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_run:${run}`, JSON.stringify({ key, target, handles: items.map((i) => i.handle), at: new Date(now).toISOString(), by: access.name ?? null, results: {} }), now).run();
+  let res: Response;
+  try {
+    res = await fetch(c.env.BROWSER_QUEUE_FIRE_URL, { method: 'POST', headers: { Authorization: `Bearer ${c.env.BROWSER_QUEUE_FIRE_TOKEN}`, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }, body: JSON.stringify({ text: fireText({ target, run, key, doneUrl, items }) }), signal: AbortSignal.timeout(20_000) });
+  } catch {
+    return fail(c, 502, [{ code: 'fire_failed', message: 'Запуск не ответил. Попробуйте ещё раз' }]);
+  }
+  if (!res.ok) {
+    const msg = res.status === 429 ? 'Лимит запусков на этот час исчерпан' : res.status === 401 ? 'Ключ запуска не принят' : `Запуск не принят (${res.status})`;
+    return fail(c, 502, [{ code: 'fire_rejected', message: msg }]);
+  }
+  const out = await res.json().catch(() => ({})) as { claude_code_session_url?: string };
+  await c.env.DB.prepare(BQ_UPSERT).bind('browser_run:last', JSON.stringify({ run, target, count: items.length, at: new Date(now).toISOString(), at_ms: now, session_url: out.claude_code_session_url ?? null }), now).run();
+  return ok(c, { started: true, target, count: items.length });
+});
+// Called by the browser task, not by a person: the one-run key from the launch text is the pass.
+ugc.post('/browser-queue/done', async (c) => {
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const run = String(body.run ?? ''); const key = String(body.key ?? '');
+  const handle = String(body.handle ?? '').toLowerCase().replace(/^@/, '').trim();
+  const row = run ? await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_run:${run}`).first<{ value: string }>() : null;
+  let state: any = null; try { state = row ? JSON.parse(row.value) : null; } catch { state = null; }
+  if (!state || !key || state.key !== key) return fail(c, 403, [{ code: 'forbidden', message: 'Unknown run' }]);
+  if (!handle || !state.handles?.includes(handle)) return fail(c, 422, [{ code: 'handle', message: 'Handle not in this run' }]);
+  const now = Date.now();
+  const sent = body.sent === true;
+  if (sent) {
+    const q = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).first<{ value: string }>();
+    await c.env.DB.prepare(BQ_UPSERT).bind(`browser_sent:${handle}:${new Date(now).toISOString()}`, q?.value ?? '{}', now).run();
+    await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  }
+  state.results = { ...(state.results ?? {}), [handle]: sent ? 'sent' : `skipped: ${String(body.reason ?? '').slice(0, 200)}` };
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_run:${run}`, JSON.stringify(state), now).run();
+  return ok(c, { recorded: true });
+});
+
+// Owner 2026-11-03: «then make that from jev browser». The agent browser on the Owner's PC reads the queue
+// texts and, after each blogger is sent, takes her off the queue. Admin only, through the Owner's session.
+ugc.get('/browser-queue/items', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
+  return ok(c, { items: queueItems(await browserQueueRows(c)) });
+});
+ugc.post('/browser-queue/sent', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
+  const body = await c.req.json<{ handle?: unknown }>().catch(() => ({} as { handle?: unknown }));
+  const handle = String(body.handle ?? '').toLowerCase().replace(/^@/, '').trim();
+  if (!handle) return fail(c, 422, [{ code: 'handle', message: 'handle is required' }]);
+  const q = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).first<{ value: string }>();
+  if (!q) return fail(c, 404, [{ code: 'not_queued', message: 'Not in the queue' }]);
+  const now = Date.now();
+  await c.env.DB.prepare(BQ_UPSERT).bind(`browser_sent:${handle}:${new Date(now).toISOString()}`, q.value, now).run();
+  await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  return ok(c, { handle, removed: true });
+});
+
+// Owner 2026-10-18 (05_seferova_05): the Owner sees the photo in the app and tells Diana what is on it.
+ugc.post('/creators/:id/photo-note', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const text = textValue(body.text, 500);
+  if (!text) return fail(c, 422, [{ code: 'empty', message: 'Напишите, что на фото' }]);
+  const handles = ((await c.env.DB.prepare(`SELECT normalized_handle h FROM ugc_creator_platforms WHERE creator_id=?1`).bind(c.req.param('id')).all<{ h: string }>()).results ?? []).map((r) => String(r.h).toLowerCase());
+  if (!handles.length) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+  const conv = await c.env.DB.prepare(`SELECT conversation_id cid FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username) IN (${handles.map((_, i) => `?${i + 1}`).join(',')}) ORDER BY created_at DESC LIMIT 1`).bind(...handles).first<{ cid: string }>();
+  if (!conv) return fail(c, 404, [{ code: 'no_conversation', message: 'Переписки нет' }]);
+  const last = await c.env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id=?1`).bind(conv.cid).first<{ t: string }>();
+  const now = Date.now();
+  await c.env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(`ig_photo_note:${conv.cid}`, JSON.stringify({ at: last?.t, text, by: access.name ?? null }), now).run();
+  await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1 AND json_extract(value,'$.reason')='photo_for_owner'`).bind(`ig_reply_escalated:${conv.cid}`).run();
+  // Diana answers at the next minute, not at the end of an idle 30-minute wait.
+  await c.env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.next_at',?1),updated_at=?1 WHERE key='adaptive:ig_dm' AND json_extract(value,'$.running_since') IS NULL`).bind(now).run();
+  return ok(c, { saved: true });
+});
+
+// Owner 2026-10-19: «окно решения» — on any business exclamation mark the Owner writes his decision;
+// Diana answers the blogger by it at the next minute and the mark is lifted.
+// Owner 2026-11-04: ready decision options for a business exclamation mark, written from the blogger's own message.
+ugc.get('/creators/:id/decision-options', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const { decisionOptions } = await import('../lib/ugc-decision-options');
+  const result = await decisionOptions(c.env, c.req.param('id'));
+  if ('error' in result) return fail(c, 404, [{ code: 'not_found', message: result.error }]);
+  return ok(c, result);
+});
+
+ugc.post('/creators/:id/decision', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const text = textValue(body.text, 500);
+  if (!text) return fail(c, 422, [{ code: 'empty', message: 'Напишите решение' }]);
+  const handles = ((await c.env.DB.prepare(`SELECT normalized_handle h FROM ugc_creator_platforms WHERE creator_id=?1`).bind(c.req.param('id')).all<{ h: string }>()).results ?? []).map((r) => String(r.h).toLowerCase());
+  if (!handles.length) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+  const conv = await c.env.DB.prepare(`SELECT conversation_id cid FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username) IN (${handles.map((_, i) => `?${i + 1}`).join(',')}) ORDER BY created_at DESC LIMIT 1`).bind(...handles).first<{ cid: string }>();
+  if (!conv) return fail(c, 404, [{ code: 'no_conversation', message: 'Переписки нет' }]);
+  const last = await c.env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id=?1`).bind(conv.cid).first<{ t: string }>();
+  const now = Date.now();
+  await c.env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(`ig_owner_decision:${conv.cid}`, JSON.stringify({ at: last?.t, text, by: access.name ?? null }), now).run();
+  await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`ig_reply_escalated:${conv.cid}`).run();
+  await c.env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.next_at',?1),updated_at=?1 WHERE key='adaptive:ig_dm' AND json_extract(value,'$.running_since') IS NULL`).bind(now).run();
+  return ok(c, { saved: true });
+});
+
+ugc.post('/collaborations', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const creatorId = textValue(body.creator_id, 80);
+  if (!creatorId) return fail(c, 422, [{ code: 'creator_required', message: 'creator_id required' }]);
+  const exists = await c.env.DB.prepare(`SELECT id FROM ugc_creators WHERE id=?1`).bind(creatorId).first();
+  if (!exists) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+  const id = textValue(body.id, 80) ?? crypto.randomUUID();
+  const current = body.id
+    ? await c.env.DB.prepare(`SELECT * FROM ugc_collaborations WHERE id=?1`).bind(id).first<Record<string, any>>()
+    : null;
+  const field = (name: string, max: number): string | null => body[name] === undefined
+    ? (current?.[name] ?? null)
+    : textValue(body[name], max);
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO ugc_collaborations
+       (id, creator_id, platform, status, contact_channel, invited_at, accepted_at,
+        last_contact_at, next_action, next_action_at, offer_type, deliverables,
+        product_codes, sample_status, sample_sent_at, content_due_at, published_at,
+        rights_scope, rights_expires_at, owner, notes, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?22)
+     ON CONFLICT(id) DO UPDATE SET
+       platform=excluded.platform, status=excluded.status, contact_channel=excluded.contact_channel,
+       invited_at=excluded.invited_at, accepted_at=excluded.accepted_at,
+       last_contact_at=excluded.last_contact_at, next_action=excluded.next_action,
+       next_action_at=excluded.next_action_at, offer_type=excluded.offer_type,
+       deliverables=excluded.deliverables,
+       product_codes=excluded.product_codes, sample_status=excluded.sample_status,
+       sample_sent_at=excluded.sample_sent_at, content_due_at=excluded.content_due_at,
+       published_at=excluded.published_at, rights_scope=excluded.rights_scope,
+       rights_expires_at=excluded.rights_expires_at, owner=excluded.owner,
+       notes=excluded.notes, updated_at=excluded.updated_at`
+  ).bind(
+    id, creatorId, field('platform', 40), field('status', 40) ?? 'new',
+    field('contact_channel', 80), field('invited_at', 40),
+    field('accepted_at', 40), field('last_contact_at', 40),
+    field('next_action', 500), field('next_action_at', 40),
+    field('offer_type', 120), field('deliverables', 1000),
+    field('product_codes', 500), field('sample_status', 80),
+    field('sample_sent_at', 40), field('content_due_at', 40),
+    field('published_at', 40), field('rights_scope', 500),
+    field('rights_expires_at', 40), field('owner', 120),
+    field('notes', 3000), now,
+  ).run();
+  return ok(c, { id, creator_id: creatorId, updated_at: now });
+});
+
+// ---------------------------------------------------------------------------
+// Barter payouts (0116, Owner 2026-10-14). Status only — never raw phone or
+// bank data. Ceiling: 999 ₽ per creator per payout per day, and 10 000 ₽ for
+// all creators together per day (auto-approval cap, Owner 2026-10-14).
+// ---------------------------------------------------------------------------
+
+const PAYOUT_COLUMNS = `p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
+  p.currency, p.status, p.payout_date, p.marketplace, p.phone_masked, p.bank_ref, p.note,
+  p.approved_at, p.approved_by, p.sent_at, p.paid_at, p.failed_at, p.created_by,
+  p.created_at, p.updated_at, c.display_name creator_display_name, c.normalized_handle creator_handle`;
+
+type PayoutCreator = { creatorId: string; profileId: string | null; platform: string | null; handle: string | null };
+
+async function resolvePayoutCreator(c: any, body: Record<string, unknown>, now: number): Promise<PayoutCreator | Response> {
+  const creatorId = textValue(body.creator_id, 80);
+  if (creatorId) {
+    const creator = await c.env.DB.prepare(`SELECT id FROM ugc_creators WHERE id=?1`).bind(creatorId).first();
+    if (!creator) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+    const profile = await c.env.DB.prepare(
+      `SELECT id, platform, handle FROM ugc_creator_platforms WHERE creator_id=?1 ORDER BY COALESCE(followers, -1) DESC LIMIT 1`
+    ).bind(creatorId).first() as Record<string, any> | null;
+    return { creatorId, profileId: profile?.id ?? null, platform: profile?.platform ?? null, handle: profile?.handle ?? null };
+  }
+  const normalizedHandle = normalizeHandle(body.handle);
+  if (!normalizedHandle) return fail(c, 422, [{ code: 'creator_required', message: 'creator_id or handle required' }]);
+  const platform = normalizePlatform(body.platform ?? 'instagram');
+  const existing = await c.env.DB.prepare(
+    `SELECT id, creator_id, handle FROM ugc_creator_platforms WHERE platform=?1 AND normalized_handle=?2`
+  ).bind(platform, normalizedHandle).first() as Record<string, any> | null;
+  if (existing) return { creatorId: String(existing.creator_id), profileId: String(existing.id), platform, handle: String(existing.handle) };
+  // Minimal record with the same stable ids the XLSX import uses, so a later
+  // import of the same handle lands on this creator instead of a twin.
+  const newCreatorId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+  const profileId = await stableId('ugcp', `${platform}:${normalizedHandle}`);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO ugc_creators (id, normalized_handle, lifecycle_stage, created_at, updated_at)
+       VALUES (?1, ?2, 'agreed', ?3, ?3) ON CONFLICT(id) DO NOTHING`
+    ).bind(newCreatorId, normalizedHandle, now),
+    c.env.DB.prepare(
+      `INSERT INTO ugc_creator_platforms (id, creator_id, platform, handle, normalized_handle, profile_url, source, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, ?5, 'ugc_payout', ?6, ?6) ON CONFLICT(platform, normalized_handle) DO NOTHING`
+    ).bind(profileId, newCreatorId, platform, normalizedHandle,
+      platform === 'instagram' ? `https://www.instagram.com/${normalizedHandle}/` : null, now),
+  ]);
+  return { creatorId: newCreatorId, profileId, platform, handle: normalizedHandle };
+}
+
+async function sameDayPayoutMinor(c: any, creatorId: string, day: string, excludeId: string | null): Promise<number> {
+  const row = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(amount_minor), 0) total FROM ugc_payouts
+     WHERE creator_id=?1 AND payout_date=?2 AND status IN ('sent','paid') AND (?3 IS NULL OR id <> ?3)`
+  ).bind(creatorId, day, excludeId).first() as { total: number } | null;
+  return Number(row?.total ?? 0);
+}
+
+// Every creator's live payouts on that date; failed ones do not count.
+
+function isoOrNull(value: unknown): string | null {
+  const text = textValue(value, 40);
+  if (!text) return null;
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+ugc.get('/payouts', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const creatorId = textValue(c.req.query('creator_id'), 80);
+  const status = textValue(c.req.query('status'), 40);
+  if (status && !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'Unknown payout status' }]);
+  const rows = await c.env.DB.prepare(
+    `SELECT ${PAYOUT_COLUMNS} FROM ugc_payouts p JOIN ugc_creators c ON c.id = p.creator_id
+     WHERE (?1 IS NULL OR p.creator_id = ?1) AND (?2 IS NULL OR p.status = ?2)
+     ORDER BY p.updated_at DESC LIMIT 500`
+  ).bind(creatorId, status).all<Record<string, any>>();
+  return ok(c, { payouts: rows.results ?? [] });
+});
+
+ugc.post('/payouts', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const amount = parsePayoutAmount(body);
+  if (!amount.ok) return fail(c, 422, [{ code: amount.code, message: amount.message }]);
+  const status = textValue(body.status, 40) ?? 'awaiting_approval';
+  if (!isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'Unknown payout status' }]);
+  const now = Date.now();
+  const day = payoutDate(body.payout_date, now);
+  const creator = await resolvePayoutCreator(c, body, now);
+  if (creator instanceof Response) return creator;
+  // DH-LAW-261016-01: register every ready payout in one queue. Daily caps
+  // apply when money is sent, never by moving waiting entries to another day.
+  if (status === 'sent' || status === 'paid') {
+    const daily = checkDailyLimit(await sameDayPayoutMinor(c, creator.creatorId, day, null), amount.amount_minor);
+    if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  }
+  const stampAt = isoOrNull(body.status_at) ?? new Date(now).toISOString();
+  const stampColumn = statusStampColumn(status);
+  const stamp = (column: string) => (stampColumn === column ? stampAt : isoOrNull(body[column]));
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO ugc_payouts
+       (id, creator_id, creator_platform_id, platform, handle, amount_minor, currency, status,
+        payout_date, marketplace, phone_masked, bank_ref, note, approved_at, approved_by,
+        sent_at, paid_at, failed_at, created_by, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,'RUB',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?19)`
+  ).bind(
+    id, creator.creatorId, creator.profileId, creator.platform, creator.handle, amount.amount_minor, status,
+    day, textValue(body.marketplace, 40), maskPhone(body.phone ?? body.phone_masked),
+    textValue(body.bank_ref, 200), textValue(body.note, 1000),
+    stamp('approved_at'), stampColumn === 'approved_at' ? access.name ?? null : textValue(body.approved_by, 120),
+    stamp('sent_at'), stamp('paid_at'), stamp('failed_at'), access.name ?? null, now,
+  ).run();
+  await followPayoutStage(c.env.DB, creator.creatorId, status, now);
+  return ok(c, { id, creator_id: creator.creatorId, amount_minor: amount.amount_minor, status, payout_date: day, updated_at: now });
+});
+
+ugc.patch('/payouts/:id', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT * FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  let amountMinor = Number(current.amount_minor);
+  if (body.amount_rub !== undefined || body.amount_minor !== undefined) {
+    const amount = parsePayoutAmount(body);
+    if (!amount.ok) return fail(c, 422, [{ code: amount.code, message: amount.message }]);
+    amountMinor = amount.amount_minor;
+  }
+  const day = body.payout_date === undefined ? String(current.payout_date) : payoutDate(body.payout_date, Date.now());
+  // Waiting payouts are not scheduled reservations. Keep checks on sent/paid records.
+  const amountOrDate = body.amount_rub !== undefined || body.amount_minor !== undefined || body.payout_date !== undefined;
+  if (amountOrDate && (current.status === 'sent' || current.status === 'paid')) {
+    const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
+    if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  }
+  const keep = (name: string, max: number) => (body[name] === undefined ? current[name] : textValue(body[name], max));
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `UPDATE ugc_payouts SET amount_minor=?1, payout_date=?2, marketplace=?3, phone_masked=?4,
+       bank_ref=?5, note=?6, updated_at=?7 WHERE id=?8`
+  ).bind(
+    amountMinor, day, keep('marketplace', 40),
+    body.phone === undefined && body.phone_masked === undefined ? current.phone_masked : maskPhone(body.phone ?? body.phone_masked),
+    keep('bank_ref', 200), keep('note', 1000), now, id,
+  ).run();
+  return ok(c, { id, amount_minor: amountMinor, payout_date: day, updated_at: now });
+});
+
+ugc.post('/payouts/:id/status', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const status = textValue(body.status, 40);
+  if (!status || !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'status must be awaiting_approval, approved, sent, paid or failed' }]);
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT id, creator_id FROM ugc_payouts WHERE id=?1`).bind(id).first<{ id: string; creator_id: string | null }>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  const now = Date.now();
+  const at = isoOrNull(body.at) ?? new Date(now).toISOString();
+  const column = statusStampColumn(status);
+  // The column name comes from a fixed map, never from the request.
+  const stampSql = column ? `, ${column}=?5` : '';
+  const approvedBySql = column === 'approved_at' ? ', approved_by=?6' : '';
+  await c.env.DB.prepare(
+    `UPDATE ugc_payouts SET status=?1, updated_at=?2,
+       bank_ref=COALESCE(?3, bank_ref), note=COALESCE(?4, note)${stampSql}${approvedBySql}
+     WHERE id=?7`
+  ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id).run();
+  await followPayoutStage(c.env.DB, current.creator_id, status, now);
+  return ok(c, { id, status, at, updated_at: now });
+});
+
+// ---------------------------------------------------------------------------
+// Konsol Payment Service (0119, Owner 2026-10-14). Execute = auto-approve within
+// the limits, own-RUB check (overdraft never), one Konsol payment per row.
+// ---------------------------------------------------------------------------
+
+// The full phone goes to ugc_payout_requisites only; the payout row keeps a mask.
+ugc.put('/payouts/:id/requisites', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT id, konsol_payment_id FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  if (current.konsol_payment_id) return fail(c, 409, [{ code: 'already_sent', message: 'Payout already handed to Konsol' }]);
+  const phone = konsolPhone(body.phone ?? body.fps_mobile_phone);
+  if (!phone) return fail(c, 422, [{ code: 'invalid_phone', message: 'Russian mobile number required (+79…)' }]);
+  const bankId = textValue(body.fps_bank_member_id, 20);
+  if (!isFpsBankMemberId(bankId)) return fail(c, 422, [{ code: 'invalid_bank', message: 'fps_bank_member_id must be the 12-digit SBP id' }]);
+  const firstName = textValue(body.first_name, 120);
+  const lastName = textValue(body.last_name, 120);
+  if (!firstName || !lastName) return fail(c, 422, [{ code: 'name_required', message: 'first_name and last_name required by Konsol' }]);
+  const now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+       ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone, first_name=excluded.first_name,
+         last_name=excluded.last_name, patronymic=excluded.patronymic, updated_at=excluded.updated_at`
+    ).bind(id, phone, firstName, lastName, textValue(body.patronymic, 120), now),
+    c.env.DB.prepare(
+      `UPDATE ugc_payouts SET phone_masked=?2, fps_bank_member_id=?3, bank_ref=COALESCE(?4, bank_ref), updated_at=?5 WHERE id=?1`
+    ).bind(id, maskPhoneWide(phone), bankId, textValue(body.bank_ref, 200), now),
+  ]);
+  return ok(c, { id, phone_masked: maskPhoneWide(phone), fps_bank_member_id: bankId, updated_at: now });
+});
+
+// Owner 2026-11-03: «Все коричневые оплачены». He paid them outside the ERP, so Konsol
+// never confirms them and the brown badge stays a pay button. His one click marks
+// them paid: green, no second transfer, no «деньги пришли» message, and no automatic
+// order reminder (the blogger may have ordered already). paid_at keeps the payout's
+// own day so today's limit is not eaten.
+ugc.post('/payouts/paid-outside', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can mark payments' }]);
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => ({} as { ids?: unknown }));
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 120))].slice(0, 300) : [];
+  if (!ids.length) return fail(c, 422, [{ code: 'no_ids', message: 'ids must list the brown payouts' }]);
+  const now = Date.now();
+  const iso = new Date(now).toISOString();
+  const marked: string[] = [];
+  for (const id of ids) {
+    // Only a brown payout: requisites in, never handed to Konsol, not mid-send, not failed.
+    const r = await c.env.DB.prepare(
+      `UPDATE ugc_payouts SET status='paid', konsol_status='paid_outside',
+         paid_at=COALESCE(paid_at, sent_at, payout_date || 'T12:00:00Z', ?2), paid_notice_at=COALESCE(paid_notice_at, ?2),
+         note=TRIM(COALESCE(note,'') || ' Оплачено вне ERP, слово Владельца ' || ?3), updated_at=?4
+       WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL
+         AND status IN ('awaiting_approval','approved','sent','paid')
+         AND EXISTS (SELECT 1 FROM ugc_payout_requisites q WHERE q.payout_id = ugc_payouts.id)`
+    ).bind(id, iso, iso.slice(0, 10), now).run();
+    if (!(r.meta?.changes ?? 0)) continue;
+    marked.push(id);
+    await c.env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO NOTHING`)
+      .bind(`paid_reminder:${id}`, JSON.stringify({ via: 'held_paid_outside', at: iso }), now).run();
+    const row = await c.env.DB.prepare(`SELECT creator_id FROM ugc_payouts WHERE id=?1`).bind(id).first<{ creator_id: string | null }>();
+    await followPayoutStage(c.env.DB, row?.creator_id ?? null, 'paid', now);
+  }
+  return ok(c, { marked, skipped: ids.length - marked.length });
+});
+
+ugc.post('/payouts/:id/execute', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  // The Owner pays by hand (Owner 2026-10-15): only Admin may send money to Konsol.
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can pay' }]);
+  // Owner follow-up 2026-10-16: enrichment runs independently and never blocks payment.
+  const out = await executeUgcPayout(c.env, c.req.param('id'));
+  if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
+  return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);
+});
+
+ugc.post('/payouts/:id/refresh', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const out = await refreshUgcPayout(c.env, c.req.param('id'));
+  if (!out.ok) return fail(c, out.http as 400, [{ code: String(out.code ?? 'failed'), message: String((out as { message?: string }).message ?? 'Refresh failed') }]);
+  return ok(c, out);
+});
+
+// Same job as the evening timer; once per Yerevan day unless force=1.
+ugc.post('/payouts/summary', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  try {
+    return ok(c, { note: await ugcPayoutEvening(c.env, { force: c.req.query('force') === '1' }) });
+  } catch (e) {
+    return fail(c, 502, [{ code: 'summary_failed', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
+export default ugc;

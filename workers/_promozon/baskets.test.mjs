@@ -33,6 +33,21 @@ test('a wholly absent current day stays unknown even though yesterday is real', 
   const r = await readDailyBaskets(async () => ({ result: { data: [line(100, '2026-11-08', 12)] } }), map, [1, 2], at);
   assert.equal(r.by_product['1'].today, null); assert.equal(r.by_product['1'].yesterday, 12);
 });
+test('historical zero rows do not blank valid baskets, while nonzero aliases require exact product-info SKU lookup', async () => {
+  const called = [];
+  const r = await readDailyBaskets(async (path, body) => {
+    called.push([path, body]);
+    return path === '/v1/analytics/data' ? { result: { data: [...rows, line(999, '2026-11-09', 0), line(888, '2026-11-08', 2)] } }
+      : { items: [{ id: 2, offer_id: 'DE202' }] };
+  }, new Map(map), [1, 2, 3], at, new Map([[1, 'DE202AA'], [2, 'DE202']]));
+  assert.deepEqual(called[1], ['/v3/product/info/list', { sku: ['888'] }]);
+  assert.equal(r.by_product['2'].yesterday, 7);
+  assert.deepEqual(r.coverage.ignored_zero_unmapped_skus, ['999']);
+  assert.deepEqual(r.coverage.resolved_source_skus, ['888']);
+  await assert.rejects(readDailyBaskets(async path => path === '/v1/analytics/data'
+    ? { result: { data: [line(888, '2026-11-09', 2)] } } : { items: [{ id: 2, offer_id: 'WRONG-PACK' }] },
+    new Map(map), [1, 2], at, new Map([[2, 'DE202']])));
+});
 test('invalid, duplicate, unmapped or truncated analytics never becomes a complete numeric snapshot', async () => {
   for (const bad of [
     [],

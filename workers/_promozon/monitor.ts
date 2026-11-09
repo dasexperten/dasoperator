@@ -122,9 +122,12 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
     if (!Array.isArray(info.items)) throw Error('Ozon product names unavailable');
     for (const p of info.items) if (catalog.has(Number(p.id))) {
       const id = Number(p.id);
+      if (p.offer_id !== catalog.get(id).offer_id) throw Error('Ozon product identity differs between catalog and SKU metadata');
       catalog.get(id).name = p.name || catalog.get(id).offer_id;
-      for (const source of p.sources ?? []) {
-        const sku = String(source.sku ?? '');
+      const skuValues = [...(p.sources ?? []).map((s: any) => s.sku), ...(p.availabilities ?? []).map((s: any) => s.sku), p.sku];
+      for (const value of skuValues) {
+        if (value == null || value === '' || Number(value) === 0) continue;
+        const sku = String(value);
         if (!/^\d+$/.test(sku) || Number(sku) <= 0) throw Error('Ozon product source SKU unavailable');
         if (sourceMap.has(sku) && sourceMap.get(sku) !== id) throw Error('Ozon product source SKU mapping conflicts');
         sourceMap.set(sku, id);
@@ -150,7 +153,7 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
   }
   let sales: Awaited<ReturnType<typeof readSameCutoffSales>> | null = null, sales_error: string | undefined;
   try { sales = await readSameCutoffSales(request, at); } catch (e) { sales_error = e instanceof Error ? e.message : 'Ozon sales unavailable'; }
-  const baskets = await loadDailyBaskets(env.DB, request, sourceMap, ids, Date.now());
+  const baskets = await loadDailyBaskets(env.DB, request, sourceMap, ids, Date.now(), new Map([...catalog].map(([id, row]) => [id, row.offer_id])));
   const rows = [...catalog.values()].map(row => {
     const boost = summarizeBoost(row.memberships), active = row.memberships.filter((m: any) => m.status === 'active' && !m.is_quarantined);
     if (row.memberships.some((m: any) => m.is_quarantined)) row.issues.push('Карантин в акции');

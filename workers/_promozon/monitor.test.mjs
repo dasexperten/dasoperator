@@ -46,7 +46,7 @@ test('full catalog includes products without promotions; sales failure is unknow
   const report = await runPromotionMonitor(env, async path => {
     if (path === '/v5/product/info/prices') return { items: [{ product_id: 1, offer_id: 'DE202AA', price: { marketing_seller_price: '740', min_price: '740' } }], total: 1 };
     if (path === '/v1/actions') return { result: [] };
-    if (path === '/v3/product/info/list') return { items: [{ id: 1, name: 'DETOX' }] };
+    if (path === '/v3/product/info/list') return { items: [{ id: 1, offer_id: 'DE202AA', name: 'DETOX' }] };
     if (path === '/v3/posting/fbo/list') throw Error('orders unavailable');
     throw Error('unexpected endpoint ' + path);
   });
@@ -62,7 +62,7 @@ test('live report connects daily basket analytics through exact marketplace sour
     async run() { saved.set(this.args[0], JSON.parse(this.args[1])); } }; } } };
   const report = await runPromotionMonitor(env, async (path, body) => {
     if (path === '/v5/product/info/prices') return { items: [{ product_id: 1, offer_id: 'DE202AA' }, { product_id: 2, offer_id: 'DE202' }], total: 2 };
-    if (path === '/v3/product/info/list') return { items: [{ id: 1, name: 'DETOX 2in1', sources: [{ sku: 100 }] }, { id: 2, name: 'DETOX', sources: [{ sku: 200 }] }] };
+    if (path === '/v3/product/info/list') return { items: [{ id: 1, offer_id: 'DE202AA', name: 'DETOX 2in1', sources: [{ sku: 100 }] }, { id: 2, offer_id: 'DE202', name: 'DETOX', availabilities: [{ sku: 200 }] }] };
     if (path === '/v1/actions') return { result: [] };
     if (path.includes('/posting/')) return { postings: [], has_next: false };
     if (path === '/v1/analytics/data') {

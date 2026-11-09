@@ -5,7 +5,7 @@ import { AlertCircle, AlertTriangle, ArrowUpDown, CheckCheck, Clock, Star, Exter
 import { createPortal } from 'react-dom';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
-import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
+import { canPay, canSetPayoutAmount, canMarkPaidOutside, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/lib/ugc-table-format.mjs';
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
@@ -13,6 +13,7 @@ import { contentConfirmed, contentState, publicationNetwork } from '@/lib/ugc-co
 import { reelClickController } from '@/lib/ugc-reel-click.mjs';
 import { contentHref, creatorPublicationLinks } from '@/lib/ugc-publication-links.mjs';
 import { PublicationCarousel } from '@/components/ugc/PublicationCarousel';
+import { AmountReviewModal, type AmountReviewTarget } from '@/components/ugc/AmountReviewModal';
 import { deviceTargets } from '@/lib/browser-target.mjs';
 
 type PlatformMetric = {
@@ -124,6 +125,9 @@ type Payout = {
   execute_claim?: string | null;
   has_requisites?: number | boolean;
   over_limit?: boolean;
+  payout_hold?: boolean;
+  payout_review_required?: boolean;
+  has_konsol_contractor?: boolean;
   notice_status?: 'sending' | 'delivered' | 'failed' | 'queued' | 'reviewed' | null;
   notice_error?: string | null;
   notice_at?: string | null;
@@ -243,7 +247,7 @@ function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Cont
 function payoutTitle(payout: Payout | null | undefined): string {
   if (!payout) return PAYOUT_STATUS_LABEL.none;
   const at = payout.paid_at ?? payout.sent_at ?? payout.approved_at ?? payout.failed_at;
-  return [payoutCell(payout).title, formatRub(payout.amount_minor), at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
+  return [payoutCell(payout).title, payout.amount_minor === 1 ? null : formatRub(payout.amount_minor), at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
 }
 
 // «Откуда» (Owner 2026-10-15): set once, never a step; sits right after the @account. Invited — brown magnifier;
@@ -256,8 +260,8 @@ function OriginMark({ origin }: { origin?: string | null }) {
 
 // «Оплатить» (Owner 2026-10-15): Admin only; the Owner confirms, then the click
 // goes to POST /api/ugc/payouts/:id/execute. Nothing pays without that click.
-type PayApi = { isAdmin: boolean; busy: ReadonlySet<string>; errors: Readonly<Record<string, string>>; pay: (payout: Payout) => void };
-const PayContext = createContext<PayApi>({ isAdmin: false, busy: new Set(), errors: {}, pay: () => undefined });
+type PayApi = { isAdmin: boolean; busy: ReadonlySet<string>; errors: Readonly<Record<string, string>>; pay: (payout: Payout) => void; saveAmount: (payout: Payout, creatorId: string, handle?: string | null) => void };
+const PayContext = createContext<PayApi>({ isAdmin: false, busy: new Set(), errors: {}, pay: () => undefined, saveAmount: () => undefined });
 
 function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
   const total = records.reduce((sum, row) => sum + row.amount_minor, 0);
@@ -272,7 +276,7 @@ function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
 // Owner 2026-10-20: the payment column shows only current ERP payouts; old register sums live in the card.
 function CreatorPayment({ creator }: { creator: Creator }) {
   if (!creator.payout) return null;
-  return <PayoutBadge payout={creator.payout} />;
+  return <PayoutBadge payout={creator.payout} creatorId={creator.id} handle={creator.normalized_handle} />;
 }
 
 // Owner 2026-10-18: Gold is awarded by hand after watching the reel — a star next to «posted».
@@ -660,26 +664,23 @@ function AttentionMark({ attention, name, onOpen, creatorId, onSaved }: { attent
   </span>;
 }
 
-function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
+function PayoutBadge({ payout, creatorId, handle }: { payout: Payout | null | undefined; creatorId: string; handle?: string | null }) {
   const cell = payoutCell(payout);
-  const { isAdmin, busy, errors, pay } = useContext(PayContext);
+  const { isAdmin, busy, errors, pay, saveAmount } = useContext(PayContext);
   const payable = Boolean(isAdmin && payout && canPay(payout));
-  const canEnterAmount = Boolean(isAdmin && payout
-    && ['awaiting_approval', 'approved'].includes(payout.status)
-    && !payout.konsol_payment_id && !payout.execute_claim
-    && (!Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000));
+  const amountEditable = Boolean(isAdmin && payout && canSetPayoutAmount(payout));
   const isBusy = Boolean(payout && busy.has(payout.id));
   const payError = payout ? errors[payout.id] : undefined;
-  // Owner 2026-10-15: the brown badge itself is the button (Admin only). Green is done, not clickable.
-  // Only the clicked badge waits; every other badge stays clickable.
-  const badge = (payable || canEnterAmount) && payout
-    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`${canEnterAmount ? 'Указать сумму' : 'Оплатить'}: ${payoutTitle(payout)}`} onClick={async (event) => { event.stopPropagation(); if (canEnterAmount) { const typed = window.prompt(`Сумма корзины для @${payout!.handle ?? ''}, ₽ (только паста)`); const rub = Number(String(typed ?? '').replace(',', '.').replace(/[^\d.]/g, '')); if (!rub || rub < 50 || rub > 999) return; const saved = await apiPatch(`/api/ugc/payouts/${encodeURIComponent(payout!.id)}`, { amount_rub: rub }); if (!saved.success) return; window.dispatchEvent(new Event('ugc:reload')); return; } pay(payout!); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
-    : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
-  return <span className="ugc-payout-cell" title={canEnterAmount ? `Нажми, чтобы указать сумму · ${payoutTitle(payout)}` : payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
+  const badge = amountEditable && payout
+    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`Сохранить сумму, без оплаты: @${handle ?? payout.handle ?? ''}`} onClick={(event) => { event.stopPropagation(); saveAmount(payout, creatorId, handle); }}>{cell.text}</button>
+    : payable && payout
+      ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
+      : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
+  return <span className="ugc-payout-cell" title={amountEditable ? 'Сохранить сумму, без оплаты' : payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
     <span className="ugc-payout-line">{badge}<NoticeChip payout={payout} /></span>
     {payError
       ? <span className="ugc-payout-reason" role="alert" style={{ color: 'var(--status-error)' }}>{payError}</span>
-      : cell.reason ? <span className="ugc-payout-reason">{isBusy ? 'отправляю…' : payable ? 'оплатить' : cell.reason}</span> : null}
+      : cell.reason ? <span className="ugc-payout-reason">{isBusy ? 'отправляю…' : amountEditable ? 'сохранить сумму' : payable ? 'оплатить' : cell.reason}</span> : null}
   </span>;
 }
 
@@ -971,9 +972,16 @@ export default function UgcPage() {
   const tableRef = useRef<HTMLTableElement>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [payBusy, setPayBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [amountReviewTarget, setAmountReviewTarget] = useState<AmountReviewTarget | null>(null);
+  const savedAmountReviews = useRef(new Map<string, Partial<Payout>>());
   const [payErrors, setPayErrors] = useState<Record<string, string>>({});
   const payLock = useRef<Set<string>>(new Set());
   useEffect(() => { setIsAdmin(getUser()?.role === 'admin'); }, []);
+
+  const applySavedAmounts = useCallback((payload: UgcPayload): UgcPayload => {
+    const merge = (payout: Payout): Payout => ({ ...payout, ...savedAmountReviews.current.get(payout.id) });
+    return { ...payload, creators: payload.creators.map((creator) => ({ ...creator, payout: creator.payout ? merge(creator.payout) : creator.payout, payouts: creator.payouts?.map(merge) })) };
+  }, []);
 
   // Owner 2026-10-15: render at once from this tab's cached copy, revalidate in
   // the background. Cache per user and filter; phones and bank data are stripped.
@@ -988,15 +996,15 @@ export default function UgcPage() {
     const key = `ugc-cache:v3:${getUser()?.id ?? 'anon'}:${params.toString()}`;
     let cached: UgcPayload | null = null;
     try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
-    if (cached) { setData(cached); setLoading(false); } else setLoading(true);
+    if (cached) { setData(applySavedAmounts(cached)); setLoading(false); } else setLoading(true);
     const response = await apiGet<UgcPayload>(`/api/ugc?${params.toString()}`);
     if (!response.success || !response.result) setError(response.errors[0]?.message ?? 'UGC data could not be loaded');
     else {
-      setData(response.result);
+      setData(applySavedAmounts(response.result));
       try { sessionStorage.setItem(key, JSON.stringify(cacheSafe(response.result))); } catch { /* full or blocked — fine */ }
     }
     setLoading(false);
-  }, [platform, search, stage, product, inactive]);
+  }, [platform, search, stage, product, inactive, applySavedAmounts]);
 
   useEffect(() => {
     const timer = window.setTimeout(load, 180);
@@ -1110,10 +1118,10 @@ export default function UgcPage() {
 
   // Owner 2026-11-03: «Все коричневые оплачены» — one click marks every brown badge on screen paid
   // outside the ERP. Green, no second transfer; the server re-checks each one.
-  const brownPayouts = useMemo(() => data.creators.map((creator) => creator.payout).filter((payout): payout is Payout => Boolean(payout && payoutCell(payout).tone === 'brown')), [data.creators]);
+  const brownPayouts = useMemo(() => data.creators.map((creator) => creator.payout).filter((payout): payout is Payout => Boolean(payout && canMarkPaidOutside(payout))), [data.creators]);
   const [outsideBusy, setOutsideBusy] = useState(false);
   const markBrownPaid = async () => {
-    if (!brownPayouts.length || outsideBusy) return;
+    if (!isAdmin || !brownPayouts.length || outsideBusy) return;
     const total = brownPayouts.reduce((sum, payout) => sum + payout.amount_minor, 0);
     if (!window.confirm(`Отметить оплаченными ${brownPayouts.length} коричневых на ${formatRub(total)}?
 
@@ -1135,13 +1143,16 @@ export default function UgcPage() {
     isAdmin,
     busy: payBusy,
     errors: payErrors,
+    saveAmount: (payout, creatorId, handle) => {
+      if (isAdmin && canSetPayoutAmount(payout)) setAmountReviewTarget({ id: payout.id, creatorId, handle: handle ?? payout.handle });
+    },
     // Owner 2026-10-15: one click pays — no confirm, no page reload. The badge
     // turns light green from the execute answer; green when Konsol executes.
     // Only the clicked payout is locked; 20 s without an answer ends with the
     // words on the badge. The server lock (execute_claim) still stops a double pay.
     pay: async (payout) => {
       const id = payout.id;
-      if (payLock.current.has(id)) return;
+      if (!isAdmin || !canPay(payout) || savedAmountReviews.current.has(id) || payLock.current.has(id)) return;
       payLock.current.add(id);
       setPayBusy((prev) => new Set(prev).add(id));
       setPayErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -1272,6 +1283,12 @@ export default function UgcPage() {
         </table>
       </section>
 
+      <AmountReviewModal target={isAdmin ? amountReviewTarget : null} onClose={() => setAmountReviewTarget(null)} onSaved={(row) => {
+        const patch: Partial<Payout> = { amount_minor: row.amount_minor, payout_hold: true, status: row.status as PayoutStatus, ...(row.updated_at ? { updated_at: row.updated_at } : {}) };
+        savedAmountReviews.current.set(row.id, { amount_minor: row.amount_minor, payout_hold: true });
+        mergePayout(row.id, patch);
+        window.dispatchEvent(new Event('ugc:reload'));
+      }} />
       {selected && <CreatorModal key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} />}
     </div>
     </PayContext.Provider>
@@ -1329,7 +1346,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <section className="ugc-card-sec"><div className="ugc-card-label">Аудитория</div>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} showHandle={creator.profiles.length > 1} />)}</section>
     <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
     <section className="ugc-card-sec" aria-labelledby={`payouts-${creator.id}`}><div id={`payouts-${creator.id}`} className="ugc-card-label">Оплата</div>
-      {creator.payouts?.length ? creator.payouts.map((item) => <div key={item.id} className="ugc-card-pay"><PayoutBadge payout={item} /><span>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>) : <p className="ugc-card-empty">Выплат пока нет.</p>}
+      {creator.payouts?.length ? creator.payouts.map((item) => <div key={item.id} className="ugc-card-pay"><PayoutBadge payout={item} creatorId={creator.id} handle={creator.normalized_handle} /><span>{item.payout_hold || item.payout_review_required ? 'Требует проверки' : item.amount_minor === 1 ? 'Сумма не подтверждена' : item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>) : <p className="ugc-card-empty">Выплат пока нет.</p>}
       <div className="ugc-card-line"><span>Всего выплачено</span><strong>{formatRub(creator.paid_total_minor ?? 0)}</strong></div>
     </section>
     {creator.payment_sources?.length ? <details className="ugc-card-sec">

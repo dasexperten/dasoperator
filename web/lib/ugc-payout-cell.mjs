@@ -60,6 +60,7 @@ export function payoutCell(payout, now = Date.now()) {
   if (isKonsolPaid(payout)) return out('green', 'оплата сделана');
   // Owner 2026-11-03: paid outside the ERP on his word — green, never a pay button.
   if (isPaidOutside(payout)) return out('green', 'оплачено вне ERP');
+  if (payout.payout_hold || payout.payout_review_required) return { ...out('grey', 'требует проверки'), text: payout.amount_minor === 1 ? 'сумма?' : amount };
   // Owner 2026-10-15: right after the click — light green «передано в Консоль», not clickable.
   if (payout.status === 'sent' && payout.konsol_payment_id) return out('lightgreen', 'передано в Консоль');
   if (payout.status === 'failed') return out('red', payout.konsol_payment_id ? 'отказ' : 'не исполнено в Консоли');
@@ -81,10 +82,27 @@ export function payoutCell(payout, now = Date.now()) {
 // not yet handed to Konsol. Nothing here pays — the click goes to
 // POST /api/ugc/payouts/:id/execute after the Owner confirms.
 export function canPay(payout, now = Date.now()) {
-  if (!payout || !Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000 || payout.konsol_payment_id || payout.execute_claim || isPaidOutside(payout)) return false;
+  if (!payout || payout.payout_hold || payout.payout_review_required || !Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000 || payout.konsol_payment_id || payout.execute_claim || isPaidOutside(payout)) return false;
   // Owner 2026-10-16: every ready payout is in one queue, regardless of its recorded date.
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
   return Boolean(payout.has_requisites) && !payout.over_limit;
+}
+
+/** Existing one-kopeck placeholder only; incomplete bank details do not block saving under hold. */
+export function canSetPayoutAmount(payout) {
+  return Boolean(payout && payout.amount_minor === 1
+    && (payout.status === 'awaiting_approval' || payout.status === 'approved')
+    && !payout.payout_review_required && !payout.konsol_payment_id && !payout.konsol_status
+    && !payout.execute_claim && !payout.has_konsol_contractor && !payout.konsol_contractor_id);
+}
+
+/** Marking paid outside must never consume a placeholder or a held review row. */
+export function canMarkPaidOutside(payout) {
+  return Boolean(payout && Number.isSafeInteger(payout.amount_minor) && payout.amount_minor >= 5000
+    && !payout.payout_hold && !payout.payout_review_required && !payout.execute_claim
+    && !payout.konsol_payment_id && !isPaidOutside(payout)
+    && ['awaiting_approval', 'approved', 'sent', 'paid'].includes(payout.status)
+    && payoutCell(payout).tone === 'brown');
 }
 
 /** Confirm text: nick, amount, bank, last two phone digits — never the full phone. */

@@ -19,7 +19,7 @@ type ProductRow = {
 type PromotionReport = {
   snapshot_at: string | null; sales_as_of: string; timezone: string; cutoff: string;
   sales_scope?: string; sales_available: boolean; sales_error?: string; rows: ProductRow[];
-  baskets_available?: boolean; baskets_basis?: string;
+  baskets_available?: boolean; baskets_comparable?: boolean; baskets_basis?: string;
   baskets_period?: { today: string; yesterday: string; timezone: string } | string;
   baskets_as_of?: string; baskets_stale?: boolean; baskets_error?: string;
 };
@@ -55,11 +55,10 @@ function Change({ row, available }: { row: ProductRow; available: boolean }) {
   return <span className={delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral}>{text}</span>;
 }
 function BasketChange({ row, available }: { row: ProductRow; available: boolean }) {
-  if (!available || row.today_baskets == null || row.yesterday_baskets == null) return <>—</>;
-  const delta = row.today_baskets - row.yesterday_baskets;
+  if (!available || row.delta_baskets_pct == null) return <>—</>;
+  const delta = row.delta_baskets_pct;
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
-  const text = row.yesterday_baskets === 0 && delta !== 0 ? `${sign}${number(Math.abs(delta))}`
-    : row.yesterday_baskets > 0 ? `${sign}${number(Math.abs(delta / row.yesterday_baskets * 100))}%` : '0%';
+  const text = `${sign}${number(Math.abs(delta))}%`;
   return <span className={delta > 0 ? styles.positive : delta < 0 ? styles.negative : styles.neutral}>{text}</span>;
 }
 
@@ -141,7 +140,7 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
                 <td className={styles.count}>{number(available ? row.yesterday_units : null)}</td>
                 <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.yesterday_baskets : null)}</td>
                 <td className={styles.delta}><Change row={row} available={available} /></td>
-                <td className={`${styles.delta} ${styles.basket}`} title={basketEvidence}><BasketChange row={row} available={basketsAvailable} /></td>
+                <td className={`${styles.delta} ${styles.basket}`} title="Δ появится при сравнении за одинаковые часы"><BasketChange row={row} available={basketsAvailable && report?.baskets_comparable === true} /></td>
               </tr>)}</tbody>
             </table>
           </div>}

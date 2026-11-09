@@ -74,8 +74,9 @@ test('live report connects daily basket analytics through exact marketplace sour
   });
   assert.equal(report.baskets_available, true); assert.equal(report.sales_available, true);
   assert.equal(report.rows[0].today_baskets, 7); assert.equal(report.rows[0].yesterday_baskets, 5);
-  assert.equal(report.rows[0].delta_baskets_pct, 40); assert.equal(report.rows[0].today_units, 0);
-  assert.equal(report.rows[1].today_baskets, 3); assert.equal(report.rows[1].delta_baskets_pct, 0);
+  assert.equal(report.baskets_comparable, false);
+  assert.equal(report.rows[0].delta_baskets_pct, null); assert.equal(report.rows[0].today_units, 0);
+  assert.equal(report.rows[1].today_baskets, 3); assert.equal(report.rows[1].delta_baskets_pct, null);
   assert.equal(report.baskets_period.timezone, 'Europe/Moscow');
   assert.equal(saved.get('ozon:promotion-monitor:latest').baskets_available, true);
   assert.equal(saved.get('ozon:promotion-monitor:baskets:latest').by_product['1'].today, 7);

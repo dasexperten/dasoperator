@@ -173,14 +173,15 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
     const { memberships: _, ...rest } = row;
     return { ...rest, boost, today_units, yesterday_units, delta_units, delta_pct: yesterday_units && delta_units != null ? delta_units / yesterday_units * 100 : null,
       today_baskets: basket?.today ?? null, yesterday_baskets: basket?.yesterday ?? null,
-      delta_baskets_pct: basket?.today != null && basket.yesterday != null && basket.yesterday > 0 ? (basket.today - basket.yesterday) / basket.yesterday * 100 : null,
+      // Partial today versus a full yesterday cannot establish growth/decline.
+      delta_baskets_pct: null,
       cancelled_today: sales ? s?.cancelled_today ?? 0 : null, cancelled_yesterday: sales ? s?.cancelled_yesterday ?? 0 : null,
       buyout_today: sales ? s?.buyout_today ?? 0 : null, buyout_yesterday: sales ? s?.buyout_yesterday ?? 0 : null };
   });
   // Missing prices/order IDs may not silently vanish from the all-SKU table.
   if (sales) for (const sku of sales.totals.keys()) if (!rows.some(r => String(r.offer_id).trim().toLowerCase() === sku)) throw Error('Ordered SKU missing from Ozon catalog');
   const report = { snapshot_at, sales_as_of: snapshot_at, timezone: 'Asia/Yerevan', cutoff: new Date(at + 4 * 3600000).toISOString().slice(11, 16),
-    baskets_available: Boolean(baskets.snapshot), baskets_as_of: baskets.snapshot?.as_of ?? null,
+    baskets_available: Boolean(baskets.snapshot), baskets_comparable: false, baskets_as_of: baskets.snapshot?.as_of ?? null,
     baskets_period: baskets.snapshot?.period ?? null, baskets_stale: baskets.stale, baskets_error: baskets.error,
     baskets_basis: 'Добавления в корзину за сутки МСК: сегодня неполный день, вчера полный; не сравнение за одинаковые часы',
     sales_available: sales !== null, sales_scope: 'FBO + FBS', sales_error, rows, coverage: { products: rows.length, actions: actionsData.result.length,

@@ -38,7 +38,7 @@ export async function ingestCreatorPayouts(env:Env){
      if(!context||context.updated_at<=receipt.updated_at)continue;
     }
    }
-   try{await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);saved++;}
+   try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:1,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false)saved++;}
    catch(error){const code=error instanceof Error?error.message:'intake_failed';if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
   }
   after=list.paging?.cursors?.after??'';if(!list.paging?.next||!after)break;

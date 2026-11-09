@@ -64,6 +64,7 @@ export function payoutCell(payout, now = Date.now()) {
   if (payout.status === 'sent' && payout.konsol_payment_id) return out('lightgreen', 'передано в Консоль');
   if (payout.status === 'failed') return out('red', payout.konsol_payment_id ? 'отказ' : 'не исполнено в Консоли');
   if (isStaleSent(payout, now)) return out('red', 'не исполнено в Консоли');
+  if (!Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000) return { tone: 'grey', text: 'сумма?', reason: 'нужна подтверждённая сумма', title: 'Без подтверждённой суммы выплата не готова' };
   if ((payout.status === 'sent' || payout.status === 'paid') && !payout.konsol_payment_id) {
     return out(payout.has_requisites ? 'brown' : 'grey', 'не исполнено в Консоли');
   }
@@ -80,7 +81,7 @@ export function payoutCell(payout, now = Date.now()) {
 // not yet handed to Konsol. Nothing here pays — the click goes to
 // POST /api/ugc/payouts/:id/execute after the Owner confirms.
 export function canPay(payout, now = Date.now()) {
-  if (!payout || payout.konsol_payment_id || payout.execute_claim || isPaidOutside(payout)) return false;
+  if (!payout || !Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000 || payout.konsol_payment_id || payout.execute_claim || isPaidOutside(payout)) return false;
   // Owner 2026-10-16: every ready payout is in one queue, regardless of its recorded date.
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
   return Boolean(payout.has_requisites) && !payout.over_limit;

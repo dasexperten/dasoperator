@@ -9,5 +9,5 @@ export function appendPublicationProofs(existing: ReelPublication[], incoming: R
 export const REEL_SCOPE_VERSION: string;
 export const ACTIVE_REEL_DESTINATIONS: readonly string[];
 export const DEFERRED_REEL_DESTINATIONS: readonly string[];
-export function reelScope(job?: {required_destinations?: string | string[]}): {version:string;active:string[];deferred:string[];original_required_destinations:string[];model_policy:{codex:string;higher_model_fallback:boolean};accounts:{instagram:string;threads:string;youtube_channel_id:string;facebook_page_id:string}};
+export function reelScope(job?: {required_destinations?: string | string[]}): {version:string;active:string[];deferred:string[];original_required_destinations:string[];publication_transport:'api';tiktok_publisher:string;model_policy:{codex:string;higher_model_fallback:boolean};accounts:{instagram:string;threads:string;tiktok:string;youtube_channel_id:string;facebook_page_id:string;vk_community_id:string;rutube_channel_id:string}};
 export function reelJobScopeView<T extends {required_destinations?: string | string[]}>(job:T): T & {destination_scope: ReturnType<typeof reelScope>;active_destinations:string[];deferred_destinations:string[]};

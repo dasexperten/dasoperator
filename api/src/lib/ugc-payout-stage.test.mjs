@@ -79,5 +79,6 @@ test('every path that writes a payout status follows it', () => {
   const count = (text) => (text.match(/followPayoutStage\(/g) ?? []).length;
   assert.equal(count(read('../routes/ugc.ts')), 3, 'create payout, manual status, paid outside the ERP');
   assert.equal(count(read('./ugc-payout-store.ts')), 3, 'markPaid, markFailed, registry link');
-  assert.equal(count(read('./ig-dm-reply.ts')), 1, 'payout registered from Direct');
+  assert.equal(count(read('./ig-dm-reply.ts')), 0, 'retired server reply never registers payouts');
+  assert.match(read('./ugc-payout-intake.ts'), /payoutStageStatement\(env.DB,creatorId,'awaiting_approval'/, 'atomic intake uses the shared stage transition');
 });

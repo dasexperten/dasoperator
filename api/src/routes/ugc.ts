@@ -328,7 +328,7 @@ ugc.get('/', async (c) => {
               p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
-              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites,
+              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id AND TRIM(COALESCE(r.first_name,''))<>'') THEN 1 ELSE 0 END) has_requisites,
               p.product, p.notice_status, p.notice_error, p.notice_at,
               (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
               (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
@@ -1142,6 +1142,18 @@ ugc.get('/payouts', async (c) => {
      ORDER BY p.updated_at DESC LIMIT 500`
   ).bind(creatorId, status).all<Record<string, any>>();
   return ok(c, { payouts: rows.results ?? [] });
+});
+
+// Save Diana's verified intake as one operation before any payment approval.
+ugc.post('/payouts/intake', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  try {
+    const { prepareCreatorPayout } = await import('../lib/ugc-payout-intake');
+    return ok(c, await prepareCreatorPayout(c.env, await c.req.json()));
+  } catch (error) {
+    return fail(c, 422, [{ code: 'payout_intake_failed', message: error instanceof Error ? error.message : 'Invalid payout facts' }]);
+  }
 });
 
 ugc.post('/payouts', async (c) => {

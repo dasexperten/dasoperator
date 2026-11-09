@@ -36,17 +36,23 @@ export function stageForPayoutStatus(status) {
 }
 
 /** A failed status write never undoes the payout it follows; the reply lane still corrects it later. */
-export async function followPayoutStage(db, creatorId, payoutStatus, now = Date.now()) {
+export function payoutStageStatement(db, creatorId, payoutStatus, now = Date.now()) {
   const stage = stageForPayoutStatus(payoutStatus);
-  if (!creatorId || !stage) return false;
+  if (!creatorId || !stage) return null;
   const from = FROM[stage];
-  try {
-    const r = await db.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3
+  return db.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3
       WHERE id=?1 AND COALESCE(lifecycle_stage,'') IN (${from.map((_, i) => `?${i + 4}`).join(',')})`)
-      .bind(creatorId, stage, now, ...from).run();
+      .bind(creatorId, stage, now, ...from);
+}
+
+export async function followPayoutStage(db, creatorId, payoutStatus, now = Date.now()) {
+  const statement = payoutStageStatement(db, creatorId, payoutStatus, now);
+  if (!statement) return false;
+  try {
+    const r = await statement.run();
     return (r.meta?.changes ?? 0) > 0;
   } catch (error) {
-    console.error('ugc_stage_follow_failed', creatorId, stage, error instanceof Error ? error.message : String(error));
+    console.error('ugc_stage_follow_failed', creatorId, stageForPayoutStatus(payoutStatus), error instanceof Error ? error.message : String(error));
     return false;
   }
 }

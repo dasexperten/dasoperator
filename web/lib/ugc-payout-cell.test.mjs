@@ -112,3 +112,14 @@ test('a payout the Owner paid outside the ERP is green and never a pay button (O
   assert.equal(canPay(p), false);
   assert.equal(payoutCell({ ...p, konsol_status: null }).tone, 'brown');
 });
+
+test('unknown and one-kopeck amounts are neutral and not payable, regardless of requisites',()=>{
+ for(const amount_minor of [1,0,49,4999])for(const has_requisites of [0,1]){
+  const p={status:'awaiting_approval',amount_minor,has_requisites};assert.equal(payoutCell(p).tone,'grey');assert.equal(canPay(p),false);
+ }
+ for(const amount_minor of [39400,45300])assert.equal(payoutCell({status:'awaiting_approval',amount_minor,has_requisites:1}).tone,'brown');
+});
+
+test('historical sent/paid rows without provider proof cannot make an unknown amount brown',()=>{
+ for(const status of ['sent','paid'])assert.equal(payoutCell({status,amount_minor:1,has_requisites:1,payout_date:new Date().toISOString().slice(0,10)}).tone,'grey');
+});

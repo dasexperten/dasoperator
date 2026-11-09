@@ -16,9 +16,11 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const sources = [...new Set(input.source_message_ids ?? [])];
   if (input.verified !== true || !/^[a-z0-9_.]{1,40}$/.test(handle) || !input.conversation_id ||
       !sources.length || sources.length > 20 || !sources.includes(input.cycle_message_id) ||
-      !Number.isSafeInteger(input.amount_minor) || input.amount_minor <= 0 || !phone ||
-      (input.first_name != null && (typeof input.first_name !== 'string' || input.first_name.length > 120)) ||
-      !isFpsBankMemberId(input.fps_bank_member_id) || !input.bank_ref?.trim()) throw Error('verified_payout_facts_required');
+      !Number.isSafeInteger(input.amount_minor) || input.amount_minor <= 0) throw Error('verified_payout_facts_required');
+  const missing: string[] = [];
+  if (!phone) missing.push('phone');
+  if (typeof input.first_name !== 'string' || !input.first_name.trim() || input.first_name.length > 120) missing.push('first_name');
+  if (!isFpsBankMemberId(input.fps_bank_member_id) || typeof input.bank_ref !== 'string' || !input.bank_ref.trim()) missing.push('bank');
   let firstAt = Infinity, lastAt = 0, incoming = false;
   for (const id of sources) {
     const message = await env.DB.prepare(`SELECT direction,from_username,created_at FROM ugc_ig_messages
@@ -73,8 +75,27 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     if(!source||!latestImage?.at||Date.parse(source.created_at)!==Date.parse(latestImage.at))throw Error('verified_cart_must_be_current_original');
     cartAmount=review.amount_minor;
   }
-  const amount = open && open.amount_minor !== 1 ? open.amount_minor : (cartAmount ?? 1);
+  // Never create a financial row from the one-kopeck 'unknown' sentinel.
+  // Preserve an existing Owner amount; current-cart review remains the existing
+  // amount authority. A raw observed/parser number is not a replacement for it.
+  const amount = open && Number.isSafeInteger(open.amount_minor) && open.amount_minor >= 5000
+    ? open.amount_minor : cartAmount;
+  if (amount == null || !Number.isSafeInteger(amount) || amount < 5000) missing.unshift('amount_minor');
+  if (missing.length) {
+    // Durable, deduplicated metadata for review. This is NOT a sent message or
+    // an executable Diana task: the consumer must re-read originals before asking.
+    const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
+    const pending = JSON.stringify({version:1,status:'needs_clarification',dispatch_status:'not_dispatched',
+      conversation_id:input.conversation_id,cycle_message_id:input.cycle_message_id,
+      source_message_ids:sources,source_at:lastAt,missing_fields:missing,
+      observed_amount_minor:amount ?? null});
+    const write = await savePendingClarification(env.DB,pendingKey,pending,now);
+    if (!write) throw Error('payout_intake_clarification_not_verified');
+    return {outcome:'clarification_required',registered:false,missing_fields:missing,
+      dispatch_status:'not_dispatched'};
+  }
   const id = open?.id ?? await stable('ugcpay',creatorId+':'+input.cycle_message_id);
+  const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
     observed_amount_minor:input.amount_minor,verified_cart:input.cart_review??null,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
@@ -89,11 +110,11 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       VALUES(?1,?2,?3,'instagram',?4,?10,'RUB','awaiting_approval',?5,'ozon',?6,?7,?8,
       'TERMO 39°','Реквизиты проверены по исходной переписке. Ожидает одобрения Владельца.','diana-helios',?9,?9)
       ON CONFLICT(id) DO NOTHING`).bind(id,creatorId,profileId,handle,
-        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now,amount),
+        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,amount),
     env.DB.prepare(`UPDATE ugc_payouts SET phone_masked=?2,bank_ref=?3,fps_bank_member_id=?4,
       amount_minor=CASE WHEN amount_minor=1 THEN ?6 ELSE amount_minor END,product='TERMO 39°',status='awaiting_approval',approved_at=NULL,approved_by=NULL,updated_at=?5
       WHERE id=?1 AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL`)
-      .bind(id,maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now,amount),
+      .bind(id,maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,amount),
     env.DB.prepare(`INSERT INTO ugc_payout_requisites(payout_id,fps_mobile_phone,first_name,last_name,patronymic,created_at,updated_at)
       SELECT ?1,?2,?3,NULL,NULL,?4,?4 WHERE EXISTS(SELECT 1 FROM ugc_payouts WHERE id=?1 AND status='awaiting_approval' AND konsol_payment_id IS NULL AND execute_claim IS NULL)
       ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone,first_name=excluded.first_name,
@@ -101,6 +122,9 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     payoutStageStatement(env.DB,creatorId,'awaiting_approval',now)!,
     env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(key,proof,now),
+    env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.status','resolved'),updated_at=?2
+      WHERE key=?1 AND json_valid(value) AND json_extract(value,'$.status')='needs_clarification'
+        AND json_extract(value,'$.dispatch_status')='not_dispatched' AND json_extract(value,'$.source_at')<=?3`).bind(pendingKey,now,lastAt),
   ]);
   const saved = await env.DB.prepare(`SELECT p.id,p.status,p.amount_minor,p.phone_masked,p.bank_ref,
     r.first_name,r.fps_mobile_phone FROM ugc_payouts p JOIN ugc_payout_requisites r ON r.payout_id=p.id WHERE p.id=?1`)
@@ -113,4 +137,21 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   } finally {
     await env.DB.batch([env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1 AND value=?2').bind(lockKey,lockToken)]);
   }
+}
+
+// Existing crm_sync_state boundary only; no raw name, phone or bank is stored here.
+async function savePendingClarification(db: Env['DB'], key: string, value: string, now: number) {
+  const result = await db.batch<{value:string}>([
+    db.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+      WHERE crm_sync_state.value<>excluded.value AND json_valid(crm_sync_state.value)
+        AND (json_extract(crm_sync_state.value,'$.status')='needs_clarification'
+          OR (json_extract(crm_sync_state.value,'$.status')='resolved'
+            AND json_extract(crm_sync_state.value,'$.source_at')<json_extract(excluded.value,'$.source_at')))
+        AND json_extract(crm_sync_state.value,'$.dispatch_status')='not_dispatched'
+        AND json_extract(crm_sync_state.value,'$.source_at')<=json_extract(excluded.value,'$.source_at')`).bind(key,value,now),
+    db.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key),
+  ]);
+  return result.length===2 && result.every(row=>row.success===true)
+    && [0,1].includes(Number(result[0]?.meta?.changes)) && result[1]?.results?.[0]?.value===value;
 }

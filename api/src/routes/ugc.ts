@@ -328,7 +328,9 @@ ugc.get('/', async (c) => {
               p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
-              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id AND TRIM(COALESCE(r.first_name,''))<>'') THEN 1 ELSE 0 END) has_requisites,
+              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id AND TRIM(COALESCE(r.first_name,''))<>''
+                AND r.fps_mobile_phone GLOB '+79[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]')
+                AND length(p.fps_bank_member_id)=12 AND p.fps_bank_member_id NOT GLOB '*[^0-9]*' THEN 1 ELSE 0 END) has_requisites,
               p.product, p.notice_status, p.notice_error, p.notice_at,
               (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
               (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
@@ -1331,7 +1333,7 @@ ugc.post('/payouts/paid-outside', async (c) => {
       `UPDATE ugc_payouts SET status='paid', konsol_status='paid_outside',
          paid_at=COALESCE(paid_at, sent_at, payout_date || 'T12:00:00Z', ?2), paid_notice_at=COALESCE(paid_notice_at, ?2),
          note=TRIM(COALESCE(note,'') || ' Оплачено вне ERP, слово Владельца ' || ?3), updated_at=?4
-       WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL
+       WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL AND amount_minor>=5000
          AND status IN ('awaiting_approval','approved','sent','paid')
          AND EXISTS (SELECT 1 FROM ugc_payout_requisites q WHERE q.payout_id = ugc_payouts.id)`
     ).bind(id, iso, iso.slice(0, 10), now).run();

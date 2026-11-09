@@ -1,0 +1,85 @@
+name: Read-only Pages release diagnosis
+on:
+  push:
+    branches: [fix/ugc-required-amount-minimal]
+    paths: [.github/workflows/ugc-pages-readback.yml]
+permissions: {}
+jobs:
+  read-pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read sanitized Pages deployment metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          BASE = 'https://api.cloudflare.com/client/v4/accounts/081ddb85cb399ad62a70210328d744fc/pages/projects/dasoperator'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect())
+          token = os.environ.get('CLOUDFLARE_API_TOKEN')
+          if not token:
+              raise SystemExit('Required CI credential unavailable')
+          def read(suffix):
+              request = urllib.request.Request(BASE + suffix, headers={
+                  'Authorization': 'Bearer ' + token,
+                  'Accept': 'application/json',
+              }, method='GET')
+              try:
+                  with opener.open(request, timeout=30) as response:
+                      raw = response.read(2_000_001)
+              except urllib.error.HTTPError as error:
+                  raise SystemExit('Pages metadata GET failed: HTTP ' + str(error.code)) from None
+              except Exception:
+                  raise SystemExit('Pages metadata GET failed: transport error') from None
+              if len(raw) > 2_000_000:
+                  raise SystemExit('Pages metadata response exceeds safe size')
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  raise SystemExit('Pages metadata response is not valid JSON') from None
+              if not isinstance(data, dict) or data.get('success') is not True:
+                  raise SystemExit('Pages metadata API reported failure')
+              return data.get('result')
+          def text(value):
+              if not isinstance(value, str):
+                  return None
+              return value.replace(token, '[redacted]')[:500]
+          def deployment(value):
+              if not isinstance(value, dict):
+                  return None
+              stage = value.get('latest_stage') or {}
+              source = value.get('deployment_trigger') or {}
+              metadata = source.get('metadata') or {}
+              aliases = value.get('aliases') or []
+              return {
+                  'id': text(value.get('id')),
+                  'environment': text(value.get('environment')),
+                  'status': text(stage.get('status')),
+                  'url': text(value.get('url')),
+                  'aliases': [text(alias) for alias in aliases[:20]],
+                  'commit': text(metadata.get('commit_hash')),
+              }
+          project = read('')
+          deployments = read('/deployments?page=1&per_page=20')
+          if not isinstance(project, dict) or not isinstance(deployments, list):
+              raise SystemExit('Unexpected Pages metadata shape')
+          selected = [deployment(item) for item in deployments[:20]]
+          canonical = deployment(project.get('canonical_deployment'))
+          latest = deployment(project.get('latest_deployment'))
+          candidates = selected + [canonical, latest]
+          target = [item for item in candidates if item and (item.get('id') or '').startswith('4c1b069c')]
+          print(json.dumps({
+              'production_branch': text(project.get('production_branch')),
+              'canonical_deployment': canonical,
+              'latest_deployment': latest,
+              'deployments': selected,
+              'target_4c1b069c_matches': target,
+          }, ensure_ascii=True, indent=2))

@@ -40,6 +40,12 @@ test('a confirmed amount keeps the existing payment action',async()=>{
  await button.props.onClick({stopPropagation(){}});
  assert.deepEqual(h.calls.pay,['fixture']);assert.equal(h.calls.patch.length,0);
 });
+test('manual amount entry preserves kopecks instead of rounding to whole roubles',async()=>{
+ const h=harness(true,'453,50');
+ await h.buttons(open)[0].props.onClick({stopPropagation(){}});
+ assert.equal(h.calls.patch[0].body.amount_rub,453.5);
+ assert.equal(h.calls.pay.length,0);
+});
 test('non-admin, settled and claimed rows never offer amount editing',()=>{
  assert.equal(harness(false).buttons(open).length,0);
  for(const change of [{status:'sent'},{status:'paid'},{status:'failed'},{execute_claim:'held'},{konsol_payment_id:'existing'}]){

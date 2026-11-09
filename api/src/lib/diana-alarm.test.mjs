@@ -27,7 +27,7 @@ test('legacy signals retain unknown IDs, get durable identity and cannot close n
 
 test('batch metadata avoids a Graph request per conversation; active scan prevents overlap',async t=>{const f=fixture();t.after(()=>f.db.close());let calls=0;t.mock.method(globalThis,'fetch',async u=>{calls++;const p=new URL(u);if(p.pathname.endsWith('/conversations'))return Response.json({data:Array.from({length:25},(_,i)=>({id:'b'+i,updated_time:'new',messages:{data:[{id:'m'+i,created_time:'now',from:{id:'p'+i,username:'u'+i}}]}}))});return f.fetch(u)});assert.equal((await detectDianaMessages(f.env,at(19))).detected,25);assert.equal(calls,2);f.state.set('diana_metadata_scan','other');f.db.prepare('UPDATE crm_sync_state SET updated_at=? WHERE key=?').run(Date.now(),'diana_metadata_scan');assert.ok((await detectDianaMessages(f.env,at(19,3))).scan_running);assert.equal(calls,2)});
 
-// Owner 2026-11-07: ERP is only an alarm over the newest 100 chats.
+// Owner 2026-11-09: ERP scans metadata for the newest 200 chats.
 function chatsFetch(f, chats, seen = {}) {
   return async u => {
     f.calls.push(String(u)); const p = new URL(u);
@@ -41,13 +41,13 @@ function chatsFetch(f, chats, seen = {}) {
 }
 const chat = (id, lastFrom, t = '2026-11-06T10:00:00+0000') => ({ id, updated_time: t, participants: { data: [{ id: 'u' + id, username: 'user' + id }] },
   messages: { data: [{ id: 'm' + id, created_time: t, from: { id: lastFrom === 'us' ? '17841466350261166' : 'u' + id, username: lastFrom === 'us' ? 'dasexperten' : 'user' + id } }] } });
-test('scan looks at the newest 100 chats only, never deeper', async t => {
+test('scan looks at the newest 200 chats only, never deeper', async t => {
   const f = fixture(); t.after(() => f.db.close());
-  const chats = Array.from({ length: 160 }, (_, i) => chat('c' + i, 'them'));
+  const chats = Array.from({ length: 240 }, (_, i) => chat('c' + i, 'them'));
   t.mock.method(globalThis, 'fetch', chatsFetch(f, chats));
   const r = await detectDianaMessages(f.env, at(12));
-  assert.equal(r.inspected, 100); assert.equal(f.calls.filter(u => u.includes('/conversations')).length, 4);
-  assert.ok(!f.state.get('diana_round_alarm:c100')); assert.ok(f.state.get('diana_round_alarm:c99'));
+  assert.equal(r.inspected, 200); assert.equal(f.calls.filter(u => u.includes('/conversations')).length, 8);
+  assert.ok(!f.state.get('diana_round_alarm:c200')); assert.ok(f.state.get('diana_round_alarm:c199'));
 });
 test('alarm only when the newest message is incoming; our last message clears the alarm', async t => {
   const f = fixture(); t.after(() => f.db.close());
@@ -57,12 +57,12 @@ test('alarm only when the newest message is incoming; our last message clears th
   assert.equal(r.detected, 1); assert.ok(f.state.get('diana_round_alarm:waiting')); assert.equal(f.state.get('diana_round_alarm:answered'), undefined);
   assert.equal(JSON.parse(f.state.get('diana_round_alarm:waiting')).event_id, 'message:mwaiting');
 });
-test('stale alarms outside the newest 100 are dropped; nothing new in a chat raises nothing twice', async t => {
+test('alarms outside the scan remain pending; nothing new in a chat raises nothing twice', async t => {
   const f = fixture(); t.after(() => f.db.close());
   f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_round_alarm:ancient', JSON.stringify({ cid: 'ancient', event_id: 'message:z' }), 1);
   t.mock.method(globalThis, 'fetch', chatsFetch(f, [chat('fresh', 'them')]));
   await detectDianaMessages(f.env, at(12));
-  assert.equal(f.state.get('diana_round_alarm:ancient'), undefined); assert.ok(f.state.get('diana_round_alarm:fresh'));
+  assert.ok(f.state.get('diana_round_alarm:ancient')); assert.ok(f.state.get('diana_round_alarm:fresh'));
   const second = await detectDianaMessages(f.env, at(12, 4));
   assert.equal(second.detected, 0);
 });

@@ -4,7 +4,7 @@ const GRAPH = 'https://graph.facebook.com/v21.0';
 const PAGE = '1697038263872226';
 const BRAND = '17841466350261166';
 export const ALARM_PREFIX = 'diana_round_alarm:';
-const DIANA_SCAN_PAGES = 4; // newest 100 chats, 25 per page
+const DIANA_SCAN_PAGES = 8; // newest 200 chats, 25 per page
 
 export function dianaWindow(now: number): boolean {
   const hour = new Date(now + 4 * 3600_000).getUTCHours();
@@ -40,11 +40,10 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   const records = (await env.DB.prepare("SELECT key,value FROM crm_sync_state WHERE key LIKE 'diana_message_done:%'").all<{key:string;value:string}>()).results ?? [];
   const known = new Map(records.map(row => [row.key,row.value]));
   // Owner 2026-11-07: ERP is only an alarm, and the alarm is a check of STATE, not of news. Every tick it looks at the
-  // newest 100 chats (4 pages of 25), nothing deeper. A chat is waiting when its newest message is the blogger's and
+  // newest 200 chats (8 pages of 25), nothing deeper. A chat is waiting when its newest message is the blogger's and
   // Diana has no verified receipt (diana_message_done) for exactly that message. A waiting chat always has an alarm,
   // however long ago its message came and whatever an earlier tick saw, so nothing missed once can stay missed.
   // A chat whose newest message is ours has nothing waiting, so its alarm is cleared.
-  const scanned: string[] = [];
   let after = '';
   for (let pageNo = 0; pageNo < DIANA_SCAN_PAGES; pageNo++) {
     const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
@@ -52,7 +51,6 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(3){id,created_time,from}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
     for (const conversation of list.data ?? []) {
       inspected++;
-      scanned.push(String(conversation.id));
       try {
         const newest = conversation.messages?.data?.[0];
         if (newest?.id && newest.created_time && newest.from?.id) {
@@ -74,14 +72,11 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       } catch { errors++; }
     }
     after = list.paging?.next ? String(list.paging?.cursors?.after ?? '') : '';
-    if (!after || Date.now() - scanStarted >= 90_000) break;
+    if (!after) break;
+    if (Date.now() - scanStarted >= 90_000 && pageNo + 1 < DIANA_SCAN_PAGES) { errors++; break; }
   }
-  // Alarms for chats outside the newest 100 are old noise (the 3744-row backlog of 2026-11-06/07): drop them. A chat that
-  // comes back into the newest 100 with something unanswered is raised again by the scan above.
-  if (scanned.length) {
-    await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND updated_at < ?1 AND substr(key,${ALARM_PREFIX.length + 1}) NOT IN (SELECT value FROM json_each(?2))`)
-      .bind(now - 3600_000, JSON.stringify(scanned)).run();
-  }
+  // Preserve outstanding alarms even when conversations move beyond the scan window.
+
   } catch {
     errors++;
     await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").run();

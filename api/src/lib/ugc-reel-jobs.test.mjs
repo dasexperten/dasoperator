@@ -54,7 +54,7 @@ test('current vk.ru clip links are accepted and alias retries preserve the origi
 });
 
 test('active scope preserves raw history and rejects unknown destinations',async()=>{
- const {reelScope}=await import('./ugc-reel-jobs.mjs');const original=['instagram','threads','vk','youtube','tiktok'];const row={required_destinations:JSON.stringify(original)};assert.deepEqual(reelScope(row).active,['instagram','threads','youtube']);assert.deepEqual(reelScope(row).deferred,['vk','tiktok']);assert.equal(row.required_destinations,JSON.stringify(original));assert.throws(()=>reelScope({required_destinations:'["linkedin"]'}));assert.deepEqual(reelScope({required_destinations:'["vk","tiktok"]'}).active,[]);
+ const {reelScope}=await import('./ugc-reel-jobs.mjs');const original=['instagram','threads','vk','youtube','tiktok'];const row={required_destinations:JSON.stringify(original)};assert.deepEqual(reelScope(row).active,['instagram','threads','vk','youtube']);assert.deepEqual(reelScope(row).deferred,['tiktok']);assert.equal(row.required_destinations,JSON.stringify(original));assert.throws(()=>reelScope({required_destinations:'["linkedin"]'}));assert.deepEqual(reelScope({required_destinations:'["vk","tiktok"]'}).active,['vk']);
 });
 test('source publication is accepted only with explicit verified own accepted-coauth identity',()=>{
  const p={platform:'instagram',url:'https://instagram.com/reel/SOURCE/',account:'dasexperten',verified:true,verified_at:new Date().toISOString(),evidence:'Official accepted collaborative_media exact source, complete pagination'};

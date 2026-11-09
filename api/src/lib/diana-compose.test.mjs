@@ -69,4 +69,6 @@ test('protected status can receive CORS headers even when the DO response header
  const {default:app}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
  const env={ERP_RUN_SECRET:'test-only',DIANA_WAKE:{idFromName:()=>1,get:()=>({fetch:()=>fetch('data:application/json,%7B%22connections%22%3A%5B%5D%7D')})}};
  const response=await app.request('https://api.test/internal/diana/status',{headers:{Authorization:'Bearer test-only',Origin:'https://erp.dasexperten.com'}},env);assert.equal(response.status,200);assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://erp.dasexperten.com');assert.deepEqual(await response.json(),{connections:[]});
+ const dispatch=await app.request('https://api.test/internal/diana/dispatch',{method:'POST',headers:{Authorization:'Bearer test-only',Origin:'https://erp.dasexperten.com'},body:'{}'},env);assert.equal(dispatch.status,200);assert.equal(dispatch.headers.get('Access-Control-Allow-Origin'),'https://erp.dasexperten.com');
+ const denied=await app.request('https://api.test/internal/diana/dispatch',{method:'POST',body:'{}'},env);assert.equal(denied.status,401);
 });

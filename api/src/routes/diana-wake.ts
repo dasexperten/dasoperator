@@ -19,8 +19,11 @@ route.get('/status', async c => {
   return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
 // Explicit attended recovery uses the same dispatch and ownership checks as metadata scans.
-route.post('/dispatch', c => c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana'))
-  .fetch(new Request('https://wake.internal/dispatch', c.req.raw)));
+route.post('/dispatch', async c => {
+  const response=await c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana'))
+    .fetch(new Request('https://wake.internal/dispatch', c.req.raw));
+  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
+});
 route.post('/ack', async c => {
   const body = await c.req.json<{ cid?: string; message_id?: string | null; event_id?: string }>();
   if (!body.cid || body.message_id === undefined || !body.event_id || (body.message_id === null && !body.event_id.startsWith('legacy:'))) return c.json({ ok: false }, 400);

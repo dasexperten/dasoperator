@@ -113,13 +113,13 @@ test('a notice claim persists visible sending state atomically and cannot claim 
 });
 
 
-test('video reminders are queued only from 72 hours after the most recent payment', async () => {
+test('video reminders are queued only from five full days after the most recent payment', async () => {
   const db = new DatabaseSync(':memory:');
-  db.exec(`CREATE TABLE ugc_creators(id TEXT,lifecycle_stage TEXT); CREATE TABLE ugc_payouts(id TEXT,creator_id TEXT,handle TEXT,status TEXT,paid_at TEXT);
+  db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER); CREATE TABLE ugc_creators(id TEXT,lifecycle_stage TEXT); CREATE TABLE ugc_payouts(id TEXT,creator_id TEXT,handle TEXT,status TEXT,paid_at TEXT);
     INSERT INTO ugc_creators VALUES('a','creation'),('b','ordered'),('c','creation'),('d','posted');
     INSERT INTO ugc_payouts VALUES('early','a','a','paid','2026-11-05T01:00:00.000Z'),('due','b','b','paid','2026-11-05T00:00:00.000Z'),('old','c','c','paid','2026-10-01T00:00:00.000Z'),('posted','d','d','paid','2026-10-01T00:00:00.000Z');`);
   const captured=[]; globalThis.__sweep={queued:captured,noticeResults:{}};
-  const env={DB:{prepare(sql){let args=[];return {bind(...v){args=v;return this},async all(){return {results:db.prepare(sql).all(...args)}}}}}};
-  await overdueVideoReminders(env,Date.parse('2026-11-08T00:00:00.000Z'));
+  const env={DB:{prepare(sql){let args=[];return {bind(...v){args=v;return this},async all(){return {results:db.prepare(sql).all(...args)}},async first(){return db.prepare(sql).get(...args)??null}}}}};
+  await overdueVideoReminders(env,Date.parse('2026-11-10T00:00:00.000Z'));
   assert.deepEqual(captured.sort(),['b','c']); db.close();
 });

@@ -84,9 +84,9 @@ test('two product outputs across seven platforms are not truncated by the old tw
 });
 
 
-test('new jobs require the full seven-account API round while old saved scopes remain exact',async()=>{
+test('new jobs require the full nine-destination API round while old saved scopes remain exact',async()=>{
  const {reelScope,ACTIVE_REEL_DESTINATIONS}=await import('./ugc-reel-jobs.mjs');
- assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube','tiktok']);
+ assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube','tiktok','wibes','ozon']);
  const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');assert.equal(scope.accounts.tiktok,'dasbroadcast');assert.equal(scope.publication_transport,'api');assert.equal(scope.tiktok_publisher,'Das Experten UGC Publisher');assert.deepEqual(scope.deferred,[]);
  assert.deepEqual(reelScope({required_destinations:'["youtube"]'}).active,['youtube']);
  const text=reelTaskText({content_id:'rutube-new',content_url:'https://youtube.com/watch?v=AbC123def_0',claim_id:'private-placeholder',handle:'author'},'https://erp.test');
@@ -97,4 +97,18 @@ test('assignment includes verified identity, canonical keyword provenance and ER
  const text=reelTaskText({content_id:'caption-source',claim_id:'plan-test-claim',content_url:'https://youtube.com/watch?v=abc',handle:'actual_creator',required_destinations:['facebook']},'https://erp.test');
  for(const value of ['product_keyword_pools.source_ref','body_keyword_realizations','source SHA256','missing_pool','editorial priorities','39°C measurement','/reel-jobs/caption-source/caption-plan','verified_products','Jurgen','required_search_tokens_enabled','required_search_token_evidence','#termo','не увеличивает утверждённые platform counts']) assert.ok(text.includes(value),value);
  assert.match(text,/не переноси имя Юлия/);assert.match(text,/без ручного approval gate/);
+});
+
+const ozonProof = {...proof,platform:'ozon',url:'https://www.ozon.ru/product/3570424416/',publication_transport:'api',placement:'product_video',ozon_sku:'3570424416',ozon_video_url:'https://v-1.ozone.ru/vod/video-67/verified/asset_1_h264.mp4'};
+test('Ozon needs the exact product and video proof; a card link or browser upload is insufficient',()=>{
+ const normalized=reelPublicationProof([ozonProof],'https://instagram.com/reel/SOURCE/');assert.equal(normalized[0].ozon_video_url,ozonProof.ozon_video_url);assert.equal(normalized[0].publication_transport,'api');
+ for(const patch of [{ozon_video_url:undefined},{ozon_sku:'999'},{placement:undefined},{publication_transport:'browser'},{ozon_video_url:'https://ozone.ru.evil/video.mp4'},{url:'https://ozon.ru/seller/store/'}]) assert.equal(reelPublicationProof([{...ozonProof,...patch}],''),null);
+ const different={...ozonProof,ozon_video_url:ozonProof.ozon_video_url.replace('asset_1','asset_2')};assert.equal(appendPublicationProofs([ozonProof],[{...ozonProof,url:'https://ozon.ru/product/paste-3570424416/'},different]).length,2);
+});
+test('Wibes requires a concrete video link and API transport; task keeps missing access unresolved',()=>{
+ const wibes={...proof,platform:'wibes',url:'https://wibes.ru/clips/verified-video',publication_transport:'api'};
+ assert.ok(reelPublicationProof([wibes],''));
+ for(const patch of [{url:'https://wibes.ru/clips'},{url:'https://wibes.ru.evil/clips/video'},{publication_transport:undefined},{publication_transport:'browser'}])assert.equal(reelPublicationProof([{...wibes,...patch}],''),null);
+ const text=reelTaskText({content_id:'nine',handle:'author',content_url:'https://instagram.com/reel/SOURCE/'},'https://erp.test');
+ for(const literal of ['Wibes обязателен через API','не подменять браузерной загрузкой','Ozon означает видео в карточке','сохранением всех существующих медиа','Недоступные Wibes/Ozon не исключать'])assert.ok(text.includes(literal),literal);
 });

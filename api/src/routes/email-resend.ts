@@ -22,7 +22,22 @@ route.post('/archive-recovery/workspace', async (c) => {
   if (!c.env.EMAILER_SERVICE_SECRET || c.req.header('X-Emailer-Service-Secret') !== c.env.EMAILER_SERVICE_SECRET) return c.json({success:false},401);
   const parsed=z.object({account:z.string().email(),message_ids:z.array(z.string().regex(/^[a-z0-9]+$/i)).min(1).max(5)}).safeParse(await c.req.json().catch(()=>null));
   if(!parsed.success)return c.json({success:false,error:'connected_account_and_up_to_five_message_ids_required'},422);
-  try{return c.json({success:true,receipts:await repairWorkspaceMessages(c.env,parsed.data.account,[...new Set(parsed.data.message_ids)])});}
+  try{
+    const receipts=await repairWorkspaceMessages(c.env,parsed.data.account,[...new Set(parsed.data.message_ids)]);
+    const {syncMailbox,snapshotMailbox}=await import('../lib/mail-index-sync');
+    const boxes=[...new Set(receipts.flatMap(r=>r.keys || []).map(key=>key.split('/')[1]).filter((box):box is string=>!!box))];
+    const snapshots=[];
+    for(const box of boxes){
+      // Reconcile the complete existing index first. This preserves old R2
+      // entries and lets the normal foreign-write guard accept the new snapshot.
+      const indexed=await syncMailbox(c.env,box,{force:true});
+      if(indexed.error)throw new Error('Archive index reconciliation failed');
+      const snapshot=await snapshotMailbox(c.env,box);
+      if(!snapshot.wrote)throw new Error('Agent mailbox snapshot not verified');
+      snapshots.push({address:box,rows:snapshot.rows});
+    }
+    return c.json({success:true,receipts,snapshots});
+  }
   catch{return c.json({success:false,error:'source_or_attachment_archive_not_verified'},503);}
 });
 

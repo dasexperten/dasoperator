@@ -34,9 +34,11 @@ test('archive-only backfill retains thread and real attachment bytes; retries ca
   const previousFetch=globalThis.fetch;let networkCalls=0;
   globalThis.fetch=async()=>{networkCalls++;throw Error('Archive backfill must not send mail');};
   try{
-    const first=await call(payload);assert.equal(first.status,200);assert.deepEqual(await first.json(),{success:true,archived:1,failed:0,errors:[]});
+    const originalTime='2026-11-09T08:51:34.189Z';
+    const first=await call({...payload,sent_at:originalTime});assert.equal(first.status,200);assert.deepEqual(await first.json(),{success:true,archived:1,failed:0,errors:[]});
     const key=[...objects.keys()].find(k=>k.endsWith('.json'));
     const stored=JSON.parse(objects.get(key));
+    assert.equal(stored.timestamp,originalTime,'Archive recovery preserves original send time');
     assert.equal(stored.threadId,payload.in_reply_to);assert.equal(stored.plusTag,payload.reply_to_tag);
     assert.equal(stored.attachments.length,1);assert.equal(stored.attachments[0].size,4);
     assert.equal(stored.attachments[0].mimeType,payload.attachments[0].contentType);

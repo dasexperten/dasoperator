@@ -95,6 +95,8 @@ export interface HumanSendParams {
   trigger?: string;
   /** When true, skip Resend and only write R2 archive (backfill). Requires messageId. */
   archive_only?: boolean;
+  /** Original provider acceptance time for archive-only recovery. */
+  sent_at?: string;
   messageId?: string;
   attachments?: RawAttachment[];
   idempotencyKey?: string;
@@ -333,7 +335,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   const recordId = 'outbox-' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
   const previous = await env.ARCHIVE.get(`Inbox/${fromAddr}/sent/${recordId}.json`);
   const previousRecord = previous ? await previous.json<{ timestamp?: string; attachments?: ArchivedAttachment[]; threadId?: string; plusTag?: string }>() : null;
-  const timestamp = previousRecord?.timestamp || new Date().toISOString();
+  const timestamp = previousRecord?.timestamp || (params.archive_only && params.sent_at ? new Date(params.sent_at).toISOString() : new Date().toISOString());
   await archiveEmail(env, 'sent', fromAddr, {
     from: fromRaw,
     to: toList,

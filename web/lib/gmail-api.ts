@@ -19,7 +19,7 @@ async function result<T>(promise: Promise<ApiResponse<T>>): Promise<T> {
 }
 export const gmailAccounts = () => result(apiGet<{ accounts: { email: string }[] }>(`${base}/accounts`));
 export const gmailIdentities = (account: string) => result(apiGet<{ identities: string[] }>(`${accountPath(account)}/identities`));
-export const gmailList = (account: string, params: { q?: string; label?: string; pageToken?: string }) => result(apiGet<{ messages: GmailMessage[]; nextPageToken?: string; resultSizeEstimate?: number }>(`${accountPath(account)}/messages?${new URLSearchParams(Object.entries(params).filter(([, value]) => !!value) as [string, string][])}`));
+export const gmailList = (account: string, params: { q?: string; label?: string; pageToken?: string; scope?: string }) => result(apiGet<{ messages: GmailMessage[]; nextPageToken?: string; resultSizeEstimate?: number }>(`${accountPath(account)}/messages?${new URLSearchParams(Object.entries(params).filter(([, value]) => !!value) as [string, string][])}`));
 export const gmailBody = (account: string, id: string) => result(apiGet<{ message: GmailMessage }>(`${accountPath(account)}/messages/${encodeURIComponent(id)}`));
 export const gmailDrafts = (account: string, pageToken?: string) => result(apiGet<{ drafts: { id: string; message: GmailMessage }[]; nextPageToken?: string }>(`${accountPath(account)}/drafts${pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : ''}`));
 export const gmailDraft = (account: string, id: string) => result(apiGet<{ draft: { id: string; message: GmailMessage } }>(`${accountPath(account)}/drafts/${encodeURIComponent(id)}`));

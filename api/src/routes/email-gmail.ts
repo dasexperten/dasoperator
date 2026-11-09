@@ -1,5 +1,6 @@
 import { gmailCount, type CountQuery } from '../lib/gmail-counts';
 import { gmailMetadataBatch } from '../lib/gmail-metadata-batch';
+import { unifiedSent, archiveSentCount, sentArchiveRecord, sentArchiveMessage, sentCursor } from '../lib/unified-sent';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { gmailDraftSchema, composeGmailRaw } from '../lib/gmail-compose';
@@ -32,7 +33,7 @@ route.post('/:account/counts', bodyLimit({maxSize:20000}), async c => {
   const counts:Record<string,Awaited<ReturnType<typeof gmailCount>> | null>=Object.create(null);
   for (let i=0;i<queries.length;i+=4) {
     await Promise.all(queries.slice(i,i+4).map(async q => {
-      try { counts[q.key]=await gmailCount(token,q); } catch { counts[q.key]=null; }
+      try { counts[q.key]=await gmailCount(token,q); if(q.label==='SENT'&&counts[q.key])counts[q.key]!.value+=await archiveSentCount(c.env); } catch { counts[q.key]=null; }
     }));
   }
   return ok(c,{counts});
@@ -41,6 +42,11 @@ route.get('/:account/messages', async c => {
   const pageToken=c.req.query('pageToken'), search=c.req.query('q') || '', label=c.req.query('label');
   if ((pageToken?.length || 0)>2048 || search.length>2048 || (label && !/^[a-zA-Z0-9_-]{1,128}$/.test(label))) return fail(c,400,[{code:'invalid_query',message:'Invalid mail query'}]);
   const {token,account}=await gmailSession(c.env,c.req.param('account'));
+  if(label==='SENT') {
+    try {sentCursor(pageToken);}
+    catch {return fail(c,400,[{code:'invalid_cursor',message:'Invalid sent page'}]);}
+    return ok(c,await unifiedSent(c.env,token,account,search,c.req.query('scope') || '',pageToken));
+  }
   const query=new URLSearchParams({maxResults:'25',includeSpamTrash:'true'});
   if (pageToken) query.set('pageToken',pageToken);
   if (search) query.set('q',search);
@@ -51,6 +57,13 @@ route.get('/:account/messages', async c => {
   return ok(c,{provider:'gmail',account,messages,nextPageToken:page.nextPageToken || null,resultSizeEstimate:page.resultSizeEstimate || 0});
 });
 route.get('/:account/messages/:id', async c => {
+  if(c.req.param('id').startsWith('erp.')) {
+    const {account}=await gmailSession(c.env,c.req.param('account'));
+    const {key,record}=await sentArchiveRecord(c.env,c.req.param('id'));
+    const {inlineCidImages}=await import('../lib/inbox-archive');
+    if(record.html&&record.attachments?.length){try{record.html=await inlineCidImages(c.env,record.html,record.attachments);}catch{/* Keep text and attachment downloads available if an inline preview fails. */}}
+    return ok(c,{message:sentArchiveMessage(account,key,record)});
+  }
   const {token,account}=await gmailSession(c.env,c.req.param('account'));
   const message=await gmailMessage(token,c.req.param('id'));
   return ok(c,{message:{...gmailSummary(account,message),...await gmailBody(token,message)}});
@@ -58,6 +71,14 @@ route.get('/:account/messages/:id', async c => {
 route.get('/:account/messages/:id/attachment', async c => {
   const partId=c.req.query('partId');
   if (partId === undefined || partId.length>256) return fail(c,400,[{code:'invalid_part',message:'Message attachment part required'}]);
+  if(c.req.param('id').startsWith('erp.')) {
+    await gmailSession(c.env,c.req.param('account'));
+    const {key,record}=await sentArchiveRecord(c.env,c.req.param('id'));
+    const file=record.attachments?.find((f:any)=>f.id===partId&&!f.skipped&&f.key?.startsWith(key.slice(0,-5)+'/att/'));
+    const object=file?await c.env.ARCHIVE.get(file.key):null;
+    if(!object)return fail(c,404,[{code:'attachment_missing',message:'Attachment not found'}]);
+    return new Response(object.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.filename || 'attachment').replace(/'/g,'%27')}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+  }
   const {token}=await gmailSession(c.env,c.req.param('account'));
   const message=await gmailMessage(token,c.req.param('id'));
   const part=gmailParts(message.payload).find(p => (p.partId || '') === partId && !p.parts?.length);
@@ -123,6 +144,7 @@ route.post('/:account/drafts/:id/send',async c=>{
   return ok(c,{message});
 });
 route.post('/:account/messages/:id/action',async c=>{
+  if(c.req.param('id').startsWith('erp.'))return fail(c,409,[{code:'archive_read_only',message:'This sent archive copy is read-only'}]);
   const body=await c.req.json<{action?:string}>().catch(()=>null);
   const actions:Record<string,{addLabelIds?:string[];removeLabelIds?:string[]}>= {
     read:{removeLabelIds:['UNREAD']},unread:{addLabelIds:['UNREAD']},star:{addLabelIds:['STARRED']},unstar:{removeLabelIds:['STARRED']},archive:{removeLabelIds:['INBOX']},inbox:{addLabelIds:['INBOX']},

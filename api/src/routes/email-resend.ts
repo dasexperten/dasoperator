@@ -175,6 +175,7 @@ route.post('/resend-send', async (c) => {
 });
 
 const archiveOneSchema = z.object({
+  sent_at: z.string().datetime().optional(),
   from: z.string().min(3),
   to: z.string().email().or(z.array(z.string().email()).min(1)),
   subject: z.string().min(1),
@@ -236,6 +237,7 @@ route.post('/archive-sent', async (c) => {
       ...(item.attachments !== undefined ? { attachments: item.attachments.map(file => ({ ...file, mimeType: file.mimeType || file.contentType })) } : {}),
       messageId: item.messageId,
       archive_only: true,
+      ...(item.sent_at ? {sent_at:item.sent_at} : {}),
       origin: 'human',
       trigger: item.trigger || 'archive-backfill',
     });

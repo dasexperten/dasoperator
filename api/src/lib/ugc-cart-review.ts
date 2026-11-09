@@ -6,7 +6,7 @@ import {checkSubscriptionImages} from './diana-subscription-vision.mjs';
 import {decideCart,incomingAmount} from './ugc-cart-decision.mjs';
 export type CartMessage={id:string;direction:string;text?:string;created_at:string;attachments_json?:string|null};
 type Policy={sha:string;policy:any};
-const RECOGNITION_VERSION='ugc-cart-numeric-v1';
+const RECOGNITION_VERSION='ugc-cart-numeric-v2';
 async function digest(value:string){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');}
 export async function payoutImagePolicy(env:Env):Promise<Policy>{
  const token=(env as unknown as {GITHUB_TOKEN?:string}).GITHUB_TOKEN;
@@ -26,7 +26,8 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
  const imageMessages=messages.filter(m=>m.direction==='in'&&m.attachments_json&&m.attachments_json!=='[]'&&m.attachments_json!=='{}').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at));
  const latestImageAt=imageMessages[0]?.created_at??null;
  const checks:any[]=[];let unavailable=false,omitted=false,policy:Policy|undefined;
- for(const m of imageMessages.slice(0,6)){
+ const latestExplicit=quote?.explicit&&quote.amount_minor&&(!latestImageAt||Date.parse(quote.created_at)>Date.parse(latestImageAt));
+ for(const m of (latestExplicit?[]:imageMessages.slice(0,6))){
   let urls:string[]=[];try{urls=imageUrls(m.attachments_json!);}catch{unavailable=true;continue;}
   for(const [index,originalUrl] of urls.entries()){
    policy??=await (options.policy?.()??payoutImagePolicy(env));
@@ -45,7 +46,7 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
      const result=await checkSubscriptionImages({images:[{...image,label:`Скриншот из входящего сообщения ${m.created_at}, вложение ${index+1}.`}],policy:policy.policy,
       task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Other unselected goods and their totals are not our reimbursement. Prefer the selected payment method total for this programme item. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:subscriptionInfer(env,'image')});
      const c=result.checks[0]!;
-     check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,encoded_image_sha256:hash,policy_sha:policy.sha,recognition_version:RECOGNITION_VERSION,kind:c.kind,product:c.product,seller:c.seller,amount:c.amount,observed:c.observed,unresolved_required:(c as any).unresolved_required??[],attempts:c.attempts,checked_at:now};
+     check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,encoded_image_sha256:hash,policy_sha:policy.sha,recognition_version:RECOGNITION_VERSION,kind:c.kind,source_kind:(c as any).source_kind??c.kind,product:c.product,seller:c.seller,amount:c.amount,observed:c.observed,unresolved_required:(c as any).unresolved_required??[],attempts:c.attempts,checked_at:now};
     }catch{check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,kind:'unknown',product:'unknown',seller:'unknown',amount:'unknown',reason:'recognition_pending',retry_at:now+5*60000};}
     if(!options.readOnly)await env.DB.batch([env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(key,JSON.stringify(check),now)]);
    }
@@ -54,7 +55,7 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
   // A recognised latest basket is sufficient; older pictures cannot supply a different price.
   if(checks.some(c=>c.source_message_id===m.id&&['basket','order','unknown'].includes(c.kind)))break;
  }
- if(imageMessages.length>6&&!checks.some(c=>c.kind==='basket'))omitted=true;
+ if(!latestExplicit&&imageMessages.length>6&&!checks.some(c=>c.kind==='basket'))omitted=true;
  let decision=decideCart(checks,quote);
  if(unavailable||omitted)decision={status:'pending',reason:unavailable?'image_source_unavailable':'recognition_budget_pending',amount_minor:null};
  const latestIncoming=messages.filter(m=>m.direction==='in').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0]?.created_at??null;

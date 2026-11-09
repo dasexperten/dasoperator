@@ -10,7 +10,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   verified: boolean; handle: string; conversation_id: string; cycle_message_id: string;
   source_message_ids: string[]; amount_minor: number; phone: string; first_name?: string | null;
   fps_bank_member_id: string; bank_ref: string;
-  cart_review?: {source_message_id:string;amount_minor:number};
+  cart_review?: {source_message_id:string;amount_minor:number;source_kind?:'checkout';evidence?:string;reviewer?:string};
 }, now = Date.now()) {
   const handle = String(input.handle ?? '').replace(/^@/, '').toLowerCase();
   const phone = konsolPhone(input.phone);
@@ -53,8 +53,9 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const profileId = profile?.id ?? await stable('ugcp','instagram:'+handle);
   const key = 'diana_payout_intake:' + creatorId;
   const receipt = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key).first<{value:string}>();
+  let previousProof:any=null;
   if (receipt) {
-    const previous = JSON.parse(receipt.value);
+    const previous = previousProof = JSON.parse(receipt.value);
     if (Number(previous.source_at) > lastAt) throw Error('newer_payment_details_already_saved');
   }
   const settled = await env.DB.prepare(`SELECT id FROM ugc_payouts WHERE creator_id=?1
@@ -88,7 +89,12 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     const review=input.cart_review;
     if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>99900)throw Error('invalid_verified_cart_amount');
     const source=await env.DB.prepare("SELECT created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2 AND direction='in' AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(review.source_message_id,input.conversation_id).first<{created_at:string}>();
-    if(!source||!latestImage?.at||Date.parse(source.created_at)!==Date.parse(latestImage.at))throw Error('verified_cart_must_be_current_original');
+    if(!source||!latestImage?.at)throw Error('verified_cart_must_be_current_original');
+    if(Date.parse(source.created_at)!==Date.parse(latestImage.at)){
+      let inspection;try{inspection=JSON.parse(cartReceipt?.value??'null');}catch{}
+      const later=(inspection?.checks??[]).filter((c:any)=>Date.parse(c.created_at)>Date.parse(source.created_at));
+      if(review.source_kind!=='checkout'||!review.evidence?.trim()||!review.reviewer?.trim()||Date.parse(inspection?.latest_image_at)!==Date.parse(latestImage.at)||!later.length||later.some((c:any)=>c.kind!=='other'||c.seller==='no'||(c.unresolved_required??[]).some((v:string)=>v==='kind'||v==='contradictory_evidence')))throw Error('verified_cart_must_be_current_original');
+    }
     cartAmount=review.amount_minor;
   }
   // Never create a financial row from the one-kopeck 'unknown' sentinel.
@@ -105,7 +111,11 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       conversation_id:input.conversation_id,cycle_message_id:input.cycle_message_id,
       source_message_ids:sources,source_at:lastAt,missing_fields:missing,
       observed_amount_minor:amount ?? null});
-    const write = await savePendingClarification(env.DB,pendingKey,pending,now);
+    const partialAmount=open&&open.amount_minor<5000&&amount!=null&&amount>=5000?env.DB.prepare(`UPDATE ugc_payouts SET amount_minor=?2,updated_at=?3
+      WHERE id=?1 AND amount_minor<5000 AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL
+      AND EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?4 AND value=?5)
+      AND NOT EXISTS(SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id=ugc_payouts.id AND TRIM(COALESCE(r.first_name,''))<>'' AND r.fps_mobile_phone GLOB '+79[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]' AND length(ugc_payouts.fps_bank_member_id)=12 AND ugc_payouts.fps_bank_member_id NOT GLOB '*[^0-9]*')`).bind(open.id,amount,now,pendingKey,pending):undefined;
+    const write = await savePendingClarification(env.DB,pendingKey,pending,now,partialAmount);
     if (!write) throw Error('payout_intake_clarification_not_verified');
     return {outcome:'clarification_required',registered:false,missing_fields:missing,
       dispatch_status:'not_dispatched'};
@@ -114,7 +124,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
-    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart,reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
+    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart??(previousProof?.verified_cart?.amount_minor===amount?previousProof.verified_cart:null),reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_creators(id,normalized_handle,lifecycle_stage,created_at,updated_at)
       VALUES(?1,?2,'agreed',?3,?3) ON CONFLICT(id) DO NOTHING`).bind(creatorId,handle,now),
@@ -156,7 +166,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
 }
 
 // Existing crm_sync_state boundary only; no raw name, phone or bank is stored here.
-async function savePendingClarification(db: Env['DB'], key: string, value: string, now: number) {
+async function savePendingClarification(db: Env['DB'], key: string, value: string, now: number, partialAmount?:D1PreparedStatement) {
   const result = await db.batch<{value:string}>([
     db.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
@@ -166,8 +176,9 @@ async function savePendingClarification(db: Env['DB'], key: string, value: strin
             AND json_extract(crm_sync_state.value,'$.source_at')<json_extract(excluded.value,'$.source_at')))
         AND json_extract(crm_sync_state.value,'$.dispatch_status')='not_dispatched'
         AND json_extract(crm_sync_state.value,'$.source_at')<=json_extract(excluded.value,'$.source_at')`).bind(key,value,now),
+    ...(partialAmount?[partialAmount]:[]),
     db.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key),
   ]);
-  return result.length===2 && result.every(row=>row.success===true)
-    && [0,1].includes(Number(result[0]?.meta?.changes)) && result[1]?.results?.[0]?.value===value;
+  return result.length===(partialAmount?3:2) && result.every(row=>row.success===true)
+    && [0,1].includes(Number(result[0]?.meta?.changes)) && result.at(-1)?.results?.[0]?.value===value;
 }

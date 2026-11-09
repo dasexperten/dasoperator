@@ -24,3 +24,6 @@ test('Luna amount yes with invalid numeric currency evidence escalates to Terra'
   const f=infer([{...basket,observed},basket]);const r=await checkSubscriptionImages({...args,infer:f.call});assert.deepEqual(f.models,['gpt-6-luna','gpt-6.1-terra']);assert.equal(r.checks[0].observed.price,'429');
  }
 });
+test('an explicit before-order checkout is basket evidence with original classification retained',async()=>{
+ const f=infer([{...good,kind:'checkout',seller:'unknown',seller_evidence:'absent'}]);const r=await checkSubscriptionImages({...args,infer:f.call});assert.equal(r.status,'yes');assert.equal(r.checks[0].kind,'basket');assert.equal(r.checks[0].source_kind,'checkout');assert.deepEqual(f.models,['gpt-6-luna']);
+});

@@ -15,3 +15,8 @@ test('split short requisites work, missing name and alternate banks fail closed'
  assert.equal(latestRequisites([m('a','89990000000 Сбер или ТБанк Анна','00')]),null);
  assert.equal(latestRequisites([m('a','89990000000 Сбер Жукова Т.Б','00')]),null);
 });
+
+test('new ambiguous phone never falls back to older bank or recipient details',()=>{
+ assert.equal(latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 Сбер или ТБанк Елена','20')]),null);
+ const r=latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 ТБанк Елена','01')]);assert.equal(r.phone,'+79991111111');assert.equal(r.first_name,'Елена');
+});

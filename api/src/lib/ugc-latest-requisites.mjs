@@ -14,11 +14,14 @@ export function latestRequisites(messages){
  for(let i=0;i<rows.length;i++){
   if(!PHONE.test(rows[i].text))continue;
   const at=Date.parse(rows[i].created_at);
+  result=null; // Never fall back to older details after a newer incomplete/ambiguous phone.
+  const phone=rows[i].text.match(PHONE)[0].replace(/\D/g,'').replace(/^8/,'7');
   const cluster=rows.slice(Math.max(0,i-2),i+3).filter(m=>Math.abs(Date.parse(m.created_at)-at)<=600000&&m.text.length<=240).filter(m=>!m.text.match(BANK)||PHONE.test(m.text)||/банк|сбер|тинькофф|тиньков|втб|альфа|совком/i.test(m.text)||/^\s*(?:озон|ozon)\s*$/i.test(m.text));
-  const text=cluster.map(m=>m.text).join('\n');
+  const selected=cluster.filter(m=>{const p=m.text.match(PHONE)?.[0].replace(/\D/g,'').replace(/^8/,'7');return !p||p===phone;});
+  const text=selected.map(m=>m.text).join('\n');
   if(!singleBank(text))continue;
-  const r=detectRequisites(cluster.map(m=>m.text));
-  if(r && !(r.first_name.length>4 && /(?:ова|ева|ская|цкая)$/i.test(r.first_name)))result={...r,source_message_ids:cluster.map(m=>m.id),source_at:Math.max(...cluster.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
+  const r=detectRequisites(selected.map(m=>m.text));
+  if(r && !(r.first_name.length>4 && /(?:ова|ева|ская|цкая)$/i.test(r.first_name)))result={...r,source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
  }
  if(!result)return null;
  for(const row of rows){

@@ -1,0 +1,1 @@
+export function latestRequisites(messages:Array<{id:string;direction:string;text:string;created_at:string}>):null|{phone:string;bank:string;first_name:string;source_message_ids:string[];source_at:number;cycle_message_id:string};

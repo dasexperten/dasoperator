@@ -17,8 +17,8 @@ function fixture(){
  CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,creator_id TEXT,creator_platform_id TEXT,platform TEXT,handle TEXT,amount_minor INTEGER,currency TEXT,status TEXT,payout_date TEXT,marketplace TEXT,phone_masked TEXT,bank_ref TEXT,fps_bank_member_id TEXT,product TEXT,note TEXT,created_by TEXT,created_at INTEGER,updated_at INTEGER,konsol_payment_id TEXT,execute_claim TEXT,paid_at TEXT,sent_at TEXT,approved_at TEXT,approved_by TEXT);
  CREATE TABLE ugc_payout_requisites(payout_id TEXT PRIMARY KEY,fps_mobile_phone TEXT,first_name TEXT,last_name TEXT,patronymic TEXT,created_at INTEGER,updated_at INTEGER);
  CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);
- CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,direction TEXT,from_username TEXT,created_at TEXT);
- INSERT INTO ugc_ig_messages VALUES('amount','chat','in','alice','2026-11-08T10:00:00Z'),('bank','chat','in','alice','2026-11-08T11:00:00Z'),('new-bank','chat','in','alice','2026-11-09T11:00:00Z');`);
+ CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,direction TEXT,from_username TEXT,created_at TEXT,attachments_json TEXT);
+ INSERT INTO ugc_ig_messages VALUES('amount','chat','in','alice','2026-11-08T10:00:00Z',NULL),('bank','chat','in','alice','2026-11-08T11:00:00Z',NULL),('new-bank','chat','in','alice','2026-11-09T11:00:00Z',NULL);`);
  const DB={prepare(sql){let params=[];return {statement:{sql,get params(){return params}},bind(...p){params=p;return this},async first(){return db.prepare(sql).get(...params)??null}}},async batch(qs){db.exec('BEGIN');try{const results=qs.map(q=>({meta:{changes:db.prepare(q.statement.sql).run(...q.statement.params).changes}}));db.exec('COMMIT');return results}catch(e){db.exec('ROLLBACK');throw e}}};
  return {db,env:{DB}};
 }
@@ -72,5 +72,17 @@ test('intake preserves an Owner-entered amount while accepting newer bank detail
 test('a claimed execution cannot have its bank changed by intake',async()=>{
  const f=fixture();try{const a=await prepareCreatorPayout(f.env,facts,now);f.db.prepare("UPDATE ugc_payouts SET execute_claim='running' WHERE id=?").run(a.id);
  await assert.rejects(prepareCreatorPayout(f.env,facts,now),/already_handed_over/);
+ }finally{f.db.close()}
+});
+
+test('a verified exact current basket fills only an unconfirmed amount',async()=>{
+ const f=fixture();try{
+  const a=await prepareCreatorPayout(f.env,facts,now);
+  const check={status:'yes',checks:[{kind:'basket',product:'yes',amount:'yes',seller:'yes',unresolved_required:[],label:'сообщения 2026-11-09T11:00:00Z, вложение 1',observed:{currency:'RUB',price:'453'}}]};
+  f.db.prepare("UPDATE ugc_ig_messages SET attachments_json='[{}]' WHERE id='new-bank'").run();
+  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_context:chat',JSON.stringify({image_check:check}),now);
+  assert.equal((await prepareCreatorPayout(f.env,facts,now)).amount_minor,45300);
+  f.db.prepare('UPDATE ugc_payouts SET amount_minor=48700 WHERE id=?').run(a.id);
+  assert.equal((await prepareCreatorPayout(f.env,facts,now)).amount_minor,48700);
  }finally{f.db.close()}
 });

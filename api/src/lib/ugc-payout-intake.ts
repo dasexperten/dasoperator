@@ -1,8 +1,9 @@
 import type { Env } from '../types';
 import { konsolPhone, isFpsBankMemberId, maskPhoneWide } from './ugc-payouts.mjs';
+import { confirmedCartAmount } from './ugc-cart-amount.mjs';
 import { payoutStageStatement } from './ugc-payout-stage.mjs';
 
-// Diana supplies reviewed facts from originals; ERP does no chat interpretation.
+// Explicit reviewed intake and the narrow deterministic payout scanner share this save boundary.
 // Save the approval row, protected requisites and source receipt in one transaction.
 export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   verified: boolean; handle: string; conversation_id: string; cycle_message_id: string;
@@ -60,6 +61,11 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const open = await env.DB.prepare(`SELECT id,amount_minor FROM ugc_payouts WHERE creator_id=?1
     AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL
     ORDER BY updated_at DESC LIMIT 1`).bind(creatorId).first<{id:string;amount_minor:number}>();
+  const context = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_context:'+input.conversation_id).first<{value:string}>();
+  const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','null','')").bind(input.conversation_id).first<{at:string}>();
+  let imageCheck; try { imageCheck=JSON.parse(context?.value ?? '{}').image_check; } catch {}
+  const cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
+  const amount = open && open.amount_minor !== 1 ? open.amount_minor : (cartAmount ?? 1);
   const id = open?.id ?? await stable('ugcpay',creatorId+':'+input.cycle_message_id);
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
@@ -72,14 +78,14 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       .bind(profileId,creatorId,handle,'https://www.instagram.com/'+handle+'/',now),
     env.DB.prepare(`INSERT INTO ugc_payouts(id,creator_id,creator_platform_id,platform,handle,amount_minor,currency,status,
       payout_date,marketplace,phone_masked,bank_ref,fps_bank_member_id,product,note,created_by,created_at,updated_at)
-      VALUES(?1,?2,?3,'instagram',?4,1,'RUB','awaiting_approval',?5,'ozon',?6,?7,?8,
+      VALUES(?1,?2,?3,'instagram',?4,?10,'RUB','awaiting_approval',?5,'ozon',?6,?7,?8,
       'TERMO 39°','Реквизиты проверены по исходной переписке. Ожидает одобрения Владельца.','diana-helios',?9,?9)
       ON CONFLICT(id) DO NOTHING`).bind(id,creatorId,profileId,handle,
-        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now),
+        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now,amount),
     env.DB.prepare(`UPDATE ugc_payouts SET phone_masked=?2,bank_ref=?3,fps_bank_member_id=?4,
-      product='TERMO 39°',status='awaiting_approval',approved_at=NULL,approved_by=NULL,updated_at=?5
+      amount_minor=CASE WHEN amount_minor=1 THEN ?6 ELSE amount_minor END,product='TERMO 39°',status='awaiting_approval',approved_at=NULL,approved_by=NULL,updated_at=?5
       WHERE id=?1 AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL`)
-      .bind(id,maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now),
+      .bind(id,maskPhoneWide(phone),input.bank_ref,input.fps_bank_member_id,now,amount),
     env.DB.prepare(`INSERT INTO ugc_payout_requisites(payout_id,fps_mobile_phone,first_name,last_name,patronymic,created_at,updated_at)
       SELECT ?1,?2,?3,NULL,NULL,?4,?4 WHERE EXISTS(SELECT 1 FROM ugc_payouts WHERE id=?1 AND status='awaiting_approval' AND konsol_payment_id IS NULL AND execute_claim IS NULL)
       ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone,first_name=excluded.first_name,
@@ -91,7 +97,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const saved = await env.DB.prepare(`SELECT p.id,p.status,p.amount_minor,p.phone_masked,p.bank_ref,
     r.first_name,r.fps_mobile_phone FROM ugc_payouts p JOIN ugc_payout_requisites r ON r.payout_id=p.id WHERE p.id=?1`)
     .bind(id).first<Record<string,unknown>>();
-  if (!saved || saved.status !== 'awaiting_approval' || saved.amount_minor !== (open?.amount_minor ?? 1) ||
+  if (!saved || saved.status !== 'awaiting_approval' || saved.amount_minor !== amount ||
       saved.fps_mobile_phone !== phone || saved.bank_ref !== input.bank_ref ||
       saved.first_name !== (input.first_name?.trim() || null)) throw Error('payout_intake_readback_failed');
   const {fps_mobile_phone: _privatePhone, ...display} = saved;

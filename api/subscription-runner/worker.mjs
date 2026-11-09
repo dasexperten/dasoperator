@@ -5,16 +5,20 @@ async function key(secret){return crypto.subtle.importKey('raw',Uint8Array.from(
 async function seal(value,secret){const iv=crypto.getRandomValues(new Uint8Array(12));const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(secret),enc.encode(JSON.stringify(value)));return {iv:[...iv],data:[...new Uint8Array(data)]};}
 async function unseal(value,secret){return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(value.iv)},await key(secret),new Uint8Array(value.data))));}
 export class CodexRunner extends Container {
- defaultPort=8080;sleepAfter='5m';queue=Promise.resolve();
+ defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();
  async seed(auth){return this.serial(async()=>{if(await this.ctx.storage.get('auth'))throw Error('auth_already_seeded');if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('managed_chatgpt_auth_required');await this.ctx.storage.put('auth',await seal(auth,this.env.AUTH_KEY));return {seeded:true};});}
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
  async infer(body){return this.serial(async()=>{
-  if(!body.requestId||!['image','context','reply'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model))return Response.json({error:'invalid_request'},{status:400});
+  if(!body.requestId||!['image','context','reply','dieter_round'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request'},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const cacheKey='result:'+body.requestId;const previous=await this.ctx.storage.get(cacheKey);
   if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}
+  const acted=body.operation==='dieter_round'&&body.execution?.mode!=='preflight';
+  const intentKey='dieter-intent:'+body.requestId;
+  if(acted&&await this.ctx.storage.get(intentKey))return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
   const encrypted=await this.ctx.storage.get('auth');if(!encrypted)return Response.json({error:'subscription_auth_not_seeded'},{status:503});
   const auth=await unseal(encrypted,this.env.AUTH_KEY);
+  if(acted)await this.ctx.storage.put(intentKey,{at:Date.now(),fingerprint});
   // Owner 2026-11-06: every call leaves one log line (operation, model, wait, run time, outcome) so an outage has a cause on record.
   const t0=Date.now();const log=(outcome,extra={})=>console.log(JSON.stringify({diana_runner:true,op:body.operation,model:body.model,req:String(body.requestId).slice(0,24),run_ms:Date.now()-t0,outcome,...extra}));
   let response;try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);}catch(e){log('container_fetch_threw',{error:String(e?.message??e).slice(0,200)});throw e;}
@@ -24,6 +28,11 @@ export class CodexRunner extends Container {
   // Persist native refresh before returning. Never expose the credential to callers.
   if(result.auth)await this.ctx.storage.put('auth',await seal(result.auth,this.env.AUTH_KEY));
   delete result.auth;
+  if(result.privateEvents){
+   const artifact='dieter/cloud-round/'+body.requestId+'/events.jsonl';
+   await this.env.AUDIT.put(artifact,result.privateEvents,{httpMetadata:{contentType:'application/x-ndjson'}});
+   delete result.privateEvents;result.auditArtifact=artifact;
+  }
   if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
   await this.ctx.storage.put(cacheKey,{fingerprint,result,at:Date.now()});
   const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);

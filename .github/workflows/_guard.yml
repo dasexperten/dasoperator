@@ -140,6 +140,9 @@ jobs:
       - name: Test bounded Direct link refresh
         run: node --test api/src/lib/ugc-dm-links.test.mjs
 
+      - name: Test Dieter cloud ownership and recovery
+        run: node --test api/src/lib/dieter-cloud.test.mjs
+
       - name: Test postlink Apify budget and metric preservation
         run: node --test api/src/lib/ugc-apify.test.mjs api/src/lib/ugc-apify-consumers.test.mjs
 

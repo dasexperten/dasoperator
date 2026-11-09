@@ -358,3 +358,4 @@ export default {
 export { WbGateway } from './wb-entrypoint';
 export { DianaWake } from './diana-wake';
 export { DianaCloudWorkflow } from './diana-cloud-workflow';
+export {DieterWake,DieterCloudWorkflow} from './dieter-cloud';

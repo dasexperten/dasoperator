@@ -353,3 +353,16 @@ new_sqlite_classes = ["DianaWake"]
 [[services]]
 binding = "SEAT_DIETER_VFX"
 service = "dieter-vfx"
+
+[[durable_objects.bindings]]
+name = "DIETER_WAKE"
+class_name = "DieterWake"
+
+[[workflows]]
+binding = "DIETER_CLOUD"
+name = "dieter-ugc-upload"
+class_name = "DieterCloudWorkflow"
+
+[[migrations]]
+tag = "dieter-cloud-v1"
+new_sqlite_classes = ["DieterWake"]

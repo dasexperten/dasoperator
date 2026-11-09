@@ -9,6 +9,12 @@ export function diterWindow(now: number): boolean { return inMoscowWindow(new Da
 // No /adhoc, model, download or publication here. Only accept one concrete job
 // for a registered live executor, before the executor starts its round.
 export async function tickDiterAlarm(env: Env, now = Date.now(), contentId: string | null = null) {
+  const cloud=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>();
+  if(cloud?.value==='enabled'){
+    const response=await env.DIETER_WAKE.get(env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({now,contentId})}));
+    if(!response.ok)throw Error('dieter_cloud_dispatch_unconfirmed');
+    return response.json<{ok:boolean;accepted:boolean;note:string;content_id?:string}>();
+  }
   const pending = await env.DB.prepare("SELECT content_id,required_destinations FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<{content_id:string;required_destinations:string}>();
   const state = await env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const working = await env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first<{content_id:string}>();
@@ -64,6 +70,7 @@ export async function tickDiterUgcAlarm(env: Env, now = new Date()) {
 // Backward-compatible PC transport has already done real tool preflight before
 // this call. Acceptance is still performed by the same alarm, not by the model.
 export async function acceptLegacyReel(env: Env, contentId: string, origin: string, now = Date.now()) {
+  if((await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled')return null;
   if (!diterWindow(now)) return null;
   const stored=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
   const signal=freshSignal(stored?.value ?? '',new Date(now));

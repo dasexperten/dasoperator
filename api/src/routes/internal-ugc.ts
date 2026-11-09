@@ -39,6 +39,7 @@ route.use('*', async (c, next) => {
 // assignment. Older installed clients forward it only after an accepted claim.
 // Never send a model a contradictory "Preflight only" instruction after claim.
 route.get('/reel-alarm', async (c) => {
+  if((await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled')return c.json({ok:true,name:ALARM,alarm:ALARM,target:'diter-ugc-round',ready:false,executor:'cloudflare_workflow',job:null});
   const stored=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
   const signal=freshSignal(stored?.value ?? '');
   const row=signal ? await c.env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3`).bind(signal.content_id).first<{content_id:string;content_url:string;handle:string;required_destinations:string;publications:string}>() : null;
@@ -65,6 +66,7 @@ route.get('/alarm/status', async (c) => {
   return c.json({ok:true,alarm:ALARM,schedule:{timezone:'Europe/Moscow',...MOSCOW_SCHEDULE},runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
 });
 route.post('/alarm/pulse', async (c) => {
+  if((await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled')return c.json({ok:false,error:'cloud_executor_selected'},409);
   const body = await c.req.json().catch(() => null) as {consumer_id?:string;ready?:boolean;capabilities?:string[]} | null;
   const id = body?.consumer_id ?? '';
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{8,120}$/.test(id) || typeof body?.ready !== 'boolean' || !Array.isArray(body?.capabilities) || !body.capabilities.includes('diter-ugc-round')) return c.json({ok:false,error:'valid_consumer_ready_capability_required'},422);
@@ -226,4 +228,8 @@ route.post('/reel-jobs/:id/dispatch', async (c) => {
 });
 
 route.route('/', instagramOperationRoutes);
+route.post('/cloud/preflight',async c=>{
+ const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/preflight',{method:'POST'}));
+ return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
+});
 export default route;

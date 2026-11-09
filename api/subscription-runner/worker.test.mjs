@@ -18,3 +18,20 @@ test('singleton serializes refreshed auth, keeps encrypted storage and never ret
  await runner.infer(body);assert.equal(seen.length,2);
  assert.equal((await runner.infer({...body,messages:['different']})).status,409);
 });
+test('a lost tool-round outcome cannot execute a second upload round',async()=>{
+ const {ctx}=setup();let calls=0;
+ const env={AUTH_KEY:Buffer.alloc(32,9).toString('base64'),containerFetch:async()=>{calls++;throw Error('connection lost after request');}};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const body={requestId:'dieter-claim-0',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}};
+ await assert.rejects(runner.infer(body),/connection lost/);
+ assert.equal((await runner.infer(body)).status,409);assert.equal(calls,1);
+ assert.equal((await runner.infer({...body,model:'gpt-6-luna'})).status,400);
+});
+test('tool traces are archived privately and removed from public cached results',async()=>{
+ const {ctx,map}=setup(),artifacts=[];
+ const env={AUTH_KEY:Buffer.alloc(32,8).toString('base64'),AUDIT:{async put(k,v){artifacts.push({k,v});}},containerFetch:async()=>Response.json({text:'done',privateEvents:'private upload receipts',auth:{auth_mode:'chatgpt',tokens:{refresh_token:'refreshed'}}})};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const result=await(await runner.infer({requestId:'dieter-claim-0',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}})).json();
+ assert.equal(result.privateEvents,undefined);assert.equal(result.auth,undefined);assert.equal(artifacts.length,1);
+ assert.ok(!JSON.stringify([...map]).includes('private upload receipts'));
+});

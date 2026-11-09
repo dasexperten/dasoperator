@@ -664,14 +664,18 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
   const { isAdmin, busy, errors, pay } = useContext(PayContext);
   const payable = Boolean(isAdmin && payout && canPay(payout));
+  const canEnterAmount = Boolean(isAdmin && payout
+    && ['awaiting_approval', 'approved'].includes(payout.status)
+    && !payout.konsol_payment_id && !payout.execute_claim
+    && (!Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000));
   const isBusy = Boolean(payout && busy.has(payout.id));
   const payError = payout ? errors[payout.id] : undefined;
   // Owner 2026-10-15: the brown badge itself is the button (Admin only). Green is done, not clickable.
   // Only the clicked badge waits; every other badge stays clickable.
-  const badge = payable && payout
-    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={async (event) => { event.stopPropagation(); if (Number(payout!.amount_minor) < 5000) { const typed = window.prompt(`Сумма корзины для @${payout!.handle ?? ''}, ₽ (только паста)`); const rub = Math.round(Number(String(typed ?? '').replace(',', '.').replace(/[^\d.]/g, ''))); if (!rub || rub < 50 || rub > 999) return; const saved = await apiPatch(`/api/ugc/payouts/${encodeURIComponent(payout!.id)}`, { amount_rub: rub }); if (!saved.success) return; window.dispatchEvent(new Event('ugc:reload')); return; } pay(payout!); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
+  const badge = (payable || canEnterAmount) && payout
+    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`${canEnterAmount ? 'Указать сумму' : 'Оплатить'}: ${payoutTitle(payout)}`} onClick={async (event) => { event.stopPropagation(); if (canEnterAmount) { const typed = window.prompt(`Сумма корзины для @${payout!.handle ?? ''}, ₽ (только паста)`); const rub = Math.round(Number(String(typed ?? '').replace(',', '.').replace(/[^\d.]/g, ''))); if (!rub || rub < 50 || rub > 999) return; const saved = await apiPatch(`/api/ugc/payouts/${encodeURIComponent(payout!.id)}`, { amount_rub: rub }); if (!saved.success) return; window.dispatchEvent(new Event('ugc:reload')); return; } pay(payout!); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
     : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
-  return <span className="ugc-payout-cell" title={payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
+  return <span className="ugc-payout-cell" title={canEnterAmount ? `Нажми, чтобы указать сумму · ${payoutTitle(payout)}` : payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
     <span className="ugc-payout-line">{badge}<NoticeChip payout={payout} /></span>
     {payError
       ? <span className="ugc-payout-reason" role="alert" style={{ color: 'var(--status-error)' }}>{payError}</span>

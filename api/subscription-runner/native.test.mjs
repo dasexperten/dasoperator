@@ -20,6 +20,17 @@ test('images remain bytes, not an external URL fetch',()=>{
  const p=prepareInput([{role:'user',content:[{type:'image_url',image_url:{url:'data:image/png;base64,QUJD'}}]}]);assert.equal(p.images[0].data,'QUJD');
  assert.throws(()=>prepareInput([{role:'user',content:[{type:'image_url',image_url:{url:'https://example.com/image'}}]}]),/inline_image/);
 });
+test('Diana reply runs Terra through native subscription with medium effort and no tools',async()=>{
+ let input='';
+ const spawnImpl=(_command,args,opts)=>{
+  assert.ok(args.includes('model_reasoning_effort="medium"'));assert.ok(args.includes('features.shell_tool=false'));
+  assert.equal(args[args.indexOf('-m')+1],'gpt-6.1-terra');assert.equal(opts.env.OPENAI_API_KEY,undefined);
+  const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdin=new PassThrough();child.kill=()=>{};
+  child.stdin.on('data',d=>input+=d);child.stdin.on('finish',()=>{child.stdout.write(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'{"reply":null,"reason":"acknowledgement"}'}})+'\n'+JSON.stringify({type:'turn.completed'})+'\n');child.emit('close',0);});return child;
+ };
+ const result=await nativeInfer({operation:'reply',model:'gpt-6.1-terra',requestId:'reply-test',messages:[{role:'system',content:'Full Diana voice and charter.'},{role:'user',content:'Creator input.'}]},{auth,spawnImpl});
+ assert.equal(result.receipt.operation,'reply');assert.equal(result.receipt.auth,'subscription');assert.match(input,/Full Diana voice and charter/);assert.doesNotMatch(input,/Perform only the supplied extraction/);
+});
 test('an ignored SIGTERM escalates to SIGKILL and releases the native request',async(t)=>{
  t.mock.timers.enable({apis:['setTimeout']});
  let ready;const started=new Promise(r=>{ready=r});const signals=[];

@@ -2,7 +2,7 @@
 // with subscription authentication; this adapter never calls a model API.
 export async function subscriptionInference(messages, { binding, requestId, operation, model = 'gpt-6-luna', schema }) {
   if (!binding || typeof binding.fetch !== 'function') throw Error('subscription_runner_not_configured');
-  if (!['context', 'image'].includes(operation)) throw Error('invalid_subscription_operation');
+  if (!['context', 'image', 'reply'].includes(operation)) throw Error('invalid_subscription_operation');
   if (typeof requestId !== 'string' || !requestId.trim()) throw Error('subscription_request_id_required');
   const response = await binding.fetch('https://subscription.internal/infer', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

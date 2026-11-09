@@ -9,7 +9,7 @@ export class CodexRunner extends Container {
  async seed(auth){return this.serial(async()=>{if(await this.ctx.storage.get('auth'))throw Error('auth_already_seeded');if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('managed_chatgpt_auth_required');await this.ctx.storage.put('auth',await seal(auth,this.env.AUTH_KEY));return {seeded:true};});}
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
  async infer(body){return this.serial(async()=>{
-  if(!body.requestId||!['image','context'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model))return Response.json({error:'invalid_request'},{status:400});
+  if(!body.requestId||!['image','context','reply'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model))return Response.json({error:'invalid_request'},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const cacheKey='result:'+body.requestId;const previous=await this.ctx.storage.get(cacheKey);
   if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}

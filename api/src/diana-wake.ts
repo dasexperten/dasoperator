@@ -49,9 +49,8 @@ export class DianaWake {
     return{active:!!row&&Date.now()-Number(row.updated_at)<180_000,updated_at:row?.updated_at??null};
   }
   private async dispatch(priorityEventId?:string,justReturned:string[]=[]){
-    const mode=await this.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_execution_mode'").first<{value:string}>();
-    const cloud=await this.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode'").first<{value:string}>();
-    if(cloud?.value==='enabled'){
+    const mode=await this.env.DB.prepare("SELECT (SELECT value FROM crm_sync_state WHERE key='diana_execution_mode') value,(SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode') cloud").first<{value:string;cloud:string}>();
+    if(mode?.cloud==='enabled'){
       const result=this.cloudQueue.then(()=>dispatchDianaCloud(this.env,priorityEventId));
       this.cloudQueue=result.catch(()=>undefined);return result;
     }

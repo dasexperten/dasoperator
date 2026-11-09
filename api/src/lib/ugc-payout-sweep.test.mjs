@@ -13,7 +13,7 @@ const dir = mkdtempSync(join(tmpdir(), 'ugc-sweep-'));
 const outfile = join(dir, 'sweep.mjs');
 await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', outfile,
   plugins: [{ name: 'no-external-effects', setup(b) {
-    b.onResolve({ filter: /^\.\/(konsol|owner-telegram|ugc-payout-execute\.mjs|ig-dm-watch|diana-compose|mina-alert|ig-dm-reply)$/ }, a => ({ path: a.path, namespace: 'mock' }));
+    b.onResolve({ filter: /^\.\/(konsol|owner-telegram|ugc-payout-execute\.mjs|ig-dm-watch|diana-compose|ugc-payout-handoff|mina-alert|ig-dm-reply)$/ }, a => ({ path: a.path, namespace: 'mock' }));
     b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `
       export const konsolClient=()=>globalThis.__sweep.client;
       export const sendOwnerTelegram=async()=>{throw Error('unexpected message')};
@@ -22,6 +22,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', impor
       export const executePayout=async()=>{throw Error('unexpected payment')};
       export const matchRegistryPayment=()=>({reason:'no match'}), REGISTRY_LINK_IDS=['legacy'];
       export const sendIgDirect=(_e,handle)=>globalThis.__sweep.send(handle);
+      export const queueConfirmedPayoutNotice=async(_e,id)=>{const f=globalThis.__sweep;f.queued.push(id);const r=f.noticeResults[id];if(r instanceof Error)throw r;if(r?.ok===false)return r;f.claims.delete(id);f.released.push(id);return{ok:true,queued:true}};
       export const dianaCompose=async()=>null;
       export const queueDianaAction=async(_e,handle)=>{const f=globalThis.__sweep;f.queued.push(handle);const r=f.noticeResults[handle];if(r instanceof Error)throw r;return r?.ok===false?r:{ok:true,queued:true}};
       export const alertMina=async()=>true;

@@ -14,7 +14,10 @@ route.get('/connect', c => {
   const url = new URL(c.req.url); url.pathname = '/connect';
   return c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch(new Request(url, c.req.raw));
 });
-route.get('/status', c => c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch('https://wake.internal/status'));
+route.get('/status', async c => {
+  const response=await c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch('https://wake.internal/status');
+  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
+});
 route.post('/ack', async c => {
   const body = await c.req.json<{ cid?: string; message_id?: string | null; event_id?: string }>();
   if (!body.cid || body.message_id === undefined || !body.event_id || (body.message_id === null && !body.event_id.startsWith('legacy:'))) return c.json({ ok: false }, 400);

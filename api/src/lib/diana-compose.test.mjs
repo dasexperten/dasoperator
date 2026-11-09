@@ -29,7 +29,7 @@ test('payout handoff persists one metadata event and respects its verified recei
   const first=await queueDianaAction(env,'@Creator','','payout:p1:paid');
   assert.equal(first.queued,true);
   assert.equal((await queueDianaAction(env,'creator','','payout:p1:paid')).eventId,first.eventId);
-  let rows=db.prepare('SELECT * FROM crm_sync_state').all();
+  let rows=db.prepare("SELECT * FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").all();
   assert.equal(rows.length,1);
   const alarm=JSON.parse(rows[0].value);
   assert.equal(alarm.reason,'diana_action_pending');
@@ -62,4 +62,11 @@ test('video reminder carries payment identity and date without a prepared messag
   assert.equal(event.task,meta.task); assert.equal(event.payout_id,meta.payout_id); assert.equal(event.paid_at,meta.paid_at);
   assert.equal(Object.hasOwn(event,'text'),false);
   db.close();
+});
+
+test('protected status can receive CORS headers even when the DO response headers are immutable',async()=>{
+ const result=await build({stdin:{contents:`import {Hono} from 'hono';import {cors} from 'hono/cors';import route from './routes/diana-wake.ts';const app=new Hono();app.use('*',cors({origin:'https://erp.dasexperten.com'}));app.route('/internal/diana',route);export default app;`,resolveDir:fileURLToPath(new URL('..',import.meta.url))},bundle:true,platform:'node',format:'esm',write:false});
+ const {default:app}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
+ const env={ERP_RUN_SECRET:'test-only',DIANA_WAKE:{idFromName:()=>1,get:()=>({fetch:()=>fetch('data:application/json,%7B%22connections%22%3A%5B%5D%7D')})}};
+ const response=await app.request('https://api.test/internal/diana/status',{headers:{Authorization:'Bearer test-only',Origin:'https://erp.dasexperten.com'}},env);assert.equal(response.status,200);assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://erp.dasexperten.com');assert.deepEqual(await response.json(),{connections:[]});
 });

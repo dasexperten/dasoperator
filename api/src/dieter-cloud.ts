@@ -8,8 +8,8 @@ const CONSUMER='cloudflare-dieter-v1';
 type Event={content_id:string;claim_id:string};
 async function mode(env:Env){return (await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled';}
 async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
- const response=await env.DIETER_SUBSCRIPTION.fetch(new Request('https://subscription.internal/infer',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({requestId,operation:'dieter_round',model:'gpt-6.1-terra',execution:{...execution,githubToken:(env as any).GITHUB_TOKEN,serviceSecret:env.EMAILER_SERVICE_SECRET,privateFiles:JSON.parse((env as any).DIETER_PRIVATE_FILES??'{}')}})}));
+ const response=await env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/infer',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({requestId,operation:'dieter_round',model:'gpt-6.1-terra',execution:{...execution,githubToken:(env as any).GITHUB_TOKEN,serviceSecret:env.EMAILER_SERVICE_SECRET,privateFiles:JSON.parse((env as any).DIETER_PRIVATE_FILES??'{}')}})});
  const result=await response.json<any>();
  if(!response.ok)throw Error('dieter_native_runtime:'+JSON.stringify({error:result.error??response.status,contract:result.contract,request_id_present:result.request_id_present,operation_supported:result.operation_supported,model_supported:result.model_supported}));
  return result;

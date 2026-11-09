@@ -42,30 +42,36 @@ test('consumer registration requires capability, excludes competing identity and
   assert.equal((await request('/alarm/pulse',{...pulse,consumer_id:'mac-dieter-other'})).status,409);
   assert.equal((await request('/alarm/pulse',{...pulse,ready:false})).status,200);
   const status=await(await request('/alarm/status')).json();assert.equal(status.state.ready,0);
+  assert.equal(status.alarm,'erp-ugc-diter');
+  assert.equal(status.schedule.timezone,'Europe/Moscow');
+  assert.deepEqual(status.schedule.weekend_daytime,['10:30','11:00','11:30','12:00','12:30']);
+  const legacy=await(await request('/reel-alarm')).json();
+  assert.equal(legacy.name,'diter-ugc-alarm');assert.equal(legacy.alarm,'erp-ugc-diter');
+  const canonical=await(await route.request('https://erp.test/reel-alarm',{headers:{'X-Emailer-Service-Secret':env.EMAILER_SERVICE_SECRET,'X-UGC-Alarm-Name':'erp-ugc-diter'}},env)).json();
+  assert.equal(canonical.name,'erp-ugc-diter');
   resetAlarm();
 });
-test('alarm scheduler uses one fifteen-minute interval across an hour and overlapping ticks',async()=>{
-  const start=new Date('2026-11-07T18:56:00Z'); // Outside all windows; never accepts a job.
-  assert.notEqual((await tickDiterUgcAlarm(env,start)).note,'not_due');
-  for(const delta of [60000,7*60000,15*60000-1]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
-  const results=await Promise.all([tickDiterUgcAlarm(env,new Date(+start+15*60000)),tickDiterUgcAlarm(env,new Date(+start+15*60000))]);
+test('fixed slots ignore intervening minutes and accept each trigger once under overlapping cron ticks',async()=>{
+  sqlite.exec("DELETE FROM crm_sync_state WHERE key='slot:erp-ugc-diter'");
+  const start=new Date('2026-11-09T09:15:00Z');
+  const results=await Promise.all([tickDiterUgcAlarm(env,start),tickDiterUgcAlarm(env,start)]);
   assert.equal(results.filter(r=>r.note!=='not_due').length,1);
-  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+16*60000))).note,'not_due');
-  // A delayed actual start must defer the check by one minute, not consume an
-  // early check and accidentally force another whole fifteen-minute wait.
-  sqlite.prepare('UPDATE ugc_reel_alarm SET last_started_at=? WHERE id=1').run(+start+16*60000);
-  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+30*60000))).note,'not_due');
-  assert.notEqual((await tickDiterUgcAlarm(env,new Date(+start+31*60000))).note,'not_due');
+  for(const delta of [60000,7*60000,15*60000,29*60000]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
+  assert.notEqual((await tickDiterUgcAlarm(env,new Date(+start+30*60000))).note,'not_due');
+  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+30*60000+40000))).note,'not_due');
+  sqlite.exec("DELETE FROM crm_sync_state WHERE key='slot:erp-ugc-diter'");
 });
-test('Moscow windows exactly preserve days and half-open boundaries',()=>{
+test('fixed trigger allows bounded tool preflight but no start at arbitrary old window minutes',()=>{
   const check=(s,expected)=>assert.equal(diterWindow(Date.parse(s)),expected,s);
-  check('2026-11-07T09:30:00Z',false); // Saturday
-  check('2026-11-07T06:59:59Z',false);check('2026-11-07T07:00:00Z',true);
-  check('2026-11-08T07:29:59Z',false);check('2026-11-08T07:30:00Z',true);check('2026-11-08T10:00:00Z',false);
-  check('2026-11-08T15:29:59Z',false);check('2026-11-08T15:30:00Z',true);check('2026-11-08T18:30:00Z',false);
-  check('2026-11-09T05:00:00Z',false);check('2026-11-10T05:00:00Z',true);check('2026-11-10T07:30:00Z',false);
-  check('2026-11-09T09:14:59Z',false);check('2026-11-09T09:15:00Z',true);check('2026-11-09T10:30:00Z',false);
-  check('2026-11-11T16:30:00Z',true);check('2026-11-12T16:30:00Z',false);
+  check('2026-11-07T07:00:00Z',false); // Saturday now matches Sunday.
+  for(const day of ['07','08']) {
+    check(`2026-11-${day}T07:29:59Z`,false);check(`2026-11-${day}T07:30:00Z`,true);
+    check(`2026-11-${day}T07:32:59Z`,true);check(`2026-11-${day}T07:33:00Z`,false);
+    check(`2026-11-${day}T15:30:00Z`,false);check(`2026-11-${day}T16:30:00Z`,true);
+  }
+  check('2026-11-09T05:00:00Z',false);check('2026-11-10T05:00:00Z',true);
+  check('2026-11-09T09:15:00Z',true);check('2026-11-09T09:30:00Z',false);
+  check('2026-11-12T16:30:00Z',true);
 });
 test('alarm stays red without live consumer or outside windows; atomic one-job acceptance then exact assignment',async()=>{
   insert();resetAlarm();
@@ -90,7 +96,7 @@ test('alarm stays red without live consumer or outside windows; atomic one-job a
   assert.equal((await request('/alarm/ack',ack)).status,200);assert.equal((await request('/alarm/ack',ack)).status,200);
   const jobs=await(await request('/reel-jobs')).json();assert.equal(jobs.jobs[0].claim_id,undefined);
   // A dead executor never silently requeues/starts another job.
-  assert.equal((await tickDiterAlarm(env,monday+16*60000)).note,'working_job_exists');
+  assert.equal((await tickDiterAlarm(env,monday+30*60000)).note,'working_job_exists');
 });
 test('green requires every persisted destination; existing verified posts count, no reupload required',async()=>{
   const job=sqlite.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='reel1'").get();
@@ -120,14 +126,14 @@ test('legacy PC preflight accepts only the single fresh alarmed id through the s
 });
 test('15-minute start spacing and release attempt limit survive retries',async()=>{
   sqlite.exec("DELETE FROM ugc_reel_jobs WHERE content_id='reel1'");
-  ready(monday+14*60000);assert.equal((await tickDiterAlarm(env,monday+14*60000)).note,'cooldown');
+  ready(monday+60000);assert.equal((await tickDiterAlarm(env,monday+60000)).note,'cooldown');
   for(let i=0;i<3;i++) {
-    const now=monday+(i+1)*15*60000;ready(now);
+    const now=i<2 ? monday+(i+1)*30*60000 : Date.parse('2026-11-09T16:30:00Z');ready(now);
     assert.equal((await tickDiterAlarm(env,now)).accepted,true);
     const job=sqlite.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='reel2'").get();
     assert.equal((await request('/reel-jobs/reel2/release',{claim_id:job.claim_id,error:'No authenticated upload access'})).status,200);
   }
-  ready(monday+60*60000);assert.equal((await tickDiterAlarm(env,monday+60*60000)).note,'empty');
+  const after=Date.parse('2026-11-09T17:00:00Z');ready(after);assert.equal((await tickDiterAlarm(env,after)).note,'empty');
   sqlite.exec('DELETE FROM ugc_reel_jobs');
 });
 test('three failures quarantine a red reel without losing proofs or stopping the next job',async()=>{

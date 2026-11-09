@@ -1,7 +1,7 @@
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
-import { ALARM, freshSignal } from '../lib/diter-ugc-alarm.mjs';
+import { ALARM, freshSignal, alarmWireName, MOSCOW_SCHEDULE } from '../lib/diter-ugc-alarm.mjs';
 import { reelPublicationProof, appendPublicationProofs, reelTaskText, reelScope, reelJobScopeView, REEL_SCOPE_VERSION, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
 import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
@@ -41,7 +41,9 @@ route.get('/reel-alarm', async (c) => {
   const stored=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ALARM).first<{value:string}>();
   const signal=freshSignal(stored?.value ?? '');
   const row=signal ? await c.env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.content_id=? AND j.status='queued' AND j.attempts<3`).bind(signal.content_id).first<{content_id:string;content_url:string;handle:string;required_destinations:string;publications:string}>() : null;
-  return c.json({ok:true,name:ALARM,target:'diter-ugc-round',ready:Boolean(row),signal:stored?JSON.parse(stored.value):null,
+  const name=alarmWireName(c.req.header('X-UGC-Alarm-Name'));
+  const wireSignal=stored?{...JSON.parse(stored.value),name}:null;
+  return c.json({ok:true,name,alarm:ALARM,target:'diter-ugc-round',ready:Boolean(row),signal:wireSignal,
     job:row?{...reelJobScopeView(row),task:`Preflight only. Accept this exact post once, then use the ACTUAL returned claim_id in every callback. ${reelTaskText({...row,claim_id:'USE_ACTUAL_RUNTIME_CLAIM'},new URL(c.req.url).origin)}`}:null});
 });
 route.get('/reel-jobs', async (c) => {
@@ -59,7 +61,7 @@ route.post('/reel-jobs/:id/claim', async (c) => {
 route.get('/alarm/status', async (c) => {
   const state = await c.env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const jobs = await c.env.DB.prepare("SELECT status,COUNT(*) count FROM ugc_reel_jobs GROUP BY status").all();
-  return c.json({ok:true,alarm:'diter-ugc-alarm',runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
+  return c.json({ok:true,alarm:ALARM,schedule:{timezone:'Europe/Moscow',...MOSCOW_SCHEDULE},runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
 });
 route.post('/alarm/pulse', async (c) => {
   const body = await c.req.json().catch(() => null) as {consumer_id?:string;ready?:boolean;capabilities?:string[]} | null;

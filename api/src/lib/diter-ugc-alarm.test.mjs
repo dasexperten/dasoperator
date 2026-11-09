@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inMoscowWindow, alarmState, freshSignal } from './diter-ugc-alarm.mjs';
+import { inMoscowWindow, isTriggerMinute, alarmState, freshSignal, ALARM, alarmWireName } from './diter-ugc-alarm.mjs';
 
-test('all seven Moscow days include Owner weekend windows with exact opening/closing minutes', () => {
-  const windows = {0:[[630,780],[1110,1290]],1:[[735,810]],2:[[480,630],[735,810]],
-    3:[[480,630],[735,810],[1170,1290]],4:[[480,630],[735,810]],5:[[735,810]],6:[[600,750]]};
+test('approved fixed Moscow times cover the whole week; weekends match, evenings are daily', () => {
+  const evenings=[1170,1200,1230,1260], midday=[735,765,795], mornings=[480,510,540,570,600], weekend=[630,660,690,720,750];
+  const expected={0:[...weekend,...evenings],1:[...midday,...evenings],2:[...mornings,...midday,...evenings],
+    3:[...mornings,...midday,...evenings],4:[...mornings,...midday,...evenings],5:[...midday,...evenings],6:[...weekend,...evenings]};
   for(let day=0;day<7;day++) for(let minute=0;minute<1440;minute++) {
-    // 2026-11-08 is Sunday; Moscow midnight is 21:00 UTC on the previous day.
     const now=new Date(Date.UTC(2026,10,7+day,21,minute));
-    assert.equal(inMoscowWindow(now), windows[day].some(([a,b])=>minute>=a&&minute<b),`day=${day} minute=${minute}`);
+    assert.equal(isTriggerMinute(now),expected[day].includes(minute),`trigger day=${day} minute=${minute}`);
+    assert.equal(inMoscowWindow(now),expected[day].some(slot=>minute>=slot&&minute<slot+3),`preflight day=${day} minute=${minute}`);
   }
+  assert.equal(ALARM,'erp-ugc-diter');
+  assert.equal(alarmWireName(ALARM),ALARM);
+  assert.equal(alarmWireName(undefined),'diter-ugc-alarm','installed legacy clients remain connected');
 });
 test('oldest eligible row only, working blocks globally, cooldown survives release and signal expires',()=>{
   const now=new Date('2026-11-10T09:15:00.000Z');

@@ -416,12 +416,12 @@ export async function handleScheduled(
   // Each lane runs only when due — 3 min after activity, then 15, then 30.
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
-    // Owner 2026-11-07: ERP owns diter-ugc-alarm; the local tool-capable
+    // Owner 2026-11-07: ERP owns erp-ugc-diter; the local tool-capable
     // diter-ugc-round receives the exact accepted job from a live consumer.
     try {
       const { tickDiterUgcAlarm } = await import('./lib/ugc-reel-store');
       await tickDiterUgcAlarm(env,new Date(event.scheduledTime || Date.now()));
-    } catch (e) { recordFailure(e); console.error('[diter-ugc-alarm] failed'); }
+    } catch (e) { recordFailure(e); console.error('[erp-ugc-diter] failed'); }
     // Owner 2026-10-16: the Direct and payout lanes moved to their own ERP workers
     // (erp-ugc-direct, erp-ugc-payouts → cron-steps.ts). Safety net: if a worker's own timer
     // has not run in the last 3 minutes, the ERP's minute tick runs the same step itself —

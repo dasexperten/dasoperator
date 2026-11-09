@@ -13,6 +13,7 @@
 // /api/email/read endpoint.
 // =============================================================================
 
+import { ArchiveHeaderControls } from './archive-header';
 import React, { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
@@ -2204,6 +2205,7 @@ function DesktopMail({ data, toast, initialScope, initialFolder }: { initialScop
           <div className="brand-name">DASOPERATOR</div>
           <div className="brand-tag">Почта</div>
         </div>
+        <ArchiveHeaderControls />
         <div className="stats-strip">
           <div className="stat-chip"><span className="stat-num hot">{inboxUnread}</span><span className="stat-lab">Непрочитанных</span></div>
           <div className="stat-chip"><span className="stat-num">{urgentCount}</span><span className="stat-lab">Ждут ответа</span></div>

@@ -7,6 +7,7 @@ import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail, Headphones, BarCh
 import Sidebar from './sidebar';
 import Header from './header';
 import AuthGate from './auth-gate';
+import { ArchiveHeaderContext } from '@/components/emailer/archive-header';
 import { getUser, hasModuleAccess } from '@/lib/auth';
 
 /**
@@ -47,6 +48,8 @@ export default function MobileShell({ children }: { children: React.ReactNode })
   // Only collapse the ERP sidebar while on emailer (desktop). Other routes stay full nav.
   const desktopNavCollapsed = isEmailer && emailerNavCollapsed;
 
+  const isMailArchive = pathname === '/emailer/archive';
+
   const isMailApp = pathname === '/mail' || pathname.startsWith('/mail/');
 
   // /login and the Android /mail PWA — full-bleed. /emailer stays in the ERP
@@ -55,8 +58,18 @@ export default function MobileShell({ children }: { children: React.ReactNode })
     return <AuthGate>{children}</AuthGate>;
   }
 
+  const header = (
+    <Header
+      onHamburgerClick={() => setDrawerOpen(true)}
+      showEmailerNavToggle={isEmailer}
+      emailerNavCollapsed={emailerNavCollapsed}
+      onEmailerNavToggle={toggleEmailerNav}
+    />
+  );
+
   return (
     <AuthGate>
+      <ArchiveHeaderContext.Provider value={isMailArchive ? { collapsed: emailerNavCollapsed, toggle: toggleEmailerNav } : null}>
       <div
         className="flex h-screen"
         data-mail-theme={pathname === '/emailer' || pathname === '/emailer/google' ? 'graphite' : undefined}
@@ -71,12 +84,7 @@ export default function MobileShell({ children }: { children: React.ReactNode })
           />
         )}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <Header
-            onHamburgerClick={() => setDrawerOpen(true)}
-            showEmailerNavToggle={isEmailer}
-            emailerNavCollapsed={emailerNavCollapsed}
-            onEmailerNavToggle={toggleEmailerNav}
-          />
+          {isMailArchive ? <div className="dx-archive-erp-header">{header}</div> : header}
           {/* Tricolor ribbon — mobile das-dashboard chrome (hidden on desktop via CSS) */}
           <div className="dx-mobile-tricolor" aria-hidden="true" />
           <main className="flex-1 overflow-auto dx-main">
@@ -85,6 +93,7 @@ export default function MobileShell({ children }: { children: React.ReactNode })
         </div>
         <BottomNav pathname={pathname} />
       </div>
+      </ArchiveHeaderContext.Provider>
     </AuthGate>
   );
 }

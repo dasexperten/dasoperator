@@ -62,7 +62,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL
     ORDER BY updated_at DESC LIMIT 1`).bind(creatorId).first<{id:string;amount_minor:number}>();
   const context = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_context:'+input.conversation_id).first<{value:string}>();
-  const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','null','')").bind(input.conversation_id).first<{at:string}>();
+  const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','{}','null','') AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(input.conversation_id).first<{at:string}>();
   let imageCheck; try { imageCheck=JSON.parse(context?.value ?? '{}').image_check; } catch {}
   const cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
   const amount = open && open.amount_minor !== 1 ? open.amount_minor : (cartAmount ?? 1);

@@ -17,3 +17,10 @@ test('generic screenshot escalates only for a named necessary unreadable field',
 test('remaining required ambiguity cannot produce a verified summary',async()=>{const v={...good,unresolved_required:['contradictory_evidence']};const f=infer([v,v]);assert.equal((await checkSubscriptionImages({...args,infer:f.call})).status,'unknown');});
 
 test('basket exemption overrides model-required seller; contradiction overrides a tentative mismatch',async()=>{const f=infer([{...good,kind:'basket',seller:'unknown',seller_evidence:'absent',unresolved_required:['seller']}]);assert.equal((await checkSubscriptionImages({...args,infer:f.call})).status,'yes');assert.equal(f.models.length,1);const g=infer([{...good,product:'no',unresolved_required:['contradictory_evidence']},good]);await checkSubscriptionImages({...args,infer:g.call});assert.equal(g.models.length,2);});
+
+test('Luna amount yes with invalid numeric currency evidence escalates to Terra',async()=>{
+ const basket={...good,kind:'basket',seller:'unknown',seller_evidence:'absent'};
+ for(const observed of [{...basket.observed,price:'429 or 453'},{...basket.observed,currency:null}]){
+  const f=infer([{...basket,observed},basket]);const r=await checkSubscriptionImages({...args,infer:f.call});assert.deepEqual(f.models,['gpt-6-luna','gpt-6.1-terra']);assert.equal(r.checks[0].observed.price,'429');
+ }
+});

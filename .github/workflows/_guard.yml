@@ -141,7 +141,7 @@ jobs:
         run: node --test api/src/lib/ugc-apify.test.mjs api/src/lib/ugc-apify-consumers.test.mjs
 
       - name: Test UGC partial failures and real retry status
-        run: node --test api/src/lib/ugc-payout-source.test.mjs api/src/lib/ugc-latest-requisites.test.mjs api/src/lib/ugc-payout-intake.test.mjs api/src/lib/ugc-required-amount.test.mjs api/src/lib/ugc-payout-notice.test.mjs api/src/lib/diana-compose.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-video-reminder-schedule.test.mjs api/src/cron-steps.test.mjs api/src/lib/ig-dm-watch.test.mjs api/src/lib/ugc-payout-sweep.test.mjs
+        run: node --test api/src/lib/ugc-cart-decision.test.mjs api/src/lib/ugc-payout-source.test.mjs api/src/lib/ugc-latest-requisites.test.mjs api/src/lib/ugc-payout-intake.test.mjs api/src/lib/ugc-required-amount.test.mjs api/src/lib/ugc-payout-notice.test.mjs api/src/lib/diana-compose.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-video-reminder-schedule.test.mjs api/src/cron-steps.test.mjs api/src/lib/ig-dm-watch.test.mjs api/src/lib/ugc-payout-sweep.test.mjs
 
       - name: Test mandatory UGC amount on isolated Worker D1
         run: node --test api/src/lib/ugc-payout-intake.d1.test.mjs
@@ -149,7 +149,7 @@ jobs:
       # Konsol payouts (Owner 2026-10-14): limits, own RUB = balance − overdraft,
       # one payment per row, callback status mapping. Money code does not ship red.
       - name: Test UGC payouts and Konsol money rules
-        run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs web/lib/ugc-payout-cell.test.mjs
+        run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs web/lib/ugc-payout-cell.test.mjs web/lib/ugc-payout-badge.test.mjs
 
       - name: Test UGC Direct retries and four-scenario delivery
         run: node --test api/src/lib/ig-dm-reply-eligibility.test.mjs api/src/lib/ig-dm-reply.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/ig-dm-reply-guard.test.mjs api/src/lib/ig-dm-attachments.test.mjs api/src/lib/ig-dm-refresh.test.mjs api/src/lib/llm-vision.test.mjs

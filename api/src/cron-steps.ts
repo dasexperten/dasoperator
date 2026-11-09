@@ -69,8 +69,10 @@ export const STEPS: Record<string, Step> = {
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
     const { ingestCreatorPayouts } = await import('./lib/ugc-payout-source');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
-      const registered = await ingestCreatorPayouts(e);
+      let registered=0,intakeError:unknown;
+      try{registered=await ingestCreatorPayouts(e);}catch(error){intakeError=error;}
       const refreshed = registered + await ugcPayoutSweep(e);
+      if(intakeError)throw intakeError;
       // Owner 2026-11-08: retired the legacy hourly incident_control escalation.
       // Creator post links and metrics belong to erp-ugc-postlink, not this payout lane.
       const failures: string[] = [];

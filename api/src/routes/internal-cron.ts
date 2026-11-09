@@ -52,6 +52,17 @@ route.post('/:worker', async (c) => {
   const started = Date.now();
   // Diagnose the real private attachment path without sending a DM or touching
   // payments. Only a known creator handle is accepted; no arbitrary image URL.
+  if(worker==='ugc-payout-cart-check'){
+    const input=z.object({handle:z.string().regex(/^[a-zA-Z0-9_.]{1,30}$/)}).parse(await c.req.json());
+    const latest=await c.env.DB.prepare("SELECT conversation_id FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1 ORDER BY created_at DESC LIMIT 1").bind(input.handle.toLowerCase()).first<{conversation_id:string}>();
+    if(!latest)return c.json({ok:false,error:'source_not_archived'},404);
+    const messages=(await c.env.DB.prepare("SELECT id,direction,text,created_at,attachments_json FROM ugc_ig_messages WHERE conversation_id=?1 AND created_at>=?2 ORDER BY created_at DESC LIMIT 500").bind(latest.conversation_id,new Date(Date.now()-14*86400000).toISOString()).all<any>()).results??[];
+    try{
+      const {reviewPayoutCart}=await import('../lib/ugc-cart-review');
+      const result=await reviewPayoutCart(c.env,latest.conversation_id,messages,{readOnly:true,budget:{remaining:6}});
+      return c.json({ok:true,read_only:true,cart_review:result});
+    }catch{return c.json({ok:false,error:'cart_recognition_pending'},503);}
+  }
   if (worker === 'diana-attachment-check') {
     const input = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_.]{1,30}$/), message_id:z.string().min(1).max(2048).optional() }).parse(await c.req.json());
     const messages = (await c.env.DB.prepare(`SELECT id, direction, created_at, attachments_json

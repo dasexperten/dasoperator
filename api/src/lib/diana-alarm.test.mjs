@@ -99,3 +99,12 @@ test('video reminders wait for the 07:00 batch while other alarms stay available
   assert.deepEqual((await pendingDianaMessages(f.env,at(7))).map(x=>x.cid).sort(),['p','v']);
   assert.deepEqual((await pendingDianaMessages(f.env,at(24))).map(x=>x.cid),['p']);
 });
+
+test('an old-rule reminder stays pending but is not delivered before five full days', async t => {
+  const f=fixture(); t.after(()=>f.db.close());
+  f.state.set('diana_action_pending:video',JSON.stringify({cid:'v',message_id:'v',event_id:'action:video',task:'video_reminder',paid_at:'2026-11-04T03:00:00.000Z'}));
+  f.state.set('diana_video_reminder_batch_day','2026-11-09');
+  assert.equal((await pendingDianaMessages(f.env,Date.parse('2026-11-09T02:59:59.000Z'))).length,0);
+  assert.equal((await pendingDianaMessages(f.env,Date.parse('2026-11-09T03:00:00.000Z'))).length,1);
+  assert.ok(f.state.get('diana_action_pending:video'));
+});

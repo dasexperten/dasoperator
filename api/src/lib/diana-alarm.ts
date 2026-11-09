@@ -105,6 +105,10 @@ export async function pendingDianaMessages(env: Env, now = Date.now()) {
     try {
       const alarm = JSON.parse(row.value);
       if (alarm.task === 'video_reminder' && !videoBatchOpen) continue;
+      // Existing events from the old three-day rule stay pending but must not
+      // wake Diana for a reminder before five full days have passed.
+      const paidAt = alarm.task === 'video_reminder' ? Date.parse(String(alarm.paid_at ?? '')) : NaN;
+      if (Number.isFinite(paidAt) && now - paidAt < 5 * 86_400_000) continue;
       if (!alarm.cid && row.key.startsWith(ALARM_PREFIX)) alarm.cid = row.key.slice(ALARM_PREFIX.length);
       if (!alarm.cid) continue;
       if (!alarm.event_id) {

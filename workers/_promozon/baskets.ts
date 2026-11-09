@@ -1,19 +1,20 @@
 // Owner 2026-11-09: basket additions must be visible. Ozon Seller Analytics
-// supplies Moscow calendar days; never relabel them as same-hour order windows.
+// supplies Moscow calendar days. Owner follow-up: compare two completed days,
+// yesterday against the day before, independently of same-hour order windows.
 type RequestOzon = (path: string, body?: unknown) => Promise<any>;
-export const BASKETS_KEY = 'ozon:promotion-monitor:baskets:latest';
+export const BASKETS_KEY = 'ozon:promotion-monitor:baskets:completed-days:v1';
 const LEASE_KEY = 'ozon:promotion-monitor:baskets:attempt';
 // Seller API FAQ: /v1/analytics/data is limited to one request per minute.
 const MIN_INTERVAL_MS = 60000;
 export function basketDays(at: number) {
   const day = 86400000;
-  const today = new Date(at + 3 * 3600000).toISOString().slice(0, 10);
   const yesterday = new Date(at + 3 * 3600000 - day).toISOString().slice(0, 10);
-  return { today, yesterday, timezone: 'Europe/Moscow', today_complete: false, yesterday_complete: true };
+  const day_before_yesterday = new Date(at + 3 * 3600000 - 2 * day).toISOString().slice(0, 10);
+  return { yesterday, day_before_yesterday, timezone: 'Europe/Moscow', yesterday_complete: true, day_before_yesterday_complete: true };
 }
 export type BasketSnapshot = {
   period: ReturnType<typeof basketDays>; as_of: string;
-  by_product: Record<string, { today: number | null; yesterday: number | null }>;
+  by_product: Record<string, { yesterday: number | null; day_before_yesterday: number | null }>;
   coverage: { metric: string; analytics_rows: number; mapped_products: number; unmapped_products: number[]; days_observed: string[]; source_timestamp: unknown;
     resolved_source_skus: string[]; ignored_zero_unmapped_skus: string[] };
 };
@@ -21,7 +22,7 @@ export async function readDailyBaskets(request: RequestOzon, sourceMap: Map<stri
   if (!sourceMap.size) throw Error('Ozon basket product mapping unavailable');
   const period = basketDays(at), limit = 1000;
   const response = await request('/v1/analytics/data', {
-    date_from: period.yesterday, date_to: period.today,
+    date_from: period.day_before_yesterday, date_to: period.yesterday,
     metrics: ['hits_tocart'], dimension: ['sku', 'day'], filters: [],
     sort: [{ key: 'hits_tocart', order: 'DESC' }], limit, offset: 0,
   });
@@ -54,11 +55,11 @@ export async function readDailyBaskets(request: RequestOzon, sourceMap: Map<stri
   // If Ozon did not return an entire day, freshness/zero activity is ambiguous.
   // Keep that day unknown instead of manufacturing zeros for the whole shop.
   for (const id of productIds) if (mapped.has(id)) by_product[String(id)] = {
-    today: days.has(period.today) ? 0 : null, yesterday: days.has(period.yesterday) ? 0 : null };
+    yesterday: days.has(period.yesterday) ? 0 : null, day_before_yesterday: days.has(period.day_before_yesterday) ? 0 : null };
   const seen = new Set<string>(), ignoredZero = new Set<string>();
   for (const row of data) {
     const sku = String(row?.dimensions?.[0]?.id ?? ''), date = row?.dimensions?.[1]?.id;
-    if (!sku || (date !== period.today && date !== period.yesterday)) throw Error('Ozon basket SKU/day is invalid');
+    if (!sku || (date !== period.yesterday && date !== period.day_before_yesterday)) throw Error('Ozon basket SKU/day is invalid');
     const key = sku + ':' + date;
     if (seen.has(key)) throw Error('Ozon basket analytics duplicated a SKU/day');
     seen.add(key);
@@ -69,7 +70,7 @@ export async function readDailyBaskets(request: RequestOzon, sourceMap: Map<stri
     // missing identity explicitly; do not let them blank valid current data.
     if (id == null && count === 0) { ignoredZero.add(sku); continue; }
     if (id == null || !by_product[String(id)]) throw Error(`Ozon basket SKU mapping unavailable: ${sku}`);
-    const day = date === period.today ? 'today' : 'yesterday';
+    const day = date === period.yesterday ? 'yesterday' : 'day_before_yesterday';
     by_product[String(id)]![day] = (by_product[String(id)]![day] ?? 0) + count;
   }
   return { period, as_of: new Date(at).toISOString(), by_product,
@@ -83,7 +84,7 @@ export async function loadDailyBaskets(db: D1Database, request: RequestOzon, sou
   const saved = await db.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(BASKETS_KEY).first<{ value: string }>();
   let cached: BasketSnapshot | null = null;
   if (saved) { try { cached = JSON.parse(saved.value); } catch { /* invalid cache cannot become zero */ } }
-  if (cached?.period.today !== basketDays(at).today) cached = null;
+  if (cached?.period.yesterday !== basketDays(at).yesterday || cached?.period.day_before_yesterday !== basketDays(at).day_before_yesterday) cached = null;
   if (cached && at - Date.parse(cached.as_of) < MIN_INTERVAL_MS) return { snapshot: cached, stale: false, error: undefined };
   // Atomic shared claim across the timer and interactive ERP refresh. Keep the
   // attempt timestamp even on failure so a 429 cannot become a retry loop.

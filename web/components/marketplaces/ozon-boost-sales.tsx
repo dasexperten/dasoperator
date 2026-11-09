@@ -14,13 +14,13 @@ type ProductRow = {
   boost: { value: number | null; value_kind?: 'api' | 'terms' | 'unknown'; status: 'active' | 'none' | 'unknown'; basis: string; memberships: Membership[] };
   issues: string[]; today_units: number | null; yesterday_units: number | null;
   delta_units: number | null; delta_pct: number | null;
-  today_baskets?: number | null; yesterday_baskets?: number | null; delta_baskets_pct?: number | null;
+  yesterday_baskets?: number | null; day_before_yesterday_baskets?: number | null; delta_baskets_pct?: number | null;
 };
 type PromotionReport = {
   snapshot_at: string | null; sales_as_of: string; timezone: string; cutoff: string;
   sales_scope?: string; sales_available: boolean; sales_error?: string; rows: ProductRow[];
   baskets_available?: boolean; baskets_comparable?: boolean; baskets_basis?: string;
-  baskets_period?: { today: string; yesterday: string; timezone: string } | string;
+  baskets_period?: { yesterday: string; day_before_yesterday: string; timezone: string } | string;
   baskets_as_of?: string; baskets_stale?: boolean; baskets_error?: string;
 };
 
@@ -98,10 +98,10 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
     return top10 ? sorted.slice(0, 10) : sorted;
   }, [report, top10]);
   const available = Boolean(report?.sales_available) && !error;
-  const basketsAvailable = Boolean(report?.baskets_available) && !error;
-  const basketEvidence = ['Сегодня неполный московский день; вчера полный. Добавления в корзину, не уникальные покупатели.',
+  const basketsAvailable = Boolean(report?.baskets_available) && Boolean(typeof report?.baskets_period === 'object' && report.baskets_period.day_before_yesterday) && !error;
+  const basketEvidence = ['Вчера и позавчера: два полных календарных дня МСК. Добавления в корзину, не уникальные покупатели.',
     report?.baskets_basis, typeof report?.baskets_period === 'string'
-      ? report.baskets_period : report?.baskets_period ? `${report.baskets_period.today} / ${report.baskets_period.yesterday} · ${report.baskets_period.timezone}` : '',
+      ? report.baskets_period : report?.baskets_period ? `${report.baskets_period.yesterday} / ${report.baskets_period.day_before_yesterday} · ${report.baskets_period.timezone}` : '',
     report?.baskets_as_of ? `Срез корзин: ${report.baskets_as_of}` : '', report?.baskets_error].filter(Boolean).join('\n')
     || 'Сопоставимый источник корзин не подтверждён';
   const title = top10 ? 'Топ-10 Ozon' : 'Все позиции Ozon';
@@ -126,9 +126,9 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
               <thead><tr>
                 <th scope="col">Товар</th><th scope="col" className={styles.boostHeader}>Бустинг</th>
                 <th scope="col"><span className={styles.desktopLabel}>Заказы сегодня</span><span className={styles.mobileLabel}>Сег.</span></th>
-                <th scope="col" className={styles.basket} title={basketEvidence}>Корзины сегодня</th>
-                <th scope="col"><span className={styles.desktopLabel}>Заказы вчера</span><span className={styles.mobileLabel}>Вчр.</span></th>
                 <th scope="col" className={styles.basket} title={basketEvidence}>Корзины вчера</th>
+                <th scope="col"><span className={styles.desktopLabel}>Заказы вчера</span><span className={styles.mobileLabel}>Вчр.</span></th>
+                <th scope="col" className={styles.basket} title={basketEvidence}>Корзины позавчера</th>
                 <th scope="col"><span className={styles.desktopLabel}>Δ заказов</span><span className={styles.mobileLabel}>Δ</span></th>
                 <th scope="col" className={styles.basket} title={basketEvidence}>Δ корзин</th>
               </tr></thead>
@@ -136,11 +136,11 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
                 <th scope="row" className={styles.product} title={`${row.offer_id} · ${row.name}`}><span>{compactName(row)}</span></th>
                 <td className={styles.boostCell} title={[row.boost?.basis, ...(row.boost?.memberships ?? []).map(m => m.title), ...(row.issues ?? [])].filter(Boolean).join('\n')}><Boost row={row} confirmed={Boolean(report?.snapshot_at) && !error} /></td>
                 <td className={styles.count}>{number(available ? row.today_units : null)}</td>
-                <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.today_baskets : null)}</td>
-                <td className={styles.count}>{number(available ? row.yesterday_units : null)}</td>
                 <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.yesterday_baskets : null)}</td>
+                <td className={styles.count}>{number(available ? row.yesterday_units : null)}</td>
+                <td className={`${styles.count} ${styles.basket}`} title={basketEvidence}>{number(basketsAvailable ? row.day_before_yesterday_baskets : null)}</td>
                 <td className={styles.delta}><Change row={row} available={available} /></td>
-                <td className={`${styles.delta} ${styles.basket}`} title="Δ появится при сравнении за одинаковые часы"><BasketChange row={row} available={basketsAvailable && report?.baskets_comparable === true} /></td>
+                <td className={`${styles.delta} ${styles.basket}`} title={basketEvidence}><BasketChange row={row} available={basketsAvailable && report?.baskets_comparable === true} /></td>
               </tr>)}</tbody>
             </table>
           </div>}

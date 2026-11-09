@@ -67,17 +67,17 @@ test('live report connects daily basket analytics through exact marketplace sour
     if (path.includes('/posting/')) return { postings: [], has_next: false };
     if (path === '/v1/analytics/data') {
       assert.deepEqual(body.metrics, ['hits_tocart']);
-      return { result: { data: [[100, '2026-11-08', 7], [100, '2026-11-07', 5], [200, '2026-11-08', 3], [200, '2026-11-07', 3]]
+      return { result: { data: [[100, '2026-11-07', 7], [100, '2026-11-06', 5], [200, '2026-11-07', 3], [200, '2026-11-06', 3]]
         .map(([sku, day, n]) => ({ dimensions: [{ id: String(sku) }, { id: day }], metrics: [n] })) } };
     }
     throw Error('Unexpected endpoint');
   });
   assert.equal(report.baskets_available, true); assert.equal(report.sales_available, true);
-  assert.equal(report.rows[0].today_baskets, 7); assert.equal(report.rows[0].yesterday_baskets, 5);
-  assert.equal(report.baskets_comparable, false);
-  assert.equal(report.rows[0].delta_baskets_pct, null); assert.equal(report.rows[0].today_units, 0);
-  assert.equal(report.rows[1].today_baskets, 3); assert.equal(report.rows[1].delta_baskets_pct, null);
+  assert.equal(report.rows[0].yesterday_baskets, 7); assert.equal(report.rows[0].day_before_yesterday_baskets, 5);
+  assert.equal(report.baskets_comparable, true);
+  assert.equal(report.rows[0].delta_baskets_pct, 40); assert.equal(report.rows[0].today_units, 0);
+  assert.equal(report.rows[1].yesterday_baskets, 3); assert.equal(report.rows[1].delta_baskets_pct, 0);
   assert.equal(report.baskets_period.timezone, 'Europe/Moscow');
   assert.equal(saved.get('ozon:promotion-monitor:latest').baskets_available, true);
-  assert.equal(saved.get('ozon:promotion-monitor:baskets:latest').by_product['1'].today, 7);
+  assert.equal(saved.get('ozon:promotion-monitor:baskets:completed-days:v1').by_product['1'].yesterday, 7);
 });

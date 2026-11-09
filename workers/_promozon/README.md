@@ -21,10 +21,12 @@ price exceptions not established by these reads are explicitly not verified.
 
 Owner 2026-11-09: the same report also reads `hits_tocart` for exact Ozon
 source SKU/day pairs and preserves pack variants. Basket periods are Moscow
-calendar days: today's partial day and yesterday's full day, explicitly labeled
-separately from same-cutoff Yerevan orders. Missing source mappings, a missing
+calendar days: yesterday and the day before yesterday, both complete days,
+explicitly labeled separately from same-cutoff Yerevan orders. The basket delta
+compares yesterday against the day before yesterday. Missing source mappings, a missing
 whole day, incomplete pages or source errors are never converted to shop-wide
-zero counts. Last good same-day basket data can be shown with its timestamp and
-stale status; a previous calendar day's cache is not relabeled as today.
+zero counts. Last good data for the exact same date pair can be shown with its
+timestamp and stale status; an older pair is never relabeled. The completed-day
+cache uses a distinct key so old partial-day snapshots cannot be reused.
 The basket snapshot and atomic attempt timestamp share ERP D1 across manual and
 scheduled refreshes, respecting Ozon's one-request-per-minute analytics limit.

@@ -74,7 +74,7 @@ jobs:
       - name: Test read-only Ozon boosting and same-cutoff orders
         run: |
           npm ci --workspace api --no-audit --no-fund
-          node --test workers/_promozon/monitor.test.mjs
+          node --test workers/_promozon/monitor.test.mjs workers/_promozon/baskets.test.mjs
 
       - name: Test private input for the legacy Ozon scraper installer
         run: python3 -m unittest discover -s scripts -p 'test_ozon_scraper_install.py'

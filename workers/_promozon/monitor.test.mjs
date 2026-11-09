@@ -54,3 +54,29 @@ test('full catalog includes products without promotions; sales failure is unknow
   assert.equal(report.sales_available, false); assert.equal(report.rows[0].today_units, null);
   assert.equal(saved.coverage.actions_taken, 0);
 });
+test('live report connects daily basket analytics through exact marketplace source IDs, independently of order units', async t => {
+  t.mock.method(Date, 'now', () => at);
+  const saved = new Map();
+  const env = { DB: { prepare(sql) { return { bind(...args) { this.args = args; return this; },
+    async first() { return sql.includes('RETURNING key') ? { key: 'claimed' } : null; },
+    async run() { saved.set(this.args[0], JSON.parse(this.args[1])); } }; } } };
+  const report = await runPromotionMonitor(env, async (path, body) => {
+    if (path === '/v5/product/info/prices') return { items: [{ product_id: 1, offer_id: 'DE202AA' }, { product_id: 2, offer_id: 'DE202' }], total: 2 };
+    if (path === '/v3/product/info/list') return { items: [{ id: 1, name: 'DETOX 2in1', sources: [{ sku: 100 }] }, { id: 2, name: 'DETOX', sources: [{ sku: 200 }] }] };
+    if (path === '/v1/actions') return { result: [] };
+    if (path.includes('/posting/')) return { postings: [], has_next: false };
+    if (path === '/v1/analytics/data') {
+      assert.deepEqual(body.metrics, ['hits_tocart']);
+      return { result: { data: [[100, '2026-11-08', 7], [100, '2026-11-07', 5], [200, '2026-11-08', 3], [200, '2026-11-07', 3]]
+        .map(([sku, day, n]) => ({ dimensions: [{ id: String(sku) }, { id: day }], metrics: [n] })) } };
+    }
+    throw Error('Unexpected endpoint');
+  });
+  assert.equal(report.baskets_available, true); assert.equal(report.sales_available, true);
+  assert.equal(report.rows[0].today_baskets, 7); assert.equal(report.rows[0].yesterday_baskets, 5);
+  assert.equal(report.rows[0].delta_baskets_pct, 40); assert.equal(report.rows[0].today_units, 0);
+  assert.equal(report.rows[1].today_baskets, 3); assert.equal(report.rows[1].delta_baskets_pct, 0);
+  assert.equal(report.baskets_period.timezone, 'Europe/Moscow');
+  assert.equal(saved.get('ozon:promotion-monitor:latest').baskets_available, true);
+  assert.equal(saved.get('ozon:promotion-monitor:baskets:latest').by_product['1'].today, 7);
+});

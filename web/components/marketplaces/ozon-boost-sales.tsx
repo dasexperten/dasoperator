@@ -19,7 +19,9 @@ type ProductRow = {
 type PromotionReport = {
   snapshot_at: string | null; sales_as_of: string; timezone: string; cutoff: string;
   sales_scope?: string; sales_available: boolean; sales_error?: string; rows: ProductRow[];
-  baskets_available?: boolean; baskets_basis?: string; baskets_period?: unknown;
+  baskets_available?: boolean; baskets_basis?: string;
+  baskets_period?: { today: string; yesterday: string; timezone: string } | string;
+  baskets_as_of?: string; baskets_stale?: boolean; baskets_error?: string;
 };
 
 const number = (value: number | null | undefined) => value == null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
@@ -98,8 +100,10 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
   }, [report, top10]);
   const available = Boolean(report?.sales_available) && !error;
   const basketsAvailable = Boolean(report?.baskets_available) && !error;
-  const basketEvidence = [report?.baskets_basis, typeof report?.baskets_period === 'string'
-    ? report.baskets_period : report?.baskets_period ? JSON.stringify(report.baskets_period) : ''].filter(Boolean).join('\n')
+  const basketEvidence = ['Сегодня неполный московский день; вчера полный. Добавления в корзину, не уникальные покупатели.',
+    report?.baskets_basis, typeof report?.baskets_period === 'string'
+      ? report.baskets_period : report?.baskets_period ? `${report.baskets_period.today} / ${report.baskets_period.yesterday} · ${report.baskets_period.timezone}` : '',
+    report?.baskets_as_of ? `Срез корзин: ${report.baskets_as_of}` : '', report?.baskets_error].filter(Boolean).join('\n')
     || 'Сопоставимый источник корзин не подтверждён';
   const title = top10 ? 'Топ-10 Ozon' : 'Все позиции Ozon';
   return (
@@ -107,6 +111,7 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
       <header className={styles.header}>
         <h2>{title}</h2>
         <div className={styles.tools}>
+          {(report?.baskets_period || report?.baskets_available) && <span className={styles.basketPeriod} title={basketEvidence}>Корзины: сутки МСК{report?.baskets_stale ? ' · прошлый срез' : ''}</span>}
           {report?.cutoff && <span title={`Сегодня и вчера до одного времени. ${report.sales_as_of}. ${report.sales_scope ?? ''}`}>{report.cutoff} · Ереван</span>}
           <button type="button" className={styles.refresh} disabled={loading} onClick={onRefresh} aria-label="Обновить Ozon" title="Обновить">
             <RefreshCw size={16} aria-hidden="true" className={loading ? styles.spinning : ''} />

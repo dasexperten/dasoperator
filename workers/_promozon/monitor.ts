@@ -1,6 +1,7 @@
 // Owner 2026-11-08 + Dasha's 24/26/30 October instructions: observe actual
 // boosting, overlapping prices and lost support. No Ozon write endpoints.
 import { readActionProducts } from '../../api/src/lib/ozon-actions';
+import { loadDailyBaskets, BASKETS_KEY } from './baskets';
 
 export const REPORT_KEY = 'ozon:promotion-monitor:latest';
 type Env = { DB: D1Database; OZON_API_KEY?: string; OZON_CLIENT_ID?: string;
@@ -87,7 +88,7 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
   const request: RequestOzon = requestOverride ?? (async (path, body) => {
     // An explicit read allowlist also protects this read-only monitor if an old
     // mutable config from promozon_db is still present.
-    if (!['/v1/actions', '/v2/actions/products', '/v2/actions/candidates', '/v3/product/info/list', '/v5/product/info/prices', '/v3/posting/fbo/list', '/v4/posting/fbs/list'].includes(path)) throw Error('Ozon monitor read endpoint not allowed');
+    if (!['/v1/actions', '/v2/actions/products', '/v2/actions/candidates', '/v3/product/info/list', '/v5/product/info/prices', '/v3/posting/fbo/list', '/v4/posting/fbs/list', '/v1/analytics/data'].includes(path)) throw Error('Ozon monitor read endpoint not allowed');
     const key = env.OZON_API_KEY || env.OZON_SELLER_API_KEY, client = env.OZON_CLIENT_ID || env.OZON_SELLER_CLIENT_ID;
     if (!key || !client) throw Error('Ozon monitor credentials unavailable');
     const r = await fetch('https://api-seller.ozon.ru' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Client-Id': client, 'Api-Key': key, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -115,10 +116,20 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
   }
   if (!catalogComplete) throw Error('Ozon product catalog incomplete');
   const ids = [...catalog.keys()];
+  const sourceMap = new Map<string, number>();
   for (let i = 0; i < ids.length; i += 1000) {
     const info = await request('/v3/product/info/list', { product_id: ids.slice(i, i + 1000).map(String) });
     if (!Array.isArray(info.items)) throw Error('Ozon product names unavailable');
-    for (const p of info.items) if (catalog.has(Number(p.id))) catalog.get(Number(p.id)).name = p.name || catalog.get(Number(p.id)).offer_id;
+    for (const p of info.items) if (catalog.has(Number(p.id))) {
+      const id = Number(p.id);
+      catalog.get(id).name = p.name || catalog.get(id).offer_id;
+      for (const source of p.sources ?? []) {
+        const sku = String(source.sku ?? '');
+        if (!/^\d+$/.test(sku) || Number(sku) <= 0) throw Error('Ozon product source SKU unavailable');
+        if (sourceMap.has(sku) && sourceMap.get(sku) !== id) throw Error('Ozon product source SKU mapping conflicts');
+        sourceMap.set(sku, id);
+      }
+    }
   }
   const actionsData = await request('/v1/actions');
   if (!Array.isArray(actionsData.result)) throw Error('Ozon action list unavailable');
@@ -139,6 +150,7 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
   }
   let sales: Awaited<ReturnType<typeof readSameCutoffSales>> | null = null, sales_error: string | undefined;
   try { sales = await readSameCutoffSales(request, at); } catch (e) { sales_error = e instanceof Error ? e.message : 'Ozon sales unavailable'; }
+  const baskets = await loadDailyBaskets(env.DB, request, sourceMap, ids, Date.now());
   const rows = [...catalog.values()].map(row => {
     const boost = summarizeBoost(row.memberships), active = row.memberships.filter((m: any) => m.status === 'active' && !m.is_quarantined);
     if (row.memberships.some((m: any) => m.is_quarantined)) row.issues.push('Карантин в акции');
@@ -154,15 +166,22 @@ export async function runPromotionMonitor(env: Env, requestOverride?: RequestOzo
     const s = sales?.totals.get(String(row.offer_id).trim().toLowerCase());
     const today_units = sales ? s?.today ?? 0 : null, yesterday_units = sales ? s?.yesterday ?? 0 : null;
     const delta_units = today_units != null && yesterday_units != null ? today_units - yesterday_units : null;
+    const basket = baskets.snapshot?.by_product[String(row.product_id)];
     const { memberships: _, ...rest } = row;
     return { ...rest, boost, today_units, yesterday_units, delta_units, delta_pct: yesterday_units && delta_units != null ? delta_units / yesterday_units * 100 : null,
+      today_baskets: basket?.today ?? null, yesterday_baskets: basket?.yesterday ?? null,
+      delta_baskets_pct: basket?.today != null && basket.yesterday != null && basket.yesterday > 0 ? (basket.today - basket.yesterday) / basket.yesterday * 100 : null,
       cancelled_today: sales ? s?.cancelled_today ?? 0 : null, cancelled_yesterday: sales ? s?.cancelled_yesterday ?? 0 : null,
       buyout_today: sales ? s?.buyout_today ?? 0 : null, buyout_yesterday: sales ? s?.buyout_yesterday ?? 0 : null };
   });
   // Missing prices/order IDs may not silently vanish from the all-SKU table.
   if (sales) for (const sku of sales.totals.keys()) if (!rows.some(r => String(r.offer_id).trim().toLowerCase() === sku)) throw Error('Ordered SKU missing from Ozon catalog');
   const report = { snapshot_at, sales_as_of: snapshot_at, timezone: 'Asia/Yerevan', cutoff: new Date(at + 4 * 3600000).toISOString().slice(11, 16),
+    baskets_available: Boolean(baskets.snapshot), baskets_as_of: baskets.snapshot?.as_of ?? null,
+    baskets_period: baskets.snapshot?.period ?? null, baskets_stale: baskets.stale, baskets_error: baskets.error,
+    baskets_basis: 'Добавления в корзину за сутки МСК: сегодня неполный день, вчера полный; не сравнение за одинаковые часы',
     sales_available: sales !== null, sales_scope: 'FBO + FBS', sales_error, rows, coverage: { products: rows.length, actions: actionsData.result.length,
+      baskets: baskets.snapshot?.coverage ?? null, basket_storage_key: BASKETS_KEY,
       prior_snapshot_at: previous?.snapshot_at ?? null, orders: sales?.coverage ?? null,
       gaps: ['Проценты неэластичных акций без current_boost не установлены', 'Стратегии, скидки от количества и персональные разрешённые минимумы требуют предметной проверки'],
       mode: 'read_only', actions_taken: 0 } };

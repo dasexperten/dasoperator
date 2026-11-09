@@ -3,6 +3,7 @@
 .header h2 { margin: 0; font: 800 21px/1.2 var(--font-body); letter-spacing: 0; }
 .tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .tools > span { color: var(--fg-2); font-size: 14px; white-space: nowrap; }
+.tools > .basketPeriod { color: var(--fg-2); }
 .refresh { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--fg-1); background: var(--paper); cursor: pointer; }
 .refresh:hover:not(:disabled) { background: var(--paper-sunk); border-color: var(--border-strong); }
 .refresh:disabled { cursor: wait; background: var(--paper-sunk); }
@@ -32,6 +33,7 @@
   .header h2 { font-size: 19px; }
   .tools { gap: 8px; }
   .tools > span { font-size: 14px; }
+  .tools > .basketPeriod { display: none; }
   .table th, .table td { padding: 12px 4px; }
   .tableWrap > table.table { display: table; width: 100%; min-width: 0; table-layout: fixed; }
   .tableWrap > table.table.table th, .tableWrap > table.table.table td { position: static; background: transparent; }

@@ -13,7 +13,10 @@ test('seller-only image preserves preceding verified basket, new unresolved bask
 });
 test('later incoming explicit price is usable; incoming conflicting text stays pending',()=>{
  for(const text of ['Сумма 453 руб','Сумма 453руб, когда оплатите?','453руб, на Сбер или Озон?'])assert.equal(decideCart([],incomingAmount([m(text)])).amount_minor,45300,text);
- assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount([m('123456789012\n\n453')])).reason,'amount_conflict');
+ assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount([{...m('453руб'),created_at:at}])).reason,'amount_conflict');
+ assert.equal(decideCart([{...cart,observed:{price:'429',currency:'RUB'}}],incomingAmount([m('492р')])).amount_minor,49200);
+ const asked=[{id:'question',direction:'out',text:'Подскажите артикул пасты и итоговую сумму при оформлении?',created_at:at},m('123456789012\n\n453')];
+ assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount(asked)).amount_minor,45300);
  assert.equal(decideCart([cart],incomingAmount([m('453₽')])).status,'confirmed');
  assert.equal(decideCart([],incomingAmount([m('123456789012\n\n453')])).status,'pending');
 });

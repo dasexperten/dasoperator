@@ -11,7 +11,7 @@ export function protectedReviewDatabase({token,fetchImpl=fetch}) {
     if(!response.ok)throw Error(`review_storage_http_${response.status}`);
     const out=await response.json();if(!out.success||!Array.isArray(out.result)||out.result.some(r=>!r.success))throw Error('review_storage_failed');return out.result;
   }
-  return {prepare(sql){let params=[];const q={bind(...p){params=p;return q;},get statement(){return {sql,params};},async first(){return (await execute({sql,params}))[0].results?.[0]??null;}};return q;},
+  return {prepare(sql){let params=[];const q={bind(...p){params=p;return q;},get statement(){return {sql,params};},async first(){return (await execute({sql,params}))[0].results?.[0]??null;},async all(){return{results:(await execute({sql,params}))[0].results??[]};}};return q;},
     async batch(statements){return execute({batch:statements.map(q=>q.statement)});}};
 }
 export async function protectedContentReview(input,{token,fetchImpl=fetch}) {

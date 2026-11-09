@@ -189,7 +189,7 @@ test('new seller-only screen retains verified basket; later conflicting text cre
   f.db.prepare('INSERT INTO ugc_ig_messages VALUES(?,?,?,?,?,?)').run(seller.id,'chat','in','alice',seller.created_at,seller.attachments_json);messages.push(seller);
   globalThis.__cartModels=[];globalThis.__cartResults=[{...imageResult,kind:'other',product:'unknown',amount:'unknown',observed:{...imageResult.observed,price:null}},imageResult];
   assert.equal((await reviewPayoutCart(f.env,'chat',messages,{now,policy})).amount_minor,45300);
-  const quote={id:'text-price',direction:'in',text:'Цена 492 руб',created_at:'2026-11-09T11:30:00Z'};
+  const quote={id:'text-price',direction:'in',text:'Можно 492руб?',created_at:'2026-11-09T11:30:00Z'};
   f.db.prepare('INSERT INTO ugc_ig_messages VALUES(?,?,?,?,?,?)').run(quote.id,'chat','in','alice',quote.created_at,null);messages.push(quote);
   const receipt=await reviewPayoutCart(f.env,'chat',messages,{now,policy});assert.equal(receipt.reason,'amount_conflict');
   const saved=await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now);assert.equal(saved.registered,false);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);
@@ -203,5 +203,24 @@ test('an explicit incoming amount without an image is source-backed; later stale
   f.db.prepare("UPDATE ugc_payouts SET amount_minor=48700").run();
   f.db.prepare("INSERT INTO ugc_ig_messages VALUES('later','chat','in','alice','2026-11-09T11:40:00Z',NULL)").run();
   assert.equal((await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now)).amount_minor,48700);
+ }finally{f.db.close()}
+});
+
+test('known amount is saved on an existing incomplete row without making old requisites payable',async()=>{
+ const f=fixture();try{
+  const original=await prepareCreatorPayout(f.env,facts,now);
+  f.db.prepare('UPDATE ugc_payouts SET amount_minor=1').run();f.db.prepare('UPDATE ugc_payout_requisites SET first_name=NULL').run();
+  const r=await prepareCreatorPayout(f.env,{...facts,first_name:null,cart_review:{source_message_id:'new-bank',amount_minor:39400}},now);assert.equal(r.registered,false);assert.deepEqual(r.missing_fields,['first_name']);
+  assert.equal(f.db.prepare('SELECT amount_minor FROM ugc_payouts').get().amount_minor,39400);assert.equal(f.db.prepare('SELECT first_name FROM ugc_payout_requisites').get().first_name,null);
+ }finally{f.db.close()}
+});
+test('reviewed checkout remains valid after identified seller-only images without faking model classification',async()=>{
+ const f=fixture();try{
+  const messages=archivedCart(f);const older=messages.find(m=>m.id==='new-bank');
+  f.db.prepare("INSERT INTO ugc_ig_messages VALUES('seller','chat','in','alice','2026-11-09T11:15:00Z','[{}]')").run();
+  const proof={version:1,conversation_id:'chat',latest_image_at:'2026-11-09T11:15:00Z',checks:[{source_message_id:'seller',created_at:'2026-11-09T11:15:00Z',kind:'other',seller:'unknown',unresolved_required:[]}],status:'pending'};
+  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ugc_cart_review:chat',JSON.stringify(proof),now);
+  const r=await prepareCreatorPayout(f.env,{...facts,cart_review:{source_message_id:'new-bank',amount_minor:45300,source_kind:'checkout',evidence:'Original checkout shows selected Ozon Bank, one TERMO thumbnail and final 453 RUB; later image is seller-only.',reviewer:'mina-rutunya'}},now);assert.equal(r.amount_minor,45300);
+  const saved=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_payout_intake:%'").get().value);assert.equal(saved.verified_cart.reviewer,'mina-rutunya');
  }finally{f.db.close()}
 });

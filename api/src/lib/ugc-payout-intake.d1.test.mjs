@@ -318,4 +318,15 @@ test('isolated Worker D1: UGC payout intake safety', { timeout: 120_000 }, async
     assert.deepEqual(record.missing_fields, ['first_name']);
     assert.deepEqual(await query('SELECT * FROM ugc_payouts'), before);
   });
+  await t.test('known price fills a legacy incomplete row atomically without adding recipient or payment readiness', async()=>{
+    await reset();const original=(await intake()).result;
+    await query('UPDATE ugc_payouts SET amount_minor=1 WHERE id=?1',original.id);
+    await query('UPDATE ugc_payout_requisites SET first_name=NULL WHERE payout_id=?1',original.id);
+    const call=await intake({first_name:null,cart_review:{source_message_id:'synthetic_image',amount_minor:39400}},now+1);
+    assert.equal(call.result.registered,false);assert.deepEqual(call.result.missing_fields,['first_name']);
+    const rows=await query('SELECT p.amount_minor,p.status,p.konsol_payment_id,r.first_name FROM ugc_payouts p JOIN ugc_payout_requisites r ON r.payout_id=p.id');
+    assert.equal(rows.length,1);assert.equal(rows[0].amount_minor,39400);assert.equal(rows[0].status,'awaiting_approval');assert.equal(rows[0].konsol_payment_id,null);assert.equal(rows[0].first_name,null);
+    assert.equal(JSON.parse((await pending()).value).observed_amount_minor,39400);
+  });
+
 });

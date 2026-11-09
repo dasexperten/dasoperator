@@ -55,7 +55,7 @@ test('current vk.ru clip links are accepted and alias retries preserve the origi
 });
 
 test('active scope preserves raw history and rejects unknown destinations',async()=>{
- const {reelScope}=await import('./ugc-reel-jobs.mjs');const original=['instagram','threads','vk','youtube','tiktok'];const row={required_destinations:JSON.stringify(original)};assert.deepEqual(reelScope(row).active,['instagram','threads','vk','youtube']);assert.deepEqual(reelScope(row).deferred,['tiktok']);assert.equal(row.required_destinations,JSON.stringify(original));assert.throws(()=>reelScope({required_destinations:'["linkedin"]'}));assert.deepEqual(reelScope({required_destinations:'["vk","tiktok"]'}).active,['vk']);
+ const {reelScope}=await import('./ugc-reel-jobs.mjs');const original=['instagram','threads','vk','youtube','tiktok'];const row={required_destinations:JSON.stringify(original)};assert.deepEqual(reelScope(row).active,original);assert.deepEqual(reelScope(row).deferred,[]);assert.equal(row.required_destinations,JSON.stringify(original));assert.throws(()=>reelScope({required_destinations:'["linkedin"]'}));assert.deepEqual(reelScope({required_destinations:'["vk","tiktok"]'}).active,['vk','tiktok']);
 });
 test('source publication is accepted only with explicit verified own accepted-coauth identity',()=>{
  const p={platform:'instagram',url:'https://instagram.com/reel/SOURCE/',account:'dasexperten',verified:true,verified_at:new Date().toISOString(),evidence:'Official accepted collaborative_media exact source, complete pagination'};
@@ -84,13 +84,13 @@ test('two product outputs across seven platforms are not truncated by the old tw
 });
 
 
-test('new jobs activate verified six accounts while old saved scopes remain exact',async()=>{
+test('new jobs require the full seven-account API round while old saved scopes remain exact',async()=>{
  const {reelScope,ACTIVE_REEL_DESTINATIONS}=await import('./ugc-reel-jobs.mjs');
- assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube']);
- const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');
+ assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube','tiktok']);
+ const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');assert.equal(scope.accounts.tiktok,'dasbroadcast');assert.equal(scope.publication_transport,'api');assert.equal(scope.tiktok_publisher,'Das Experten UGC Publisher');assert.deepEqual(scope.deferred,[]);
  assert.deepEqual(reelScope({required_destinations:'["youtube"]'}).active,['youtube']);
  const text=reelTaskText({content_id:'rutube-new',content_url:'https://youtube.com/watch?v=AbC123def_0',claim_id:'private-placeholder',handle:'author'},'https://erp.test');
- assert.match(text,/jobs\/diter-rutube-upload\/runner.py/);assert.match(text,/59945486/);assert.match(text,/модерация не равны публичной/);
+ assert.match(text,/jobs\/diter-rutube-upload\/runner.py/);assert.match(text,/59945486/);assert.match(text,/Das Experten UGC Publisher/);assert.match(text,/полный раунд не завершать/);assert.match(text,/модерация не равны публичной/);
 });
 
 test('assignment includes verified identity, canonical keyword provenance and ERP plan before provider intent',()=>{

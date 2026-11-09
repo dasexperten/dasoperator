@@ -429,6 +429,8 @@ export async function handleScheduled(
     try {
       const { STEPS } = await import('./cron-steps');
       for (const w of ['erp-ugc-direct', 'erp-ugc-payouts']) {
+        // Owner 09.11: payout fallback shares the fixed ten-minute clock.
+        if (w === 'erp-ugc-payouts' && new Date(event.scheduledTime || Date.now()).getUTCMinutes() % 10 !== 0) continue;
         const fresh = await env.DB.prepare(
           `SELECT 1 FROM erp_cron_runs WHERE worker=?1 AND cron<>'manual' AND started_at >= ?2 LIMIT 1`
         ).bind(w, new Date(Date.now() - 3 * 60_000).toISOString()).first();

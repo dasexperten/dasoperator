@@ -41,9 +41,9 @@ function fixture(t, overrides = {}, initial = null) {
   }; return q; } } };
   globalThis.__ugcCron = f; return f;
 }
-async function failsInThreeMinutes(t, worker, overrides, pattern) {
+async function failsOnPayoutClock(t, worker, overrides, pattern) {
   const f = fixture(t, overrides); await assert.rejects(STEPS[worker](f.env), pattern);
-  const s = JSON.parse(f.state); assert.equal(s.delay_min, 3); assert.equal(s.next_at, Date.now() + 180_000);
+  const s = JSON.parse(f.state); assert.equal(s.delay_min, 10); assert.equal(s.next_at, (Math.floor(Date.now() / 600_000) + 1) * 600_000);
   return f;
 }
 test('Direct only detects metadata; it never reads bodies, calls a reply model or changes adaptive cadence', async t => {
@@ -59,11 +59,11 @@ test('payout timer only sweeps payouts without legacy incident escalation, creat
   assert.deepEqual(f.calls, ['payout']);
 });
 test('payout idle is success; sweep exception is failure', async t => {
-  const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 15);
-  await failsInThreeMinutes(t, 'erp-ugc-payouts', { payout: new Error('Konsol unavailable') }, /Konsol unavailable/);
+  const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 10);
+  await failsOnPayoutClock(t, 'erp-ugc-payouts', { payout: new Error('Konsol unavailable') }, /Konsol unavailable/);
 });
 test('required waiting and payout count reads cannot report unknown as zero and succeed', async t => {
-  await failsInThreeMinutes(t, 'erp-ugc-payouts', { countFailure: new Error('D1 read unavailable') }, /open payouts.*D1 read unavailable/);
+  await failsOnPayoutClock(t, 'erp-ugc-payouts', { countFailure: new Error('D1 read unavailable') }, /open payouts.*D1 read unavailable/);
 });
 
 test('removed timer jobs have no executable ERP step', () => {

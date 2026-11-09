@@ -105,3 +105,24 @@ test('failure schedules three minutes after completion and clears the heartbeat'
   assert.equal(JSON.parse(f.value).last_ok, false);
   assert.equal(f.clears, 1);
 });
+
+// Owner 2026-11-09: payout cadence replaces 3/15/30, including retries.
+test('fixed payout cadence replaces stale idle state and rejects early fallback or probe', async t => {
+  const f = fixture(t, {next_at: 9_000_000, last_started_at: 100_000});
+  let runs = 0, probes = 0;
+  const job = async () => { runs++; return {ok:true,activity:true}; };
+  await runAdaptiveLane(f.env,'ugc_payouts',job,f.now,undefined,10);
+  assert.equal(runs,1); assert.equal(JSON.parse(f.value).next_at,1_200_000);
+  f.now=1_100_000;
+  await runAdaptiveLane(f.env,'ugc_payouts',job,f.now,async()=>{probes++;return true;},10);
+  assert.equal(runs,1); assert.equal(probes,0);
+  f.now=1_200_000;
+  await runAdaptiveLane(f.env,'ugc_payouts',job,f.now,undefined,10);
+  assert.equal(runs,2);
+});
+test('fixed payout failure retains ten-minute slots instead of an early retry', async t => {
+  const f=fixture(t);
+  await assert.rejects(runAdaptiveLane(f.env,'ugc_payouts',async()=>{throw Error('offline');},f.now,undefined,10),/offline/);
+  assert.equal(JSON.parse(f.value).delay_min,10);
+  assert.equal(JSON.parse(f.value).next_at,1_200_000);
+});

@@ -15,7 +15,7 @@ function leaseActive(state: any, now: number): boolean {
   return now < until;
 }
 
-export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = Date.now(), probe?: (env: Env) => Promise<boolean>): Promise<string> {
+export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = Date.now(), probe?: (env: Env) => Promise<boolean>, intervalMinutes?: number): Promise<string> {
   const key = `adaptive:${lane}`;
   const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(key).first<{ value: string }>();
   let state: any = null;
@@ -24,7 +24,14 @@ export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = 
   // the original start is older than five minutes but its heartbeat is fresh.
   if (leaseActive(state, now)) return `${lane}: not due (running)`;
   // Owner 2026-10-18: between scheduled checks a light probe may wake the lane at once (not during a running lease).
-  if (!laneDue(state, now)) {
+  // Owner 09.11.2026: payouts use fixed ten-minute slots, including failures.
+  // Ignore stale adaptive next_at during migration; keep the shared lease.
+  const intervalMs = intervalMinutes ? intervalMinutes * 60_000 : 0;
+  const due = intervalMs
+    ? !Number.isFinite(state?.last_started_at) || Math.floor(state.last_started_at / intervalMs) < Math.floor(now / intervalMs)
+    : laneDue(state, now);
+  if (!due) {
+    if (intervalMs) return `${lane}: not due`;
     if (!probe || !(await probe(env).catch(() => false))) return `${lane}: not due`;
   }
   // A run can last longer than a minute; the next tick must not start the same lane meanwhile
@@ -67,7 +74,10 @@ export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = 
       last_ok: out.ok,
     };
     // Owner 2026-10-21: a lane that failed is not idle — it is retried in 3 minutes, never parked at 30.
-    if (!out.ok) { next.next_at = completedAt + 3 * 60_000; next.delay_min = 3; }
+    if (intervalMs) {
+      next.next_at = (Math.floor(completedAt / intervalMs) + 1) * intervalMs;
+      next.delay_min = intervalMinutes!;
+    } else if (!out.ok) { next.next_at = completedAt + 3 * 60_000; next.delay_min = 3; }
     const saved = await env.DB.prepare(
       `UPDATE crm_sync_state SET value=?2, updated_at=?3
        WHERE key=?1 AND json_extract(value,'$.lease_token')=?4`

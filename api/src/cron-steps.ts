@@ -77,7 +77,7 @@ export const STEPS: Record<string, Step> = {
       const openPayouts = Number(open?.n ?? 0);
       return { ok: failures.length === 0, error: failures.length ? failures.join('; ') : undefined,
         activity: refreshed > 0 || openPayouts > 0, refreshed, openPayouts };
-    });
+    }, Date.now(), undefined, 10);
   },
   'erp-site-stock': async (env) => {
     // @ts-expect-error plain JS module

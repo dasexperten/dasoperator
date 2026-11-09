@@ -38,7 +38,7 @@ const RETIRED = {
 // it here himself. A minute field that is not one plain number is a finding.
 const SUBHOURLY_ALLOWED = {
   'erp-ugc-direct': 'Owner 2026-10-15: «after activity… the next check is after 3 minutes… 15… 30» (DH-LAW-261015-01); 2026-10-16: «должно быть ERP-UGC worker». Fires every minute, the lane runs only when due.',
-  'erp-ugc-payouts': 'Owner 2026-10-15: same 3/15/30 rule for payouts (DH-LAW-261015-01); 2026-10-16: «должно быть ERP-UGC worker». Fires every minute, the lane runs only when due.',
+  'erp-ugc-payouts': 'Owner 2026-11-09: fixed ten-minute payout cadence, including fallback and failures.',
 };
 
 const MODEL_ALLOWED = {

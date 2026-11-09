@@ -108,7 +108,7 @@
   ],
   "erp-ugc-link-health": [],
   "erp-ugc-payouts": [
-    "* * * * *"
+    "*/10 * * * *"
   ],
   "erp-ugc-postlink": [
     "0 0 * * *"

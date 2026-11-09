@@ -131,3 +131,17 @@ test('dispatcher prioritizes confirmed financial actions without restarting proa
  f.set('diana_action_pending:action:paid',{...f.event,event_id:'action:paid',task:'payout_paid_notice',payout_id:'p1'});
  await dispatchDianaCloud(f.env);assert.equal(created[0].params.task,'payout_paid_notice');assert.equal(created[0].params.payout_id,'p1');assert.ok(f.state('diana_round_alarm:chat'));
 });
+
+test('an already delivered payout notice cannot be repeated by a new model decision',async t=>{
+ const f=fixture(t);f.originals.unshift({id:'notice-original',from:{id:'17841466350261166'},message:'Перевели',created_time:'2026-11-09T09:00:05Z'});
+ f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,status,paid_at,konsol_payment_id,konsol_status,notice_status,notice_message_id,created_at,updated_at) VALUES('p1','creator-id','creator','paid','2026-11-09T08:59:00Z','payment1','executed','delivered','notice-original',1,1)`).run();
+ const event={...f.event,event_id:'action:already-paid',task:'payout_paid_notice',payout_id:'p1'};f.set('diana_action_pending:'+event.event_id,event);
+ const {draft}=await f.prepare(event),out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'no_reply');assert.equal(f.sends.length,0);
+ await cloud.completeCloudEvent(f.env,event,out);assert.equal(f.db.prepare("SELECT notice_message_id FROM ugc_payouts WHERE id='p1'").get().notice_message_id,'notice-original');assert.equal(f.state('diana_action_pending:'+event.event_id),undefined);
+});
+test('a no-reply decision cannot close a payment action after its provider facts change',async t=>{
+ const f=fixture(t);f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,status,paid_at,konsol_payment_id,konsol_status,notice_status,created_at,updated_at) VALUES('p1','creator-id','creator','paid','2026-11-09T08:59:00Z','payment1','executed','queued',1,1)`).run();
+ const event={...f.event,event_id:'action:changed-payment',task:'payout_paid_notice',payout_id:'p1'};f.env.decision.reply=null;
+ const {draft}=await f.prepare(event);f.db.prepare("UPDATE ugc_payouts SET konsol_payment_id='replacement' WHERE id='p1'").run();
+ const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'needs_review');assert.equal(f.sends.length,0);
+});

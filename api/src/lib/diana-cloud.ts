@@ -176,7 +176,6 @@ export async function deliverCloudDecision(env: Env, key: string) {
     return {status:'no_reply',reason:'Existing delivery receipt reopened in original conversation.',existingNoticeId:String(original.id)};
   }
   if (decision.escalate) return {status:'needs_review',reason:decision.reason};
-  if (!decision.reply) return {status:'no_reply',reason:decision.reason};
   const actionId=source.event.task?source.event.event_id:undefined;
   const deliveryKey=igDeliveryKey(source.event.cid,source.at,actionId);
   if((await stateRead(env,deliveryKey))?.status==='complete')return {status:'delivered',deliveryKey};
@@ -184,6 +183,7 @@ export async function deliverCloudDecision(env: Env, key: string) {
   const currentPayouts=(await env.DB.prepare('SELECT id,amount_minor,status,product,paid_at,failed_at,sent_at,created_at,konsol_payment_id,konsol_status,konsol_error,notice_status,notice_message_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC')
     .bind(source.creator.id).all()).results??[];
   if(currentCreator?.updated_at!==source.creator.updated_at || JSON.stringify(currentPayouts)!==JSON.stringify(source.payouts))return {status:'needs_review',reason:'erp_facts_changed_during_inference'};
+  if (!decision.reply) return {status:'no_reply',reason:decision.reason};
   const cards=[...(decision.sendCards?SCENARIO_CARDS:[]),...(decision.sendOzonPhoto?[OZON_CARD_PHOTO]:[])];
   // A payment action has its own immutable outbox; it must never reuse the plan
   // already delivered for the incoming message which originally supplied details.
@@ -234,6 +234,9 @@ export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome
   const base=await artifactPrefix(event);
   const draft=await get(env,base+'decision.json'),source=await get(env,draft.sourceKey),decision=draft.decision;
   if(event.task&&event.payout_id){
+    const expected=source.payouts.find((p:any)=>p.id===event.payout_id);
+    const current=await env.DB.prepare('SELECT status,konsol_payment_id,konsol_status,paid_at,failed_at,notice_message_id FROM ugc_payouts WHERE id=?1').bind(event.payout_id).first<any>();
+    if(!current||['status','konsol_payment_id','konsol_status','paid_at','failed_at'].some(k=>current[k]!==expected[k])||outcome.existingNoticeId&&current.notice_message_id!==outcome.existingNoticeId)throw Error('cloud_payout_changed_before_completion');
     const plan=outcome.deliveryKey?await stateRead(env,outcome.deliveryKey):null;
     const messageId=outcome.existingNoticeId??(outcome.status==='delivered'?plan?.items?.[0]?.messageId:source.history.at(-1)?.id);
     const evidence='Diana cloud workflow read the original conversation. '+(decision.reason||'Confirmed notification delivered and original Meta receipts reopened.');

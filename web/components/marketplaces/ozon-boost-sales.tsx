@@ -121,9 +121,9 @@ export function OzonBoostSalesView({ top10 = false, report, loading = false, err
             <table className={`${styles.table} dx-keep-table`}>
               <thead><tr>
                 <th scope="col">Товар</th><th scope="col" className={styles.boostHeader}>Бустинг</th>
-                <th scope="col"><span className={styles.desktopLabel}>Заказы сегодня</span><span className={styles.mobileLabel}>Сегодня</span></th>
+                <th scope="col"><span className={styles.desktopLabel}>Заказы сегодня</span><span className={styles.mobileLabel}>Сег.</span></th>
                 <th scope="col" className={styles.basket} title={basketEvidence}>Корзины сегодня</th>
-                <th scope="col"><span className={styles.desktopLabel}>Заказы вчера</span><span className={styles.mobileLabel}>Вчера</span></th>
+                <th scope="col"><span className={styles.desktopLabel}>Заказы вчера</span><span className={styles.mobileLabel}>Вчр.</span></th>
                 <th scope="col" className={styles.basket} title={basketEvidence}>Корзины вчера</th>
                 <th scope="col"><span className={styles.desktopLabel}>Δ заказов</span><span className={styles.mobileLabel}>Δ</span></th>
                 <th scope="col" className={styles.basket} title={basketEvidence}>Δ корзин</th>

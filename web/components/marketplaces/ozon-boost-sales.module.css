@@ -48,3 +48,25 @@
   .count, .delta { font-size: 16px; }
   .delta { font-size: 14px; }
 }
+
+/* Owner 2026-11-09: the table always fits the phone — never wider, never sideways.
+   A global rule sets thead/tbody to display:table + width:max-content, which split
+   header and rows into two tables and let rows outgrow the screen on large system fonts. */
+@media (max-width: 767px) {
+  .tableWrap { overflow-x: hidden !important; }
+  .tableWrap > table.table.table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; }
+  .tableWrap > table.table.table > thead { display: table-header-group !important; width: auto !important; }
+  .tableWrap > table.table.table > tbody { display: table-row-group !important; width: auto !important; }
+  .tableWrap > table.table.table tr { display: table-row !important; }
+  .tableWrap > table.table.table th:nth-child(1), .tableWrap > table.table.table td:nth-child(1) { width: 44% !important; }
+  .tableWrap > table.table.table th:nth-child(3), .tableWrap > table.table.table td:nth-child(3),
+  .tableWrap > table.table.table th:nth-child(5), .tableWrap > table.table.table td:nth-child(5) { width: 16% !important; }
+  .tableWrap > table.table.table th:nth-child(7), .tableWrap > table.table.table td:nth-child(7) { width: 24% !important; }
+  .tableWrap > table.table.table th, .tableWrap > table.table.table td { padding-left: 4px !important; padding-right: 4px !important; }
+  .tableWrap > table.table.table td:nth-child(3), .tableWrap > table.table.table td:nth-child(5),
+  .tableWrap > table.table.table th:nth-child(3), .tableWrap > table.table.table th:nth-child(5) { text-align: right !important; }
+  .tableWrap > table.table.table td:nth-child(7), .tableWrap > table.table.table th:nth-child(7) { text-align: right !important; white-space: nowrap !important; }
+  .tableWrap > table.table.table thead th { font-size: 13px !important; white-space: nowrap !important; overflow: hidden; }
+  .tableWrap > table.table.table td:nth-child(7) span { font-size: clamp(11px, 3.6vw, 15px) !important; }
+  .tableWrap > table.table.table td:nth-child(1) span { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+}

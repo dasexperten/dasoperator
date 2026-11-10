@@ -29,7 +29,7 @@ route.post('/direct-subscription-check', async c => {
     const out=await directThink(c.env,'reply')([{role:'user',content:'Reply with the single word OK.'}],{model:'gpt-6.1-terra'});
     const imageOk=/\bred\b/i.test(image.text);
     return c.json({ok:imageOk&&out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6.1-terra',image_verified:imageOk});
-  } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
+  } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|upstream_http_\d{3}|upstream_model_not_verified|upstream_empty_answer|upstream_codex_no_pass|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
 });
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 

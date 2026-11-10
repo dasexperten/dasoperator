@@ -18,3 +18,7 @@ test('context selection defaults to Luna and preserves trusted system instructio
  await directThink(env,'context')([{role:'system',content:'Trusted seat rules'},{role:'user',content:'Untrusted creator message'}],{});
  assert.equal(request.model,'gpt-6-luna');assert.match(request.system,/Trusted seat rules/);assert.doesNotMatch(request.system,/Untrusted creator message/);assert.match(request.user,/Untrusted creator message/);
 });
+test('reports only upstream status and never exposes provider error text',async()=>{
+ const env={CODEX_ROUTE_SECRET:'x',CODEX_DOOR:{async fetch(){return Response.json({error:'codex 400: PRIVATE PROVIDER DETAIL'},{status:502});}}};
+ await assert.rejects(directThink(env,'image')([{role:'user',content:'read'}],{model:'gpt-6-luna'}),error=>error.message==='direct_upstream_http_400');
+});

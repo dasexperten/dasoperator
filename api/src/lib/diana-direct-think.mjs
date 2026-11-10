@@ -19,7 +19,14 @@ export function directThink(env, operation) {
       method:'POST',headers:{authorization:`Bearer ${env.CODEX_ROUTE_SECRET}`,'content-type':'application/json'},
       body:JSON.stringify({system,user,model,images}),signal:AbortSignal.timeout(180000),
     });
-    if (!response.ok) throw Error(`direct_inference_http_${response.status}`);
+    if (!response.ok) {
+      const failure=await response.json().catch(()=>null);
+      const reason=String(failure?.error??'');
+      const upstream=/^codex (\d{3})(?::|$)/.exec(reason);
+      if(upstream)throw Error(`direct_upstream_http_${upstream[1]}`);
+      if(['model_not_verified','empty_answer','codex_no_pass'].includes(reason))throw Error(`direct_upstream_${reason}`);
+      throw Error(`direct_inference_http_${response.status}`);
+    }
     const result=await response.json();
     if (result?.ok!==true || result.model!==model || typeof result.text!=='string' || !result.text.trim()) throw Error('direct_inference_invalid_receipt');
     return {text:result.text,receipt:{transport:'organization_subscription',model,operation}};

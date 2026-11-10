@@ -2,7 +2,7 @@
 // Copied verbatim from organizacia fleet/dasha-ozon and fleet/arina-wb index.js at 1e4cfb0.
 // They read the marketplace, write the seat's cell on the board (BOARD binding) and
 // pick up the seat's off-schedule notes (env.DB = the board database).
-import { dayTurnover, ozonNoticeDetail, ozonNoticeLine, ozonNotices, turnoverLine, wbNews, wbNewsDetail, wbNewsLine, weekLine, weekRollup } from "./marketplace-watch.mjs";
+import { dayTurnover, ozonNoticeDetail, ozonNoticeLine, ozonNotices, turnoverLine, wbNews, weekLine, weekRollup } from "./marketplace-watch.mjs";
 import { markHour, markWeek } from "./schedule-mark.mjs";
 
 export async function runOzonDayTurnover(env) {
@@ -98,7 +98,8 @@ export async function runWbNews(env, daysBack = 1, cell = { hour: 4 }) {
   const line = error || `Новости WB: прочитано ${review.reviewed}, важных ${relevant.length}, новых знаний ${selected.length}, консультаций ${consultations.length} · DeepSeek`;
   const findings = relevant.map(x => `${x.title}: ${x.summary}`).join("\n\n") || "Важных новых сообщений нет.";
   const expertNotes = consultations.map(x => `${x.name} — ${x.title}: ${x.analysis}${x.next_action ? ` Следующий шаг: ${x.next_action}` : ""}${x.task_id ? ` (задача ${x.task_id})` : ""}`).join("\n\n");
-  const feed = wbNewsDetail(n);
+  // Keyword matches do not establish that a WB warehouse serves our business.
+  const feed = (n.items || []).map(x => `• ${x.date} — ${x.header}`).join("\n");
   const fullDetail = `${findings}${expertNotes ? `\n\nКонсультации:\n${expertNotes}` : ""}\n\nЛента WB:\n${feed}`;
   const detail = error ? feed : fullDetail.length <= 2900 ? fullDetail :
     `${(expertNotes ? `Консультации:\n${expertNotes}\n\n` : "").concat(findings).slice(0, 2700)}\n\nЧасть подробностей не поместилась в отметку; Арина рассмотрела все ${n.total} новостей.`;

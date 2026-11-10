@@ -1,9 +1,13 @@
 import type { Env } from '../types';
 import { pendingDianaMessages } from './diana-alarm';
+import { dianaWorkWindow } from './diana-work-window.mjs';
 
 // One durable workflow at a time, across metadata scans and connected machines.
 // The Durable Object serializes dispatch; instance identity makes creation replay-safe.
-export async function dispatchDianaCloud(env:Env,priorityEventId?:string) {
+export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Date.now()) {
+  // Keep events durable outside the working window; detection or payment
+  // confirmation must not start a new Direct execution overnight.
+  if (!dianaWorkWindow(now).direct) return {dispatched:false,reason:'outside_direct_hours'};
   const claim=await env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();
   if(claim&&Number(claim.updated_at)>Date.now()-180_000)return {dispatched:false,reason:'diana_machine_finishing'};
   const active=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_cloud_active'").first<{value:string}>();

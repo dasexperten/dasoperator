@@ -102,6 +102,15 @@ test('dispatcher creates exactly one durable event, waits on its real status and
  instances.set(creates[0].id,'complete');f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
  assert.equal((await dispatchDianaCloud(f.env)).reason,'cloud_events_await_review');assert.equal(creates.length,1);
 });
+test('outside Moscow Direct hours the event remains queued and no workflow starts',async t=>{
+ const f=fixture(t),creates=[];
+ f.env.DIANA_CLOUD={async create(v){creates.push(v)}};
+ for(const at of ['2026-11-10T07:59:59+03:00','2026-11-10T23:30:00+03:00','2026-11-11T06:00:00+03:00']) {
+   assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse(at))).reason,'outside_direct_hours');
+ }
+ assert.equal(creates.length,0);
+ assert.ok(f.state('diana_round_alarm:chat'));
+});
 test('confirmed paid action can notify after our last reply, with a separate outbox and verified payout receipt',async t=>{
  const f=fixture(t);
  f.db.prepare(`INSERT INTO ugc_payouts(id,creator_id,handle,amount_minor,status,paid_at,konsol_payment_id,konsol_status,notice_status,created_at,updated_at) VALUES('p1','creator-id','creator',45300,'paid','2026-11-09T08:59:00Z','payment1','executed','queued',1,1)`).run();

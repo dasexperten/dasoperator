@@ -14,3 +14,13 @@ test('a choice linked to an exact stored question is queued once, not claimed de
  const item=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_owner_choice:1').value);assert.equal(item.status,'queued');assert.equal(item.reason,'awaiting_verified_delivery');
  const action=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").get().value);assert.equal(action.task,'owner_choice');assert.equal(action.question_id,'22');
 });
+test('an old answered timestamp is not proof without the actual original delivery',async t=>{
+ const f=fixture(t);f.db.exec("CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,direction TEXT);INSERT INTO ugc_ig_messages VALUES('sent','chat','out')");
+ const q={cid:'chat',handle:'alice',options:{'Ответить':['Хорошо']},choice:'Ответить',answered_at:'2026-11-10T01:00:00Z',delivery_key:'plan'};
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ig_hard:22',JSON.stringify(q),1);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('plan',JSON.stringify({conversationId:'chat',status:'complete',acknowledgedAt:1,items:[{status:'sent',messageId:'sent'}]}),1);
+ f.env.META_IG_MESSAGING_TOKEN='test';let accessible=false;
+ t.mock.method(globalThis,'fetch',async(url)=>String(url).includes('organizacia')?Response.json({ok:true,items:[{agent_slug:'diana-helios',kind:'callback_query',reply_to_message_id:22,update_id:1,text:'opt:1:Ответить'}]}):String(url).includes('access_token')?Response.json({access_token:'page'}):accessible?Response.json({id:'sent',from:{id:'17841466350261166'}}):new Response('{}',{status:403}));
+ let out=await collectOwnerChoices(f.env,'run');assert.equal(out.unresolved,1);let item=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_owner_choice:1').value);assert.equal(item.reason,'owner_choice_delivery_unverified');
+ accessible=true;out=await collectOwnerChoices(f.env,'run');assert.equal(out.unresolved,0);item=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_owner_choice:1').value);assert.equal(item.reason,'owner_choice_delivery_verified');
+});

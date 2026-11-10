@@ -1,6 +1,20 @@
 import type {Env} from '../types';
 import {answerHardQuestion} from './ugc-hard-question';
 const SOURCE='https://organizacia.dasexperten.workers.dev/api/telegram-bot/raw-updates?limit=100';
+async function verifyOriginalDelivery(env:Env,q:any,plan:any){
+ const token=(env as any).META_IG_MESSAGING_TOKEN;if(!token||plan.conversationId!==q.cid)return false;
+ try {
+  const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0'+path,{headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(20_000)});const data=await r.json() as any;if(!r.ok||data.error)throw Error('owner_receipt_original_unavailable');return data;};
+  const page=await graph('/1697038263872226?fields=access_token',token);if(!page.access_token)return false;
+  for(const item of plan.items){
+   const original=await graph('/'+encodeURIComponent(String(item.messageId))+'?fields=id,from,created_time',page.access_token);
+   if(String(original.id)!==String(item.messageId)||!['1697038263872226','17841466350261166'].includes(String(original.from?.id)))return false;
+   const archived=await env.DB.prepare("SELECT id FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2 AND direction='out'").bind(String(item.messageId),q.cid).first();
+   if(!archived)return false;
+  }
+  return true;
+ }catch{return false;}
+}
 // Preserve exact Owner choices for processing; a raw callback is not proof
 // that its original question was matched or that its action was executed.
 export async function collectOwnerChoices(env:Env,roundId:string){
@@ -22,7 +36,14 @@ export async function collectOwnerChoices(env:Env,roundId:string){
     if(q?.options&&Object.prototype.hasOwnProperty.call(q.options,selected)&&(!q.choice||q.choice===selected)){
       const action=await answerHardQuestion(env,Number(x.reply_to_message_id),selected);
       if(action.event_id){item.status='queued';item.reason='awaiting_verified_delivery';item.event_id=action.event_id;}
-      else if(q.answered_at){item.status='verified';item.reason='owner_choice_already_recorded';}
+      else if(q.answered_at&&q.options[selected]===null){item.status='verified';item.reason='owner_chose_to_write_personally';}
+      else if(q.answered_at&&typeof q.delivery_key==='string'){
+        const receipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(q.delivery_key).first<{value:string}>();
+        let plan:any;try{plan=JSON.parse(receipt?.value??'null');}catch{}
+        if(plan?.status==='complete'&&plan.acknowledgedAt&&Array.isArray(plan.items)&&plan.items.length&&plan.items.every((p:any)=>p.status==='sent'&&p.messageId)&&await verifyOriginalDelivery(env,q,plan)){
+          item.status='verified';item.reason='owner_choice_delivery_verified';item.delivery_key=q.delivery_key;
+        }else item.reason='owner_choice_delivery_unverified';
+      }
       else item.reason='owner_choice_not_queued';
     }
    }

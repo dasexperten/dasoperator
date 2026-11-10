@@ -2,7 +2,9 @@ import test from 'node:test';import assert from 'node:assert/strict';import {Dat
 import {createRequire} from 'node:module';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 const {build}=createRequire(import.meta.url)('esbuild'),dir=mkdtempSync(join(tmpdir(),'dieter-cloud-')),file=join(dir,'cloud.mjs');
 await build({entryPoints:[fileURLToPath(new URL('../dieter-cloud.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:file,plugins:[{name:'runtime',setup(b){b.onResolve({filter:/^cloudflare:workers$/},()=>({path:'runtime',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export class WorkflowEntrypoint{}'}));}}]});
-const {DieterWake,preflightDieter,DieterCloudWorkflow}=await import(pathToFileURL(file));rmSync(dir,{recursive:true});
+const {DieterWake,preflightDieter,DieterCloudWorkflow}=await import(pathToFileURL(file));
+const transportFile=join(dir,'transport.mjs');await build({entryPoints:[fileURLToPath(new URL('../dieter-tiktok-workflow.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:transportFile,logLevel:'silent'});
+const {scheduleDieterTikTokTransport}=await import(pathToFileURL(transportFile));rmSync(dir,{recursive:true});
 function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);
@@ -73,7 +75,8 @@ test('an older wider company grant cannot activate the uploader',async()=>{
 
 function workflowFixture(t){
  const f=fixture(t);
- f.db.exec(`ALTER TABLE ugc_reel_jobs ADD COLUMN publications TEXT DEFAULT '[]';
+ f.db.exec(`ALTER TABLE ugc_reel_jobs ADD COLUMN published_at TEXT;
+ ALTER TABLE ugc_reel_jobs ADD COLUMN publications TEXT DEFAULT '[]';
  ALTER TABLE ugc_reel_jobs ADD COLUMN required_destinations TEXT DEFAULT '["instagram","threads","youtube","facebook","vk","rutube","tiktok"]';
  CREATE TABLE ugc_content(id TEXT PRIMARY KEY,creator_platform_id TEXT,content_url TEXT);
  CREATE TABLE ugc_creator_platforms(id TEXT PRIMARY KEY,handle TEXT);
@@ -209,4 +212,32 @@ test('duplicate or invalid historical claim identities cannot authorize the fina
   await assert.rejects(f.workflow.run(f.event,f.step),/not_authorized/);
  }
  assert.equal(calls,0);assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key='dieter_cloud_work_ordinal:one:3'").get().n,0);assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
+});
+
+function transportFixture(t){
+ const f=continuationFixture(t),sha='a'.repeat(64);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_continuation:repair-one:started',JSON.stringify({workflow_id:f.definition.workflow_id}));
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_result:exact-claim:continuation:repair-one','{"work_runtime_completed":true}');
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_work_ordinal:one:3','{"reserved":true}');
+ const urls={instagram:'https://instagram.com/reel/OUTFIXTURE/',threads:'https://threads.com/@dasexperten/post/FIXTURE',youtube:'https://youtube.com/watch?v=AbC123def_0',facebook:'https://facebook.com/reel/1234567890/',vk:'https://vk.ru/video-229095983_456240575',rutube:'https://rutube.ru/video/0123456789abcdef0123456789abcdef/'};
+ const proofs=Object.entries(urls).map(([platform,url])=>({platform,url,account:'dasexperten',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'Verified fixture'}));
+ f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify(proofs));
+ return {...f,proofs,args:{contentId:'one',claimId:'exact-claim',sourceSha256:sha,sourceAssetUrl:'https://org.dasexperten.com/assets/ugc/'+sha+'/original.mp4',sourceDurationSeconds:13,sourceAuthor:'actual_author',sourceUrl:'https://instagram.com/reel/SOURCE/',sourceDriveId:'original-drive-file'}};
+}
+test('TikTok-only API Workflow finishes seven platforms without a native call, counter reset or replacing the six earlier proofs',async t=>{
+ const f=transportFixture(t);let nativeCalls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{nativeCalls++;throw Error('native forbidden');};
+ const scheduled=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
+ const proof={platform:'tiktok',url:'https://tiktok.com/@dasbroadcast/video/1234567890',account:'dasbroadcast',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'API complete exact provider ID/caption/duration fixture'};
+ const step={async do(name,options,callback){if(name==='tiktok-publish-once'){f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));return {status:'verified',proof};}return (typeof options==='function'?options:callback)();},async sleep(){throw Error('not pending');}};
+ const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim',transport:'tiktok',transport_id:scheduled.transport_id},instanceId:scheduled.workflow_id},step);
+ assert.equal(result.publication_verified,true);assert.equal(result.model_calls,0);assert.equal(nativeCalls,0);
+ const row=f.db.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(row.status,'published');assert.equal(row.attempts,3);assert.equal(row.started_at,'2026-11-10T04:00:00Z');assert.deepEqual(JSON.parse(row.publications).slice(0,6),f.proofs);
+ assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'dieter_cloud_attempt:%'").get().n,0);
+ assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key='dieter_cloud_work_ordinal:one:3'").get().n,1);
+});
+test('TikTok-only API scheduling and activation respect the global stop and immutable source definition',async t=>{
+ const f=transportFixture(t);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{}');await assert.rejects(scheduleDieterTikTokTransport(f.env,f.args,'repair-one'),/runtime_incident_stop/);assert.equal(f.created.length,0);
+ f.db.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").run();await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
+ await assert.rejects(scheduleDieterTikTokTransport(f.env,{...f.args,sourceDurationSeconds:15},'repair-one'),/immutable_transport_conflict/);
+ assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
 });

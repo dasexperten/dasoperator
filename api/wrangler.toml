@@ -30,6 +30,11 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "DOCS"
 bucket_name = "das-erp-docs-dev"
 
+# Existing public source bucket; org's /assets/ path reads org/assets/**.
+[[r2_buckets]]
+binding = "ORG_ASSETS"
+bucket_name = "dasexperten-images"
+
 [[r2_buckets]]
 binding = "SKILLS_BUCKET"
 bucket_name = "das-skills"

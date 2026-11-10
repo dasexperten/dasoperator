@@ -3,9 +3,10 @@ import type {Env} from './types';
 import {reelAssignment} from './lib/ugc-reel-store';
 import {reelScope,reelPublicationProof} from './lib/ugc-reel-jobs.mjs';
 import {diterWindow,START_INTERVAL_MS} from './lib/ugc-reel-store';
+import {runDieterTikTokTransport,type TikTokTransportEvent} from './dieter-tiktok-workflow';
 
 const CONSUMER='cloudflare-dieter-v1';
-type Event={content_id:string;claim_id:string;continuation_id?:string};
+type Event={content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string};
 const RUNTIME_STOP='dieter_cloud_runtime_stop';
 const executionHold=(id:string)=>'dieter_cloud_execution_hold:'+id;
 async function runtimeStopped(env:Env){
@@ -144,6 +145,7 @@ export async function dieterOutcome(env:Env,event:Event){
 export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
  async run(event:WorkflowEvent<Event>,step:WorkflowStep){
   const input=event.payload;
+  if(input.transport==='tiktok')return runDieterTikTokTransport(this.env,input as TikTokTransportEvent,event.instanceId,step);
   const assignment=await step.do('read-exact-assignment',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
    const continuation=input.continuation_id?await activateContinuation(this.env,input,event.instanceId):null;
    const job=await reelAssignment(this.env,CONSUMER,'https://dasoperator-api.dasexperten.workers.dev');

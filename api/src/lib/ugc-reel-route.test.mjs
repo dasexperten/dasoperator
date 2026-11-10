@@ -303,3 +303,10 @@ test('seven verified destinations complete a historical nine-destination job; ve
  const appended=await request('/reel-jobs/'+id+'/publications',{publications:proofs.filter(p=>['wibes','ozon'].includes(p.platform))});assert.equal(appended.status,200);assert.equal((await appended.json()).publications.length,9);
  assert.equal(sqlite.prepare('SELECT published_at FROM ugc_reel_jobs WHERE content_id=?').get(id).published_at,original.published_at);
 });
+
+test('TikTok transport endpoints require the existing service credential and reject invalid source identity',async()=>{
+ assert.equal((await request('/reel-jobs/reel1/tiktok/start',{claim_id:'test'},false)).status,401);
+ assert.equal((await request('/reel-jobs/reel1/tiktok/status?source_sha256='+'a'.repeat(64),undefined,false)).status,401);
+ assert.equal((await request('/reel-jobs/reel1/tiktok/start',{claim_id:'test',source_sha256:'invalid'})).status,409);
+ assert.equal((await request('/reel-jobs/reel1/tiktok/status?source_sha256=invalid')).status,422);
+});

@@ -4,7 +4,10 @@
 
 export interface Env {
   DIANA_ROUND: Workflow<{id:string;scheduled_at:number}>;
-  DIETER_CLOUD: Workflow<{content_id:string;claim_id:string}>;
+  DIETER_CLOUD: Workflow<{content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string}>;
+  GITHUB_TOKEN?:string;
+  DIETER_PRIVATE_FILES?:string;
+  ORG_ASSETS?:R2Bucket;
   DIETER_WAKE: DurableObjectNamespace;
   DIETER_SUBSCRIPTION: Fetcher;
   DIANA_CLOUD: Workflow<{cid:string;message_id:string;event_id:string;at:string;handle?:string;dryRun?:boolean;task?:'payout_paid_notice'|'payout_failed_notice'|'owner_choice';payout_id?:string;question_id?:string}>;

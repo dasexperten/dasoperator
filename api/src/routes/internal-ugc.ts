@@ -7,6 +7,7 @@ import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } fro
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
 import instagramOperationRoutes from './internal-ugc-instagram';
+import {scheduleDieterTikTokTransport} from '../dieter-tiktok-workflow';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -99,6 +100,21 @@ route.get('/reel-jobs/:id/caption-plan', async (c) => {
   const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-caption-plan:${id}:${claim}`).first<{value:string}>();
   if(!saved) return c.json({ok:false,error:'caption_plan_not_found'},404);
   return c.json({ok:true,content_id:id,claim_id:claim,caption_plan_saved:true,plan:JSON.parse(saved.value)});
+});
+route.post('/reel-jobs/:id/tiktok/start', async (c) => {
+ const body=await c.req.json().catch(()=>null);
+ if(!body)return c.json({ok:false,error:'tiktok_source_required'},422);
+ const sha=String(body.source_sha256??'');
+ try{
+  const result=await scheduleDieterTikTokTransport(c.env,{contentId:c.req.param('id'),claimId:body.claim_id,sourceSha256:sha,sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${sha}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id},body.continuation_id);
+  return c.json({ok:true,...result},202);
+ }catch(error){const message=String((error as Error).message);return c.json({ok:false,error:/^dieter_tiktok_[a-z_]+$/.test(message)?message:'dieter_tiktok_schedule_failed'},409);}
+});
+route.get('/reel-jobs/:id/tiktok/status',async(c)=>{
+ const sha=c.req.query('source_sha256')??'';if(!/^[a-f0-9]{64}$/.test(sha))return c.json({ok:false,error:'source_sha256_required'},422);
+ const row=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-tiktok-business:${c.req.param('id')}:${sha}`).first<{value:string}>();
+ if(!row)return c.json({ok:true,status:'not_started'});
+ const ledger=JSON.parse(row.value);return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,proof:ledger.proof??null});
 });
 route.post('/reel-jobs/:id/caption-plan', async (c) => {
   const id=c.req.param('id');

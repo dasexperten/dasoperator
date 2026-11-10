@@ -30,7 +30,8 @@ export class CodexRunner extends Container {
   const intentKey='dieter-intent:'+body.requestId;
   if(acted&&await this.ctx.storage.get(intentKey))return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
   let containerReady=false;
-  if(body.operation==='dieter_round'){
+  {
+   // Diana Direct and Dieter both require readiness before native inference.
    // The SDK's implicit placement wait is only 8s. Actual rollouts have
    // returned "no container instance" while the replacement was provisioning.
    // Wait for placement/ports and a real HTTP health response before any model
@@ -81,9 +82,12 @@ export class CodexRunner extends Container {
   return Response.json(result);
  });}
 }
-export class InferenceService extends WorkerEntrypoint {
+// Diana Direct owns the inference capability. Preserve the legacy entrypoint
+// during staged rollout; the managed auth singleton remains shared with Dieter.
+export class DirectInferenceService extends WorkerEntrypoint {
  async fetch(request){if(request.method!=='POST')return new Response('',{status:405});const body=await request.json();if(body.operation==='dieter_round')return Response.json({error:'use_dieter_execution_service'},{status:400});return this.env.RUNNER.getByName('subscription-singleton').infer(body);}
 }
+export class InferenceService extends DirectInferenceService {}
 // A distinct internal capability for tool execution, sharing the same managed
 // native login. Diana's inference entrypoint remains extraction/replies only.
 export class DieterExecutionService extends WorkerEntrypoint {

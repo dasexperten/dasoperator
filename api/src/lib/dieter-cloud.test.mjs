@@ -330,3 +330,29 @@ test('a restarted step with exhausted original readback never starts reconciliat
  f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;throw Error('must not send');};
  const result=await f.workflow.run(f.event,f.step);assert.equal(calls,0);assert.equal(result.execution_result,'runtime_error');
 });
+
+function verifiedRetryFixture(t){
+ const f=workflowFixture(t),key='dieter_verified_retry:one:owner-final',claims=['prior-one','prior-two'];
+ f.db.exec("UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL,consumer_id=NULL WHERE content_id='one'");
+ const put=(k,v)=>f.db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,0)').run(k,JSON.stringify(v));
+ const definition={content_id:'one',owner_authorized:true,no_provider_intents_verified:true,expected_prior_attempts:2,final_work_ordinal:3,source_drive_id:'verified_drive_original_id',source_sha256:'a'.repeat(64),prior_claim_ids:claims,first_send_destinations:['instagram','threads','youtube','facebook','vk','rutube','tiktok']};
+ put(key,definition);for(const claim of claims)put('dieter_cloud_assignment:'+claim,{content_id:'one',claim_id:claim});
+ put('dieter_manual_once:one',{content_id:'one',state:'ready',verified_retry_key:key,expires_at:new Date(Date.now()+1200000).toISOString()});
+ const dispatch=()=>f.wake.fetch(new Request('https://dieter.internal/dispatch',{method:'POST',body:JSON.stringify({contentId:'one'})}));
+ return {...f,put,key,definition,dispatch};
+}
+test('verified pre-provider retry claims only final ordinal and binds the original and allowed first sends to work',async t=>{
+ const f=verifiedRetryFixture(t);const accepted=await(await f.dispatch()).json();assert.equal(accepted.accepted,true);
+ const job=f.db.prepare("SELECT attempts,claim_id FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(job.attempts,3);
+ const manual=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_manual_once:one'").get().value);assert.equal(manual.state,'consumed');assert.equal(manual.claim_id,job.claim_id);
+ let nativeCalls=0;f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{nativeCalls++;const x=JSON.parse(init.body).execution;assert.equal(x.mode,'work');assert.match(x.assignment.task,/OWNER-AUTHORIZED VERIFIED PRE-PROVIDER CONTINUATION/);assert.match(x.assignment.task,/verified_drive_original_id/);assert.match(x.assignment.task,/a{64}/);assert.match(x.assignment.task,/Any matching receipt or uncertain send is reconcile-only/);f.db.exec("UPDATE ugc_reel_jobs SET status='uploaded' WHERE content_id='one'");return Response.json({text:'accepted upload completion test'});};
+ const result=await f.workflow.run({payload:{content_id:'one',claim_id:job.claim_id},instanceId:accepted.workflow_id},f.step);assert.equal(nativeCalls,1);assert.equal(result.upload_completed,true);assert.equal(result.attempts,3);
+ assert.equal((await(await f.dispatch()).json()).accepted,false);assert.equal(f.created.length,1);
+});
+test('previous caption plan, provider receipt or changed scope denies verified retry before any preflight or claim',async t=>{
+ const f=verifiedRetryFixture(t);let nativeCalls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{nativeCalls++;throw Error('must not call');};
+ for(const key of ['ugc-caption-plan:one:prior-one','ugc-upload-accepted:one:prior-two:facebook','ugc-rutube-pending:one:prior-two','ugc-tiktok-business:one:test']){
+  f.put(key,{identity:{claimId:'prior-two'}});assert.equal((await(await f.dispatch()).json()).note,'verified_retry_not_authorized');f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run(key);
+ }
+ f.put(f.key,{...f.definition,first_send_destinations:['tiktok']});assert.equal((await(await f.dispatch()).json()).note,'verified_retry_not_authorized');assert.equal(nativeCalls,0);assert.equal(f.created.length,0);assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,2);
+});

@@ -32,6 +32,25 @@ async function stopRuntime(env:Env,input:Event,record:unknown){
  // after the shared runtime is repaired. Reconciliation retains this claim.
  await putRecord(env,executionHold(input.content_id),value);
 }
+// Explicit Owner-authorized last claim after two verified pre-provider turns.
+// A raw attempt counter is never proof that a provider send did or did not occur.
+export async function verifiedPreProviderRetry(env:Env,pending:any,once:any){
+ const key=once?.verified_retry_key;
+ if(typeof key!=='string'||!key.startsWith('dieter_verified_retry:'+pending.content_id+':'))return null;
+ const r=await getRecord(env,key);
+ if(!r||r.content_id!==pending.content_id||r.owner_authorized!==true||r.no_provider_intents_verified!==true||r.expected_prior_attempts!==2||pending.attempts!==2||r.final_work_ordinal!==3||
+  !/^[A-Za-z0-9_-]{16,128}$/.test(r.source_drive_id??'')||!/^[a-f0-9]{64}$/.test(r.source_sha256??'')||!Array.isArray(r.prior_claim_ids)||r.prior_claim_ids.length!==2||new Set(r.prior_claim_ids).size!==2||r.prior_claim_ids.some((x:unknown)=>typeof x!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(x)))return null;
+ const proofs=JSON.parse(pending.publications??'[]');
+ const missing=reelScope(pending).active.filter((p:string)=>!proofs.some((x:any)=>x.platform===p&&x.verified===true));
+ if(!Array.isArray(r.first_send_destinations)||JSON.stringify([...missing].sort())!==JSON.stringify([...r.first_send_destinations].sort()))return null;
+ for(const claim of r.prior_claim_ids){
+  const assignment=await getRecord(env,'dieter_cloud_assignment:'+claim);
+  if(assignment?.content_id!==pending.content_id||assignment?.claim_id!==claim||await getRecord(env,'ugc-caption-plan:'+pending.content_id+':'+claim))return null;
+  const prefix='ugc-upload-accepted:'+pending.content_id+':'+claim+':',tiktok='ugc-tiktok-business:'+pending.content_id+':';
+  if(await env.DB.prepare("SELECT key FROM crm_sync_state WHERE key=?1 OR substr(key,1,length(?2))=?2 OR (substr(key,1,length(?3))=?3 AND json_valid(value) AND json_extract(value,'$.identity.claimId')=?4) LIMIT 1").bind('ugc-rutube-pending:'+pending.content_id+':'+claim,prefix,tiktok,claim).first())return null;
+ }
+ return {authorization_key:key,source_drive_id:r.source_drive_id,source_sha256:r.source_sha256,first_send_destinations:missing,prior_claim_ids:r.prior_claim_ids,final_work_ordinal:3};
+}
 async function activateContinuation(env:Env,input:Event,workflowId:string){
  const id=input.continuation_id;
  if(!id||!/^[A-Za-z0-9_-]{1,100}$/.test(id))throw Error('invalid_dieter_continuation');
@@ -143,6 +162,8 @@ export class DieterWake {
   }
   const pending=await this.env.DB.prepare("SELECT * FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key='dieter_cloud_execution_hold:'||ugc_reel_jobs.content_id) AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<any>();
   if(!pending)return Response.json({ok:true,accepted:false,note:'empty'});
+  const verifiedRetry=manual&&once?.verified_retry_key?await verifiedPreProviderRetry(this.env,pending,once):null;
+  if(manual&&once?.verified_retry_key&&!verifiedRetry)return Response.json({ok:true,accepted:false,note:'verified_retry_not_authorized'});
   const readiness=await preflightDieter(this.env); // A red job is never claimed for an unavailable runtime.
   if(readiness.activation_ready!==true)return Response.json({ok:true,accepted:false,note:'cloud_source_access_not_ready',reason:readiness.drive?.reason});
   if(!manual&&!diterWindow(Date.now()))return Response.json({ok:true,accepted:false,note:'preflight_finished_outside_window'});
@@ -153,12 +174,13 @@ export class DieterWake {
    AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working')
    AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked') OR key='dieter_cloud_execution_hold:'||?4)
    AND (?6=0 OR EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?7 AND json_extract(value,'$.state')='ready' AND json_extract(value,'$.expires_at')>?3))
+   AND (?8 IS NULL OR (attempts=2 AND EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?7 AND json_extract(value,'$.verified_retry_key')=?8)))
    AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE started_at>?5)`)
-   .bind(claim,CONSUMER,at,pending.content_id,new Date(now-START_INTERVAL_MS).toISOString(),manual?1:0,onceKey).run();
+   .bind(claim,CONSUMER,at,pending.content_id,new Date(now-START_INTERVAL_MS).toISOString(),manual?1:0,onceKey,verifiedRetry?.authorization_key??null).run();
   if(!accepted.meta.changes)return Response.json({ok:true,accepted:false,note:'busy_or_cooldown'});
   if(manual)await this.env.DB.prepare("UPDATE crm_sync_state SET value=json_set(value,'$.state','consumed','$.claim_id',?),updated_at=? WHERE key=? AND json_extract(value,'$.state')='ready'").bind(claim,Date.now(),onceKey).run();
   // Exact instance identity is recoverable if create acknowledgement is lost.
-  await this.env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING").bind('dieter_cloud_assignment:'+claim,JSON.stringify({workflow_id:workflowId,content_id:pending.content_id,claim_id:claim}),Date.now()).run();
+  await this.env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING").bind('dieter_cloud_assignment:'+claim,JSON.stringify({workflow_id:workflowId,content_id:pending.content_id,claim_id:claim,...(verifiedRetry?{verified_retry:verifiedRetry}:{})}),Date.now()).run();
   try{await this.env.DIETER_CLOUD.create({id:workflowId,params:{content_id:pending.content_id,claim_id:claim}});}
   catch(error){try{await(await this.env.DIETER_CLOUD.get(workflowId)).status();}catch{throw error;}}
   return Response.json({ok:true,accepted:true,executor:'cloudflare_workflow',workflow_id:workflowId,content_id:pending.content_id});
@@ -182,7 +204,9 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
    const job=await reelAssignment(this.env,CONSUMER,'https://dasoperator-api.dasexperten.workers.dev');
    if(!job||job.content_id!==input.content_id||job.claim_id!==input.claim_id)throw Error('dieter_exact_claim_missing');
    await this.env.DB.prepare("UPDATE ugc_reel_jobs SET acknowledged_at=?1 WHERE content_id=?2 AND claim_id=?3 AND consumer_id=?4 AND status='working'").bind(new Date().toISOString(),input.content_id,input.claim_id,CONSUMER).run();
-   return continuation?{...job,continuation,task:job.task+'\nCONTROLLED CONTINUATION: this is the third and final work call for this original content, after verified runtime repair and independent seven-platform inventory review. Keep the existing claim, raw attempts and clocks. Recheck each destination inventory and any known pending IDs immediately BEFORE its first provider intent; reuse existing verified posts. A match or uncertain response permits reconciliation only on that destination, while independently safe destinations continue. Save each provider ID and ERP proof immediately. Never repeat an ambiguous upload. No fourth work call. The source remains the archived full original. Create/read back the current exact-claim caption plan before publication, including exact source credit in the Facebook description.'}:job;
+   const dispatch=await getRecord(this.env,'dieter_cloud_assignment:'+input.claim_id);
+   const verifiedRetry=dispatch?.content_id===input.content_id&&dispatch?.claim_id===input.claim_id&&dispatch?.workflow_id===event.instanceId?dispatch.verified_retry:null;
+   return continuation?{...job,continuation,task:job.task+'\nCONTROLLED CONTINUATION: this is the third and final work call for this original content, after verified runtime repair and independent seven-platform inventory review. Keep the existing claim, raw attempts and clocks. Recheck each destination inventory and any known pending IDs immediately BEFORE its first provider intent; reuse existing verified posts. A match or uncertain response permits reconciliation only on that destination, while independently safe destinations continue. Save each provider ID and ERP proof immediately. Never repeat an ambiguous upload. No fourth work call. The source remains the archived full original. Create/read back the current exact-claim caption plan before publication, including exact source credit in the Facebook description.'}:{...job,verified_retry:verifiedRetry};
   });
   const executionKey=input.continuation_id?input.claim_id+':continuation:'+input.continuation_id:input.claim_id;
   work:for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
@@ -212,7 +236,9 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
      result={...identity,outcome:'transport_wait',error:'native_call_outcome_unknown'};
     }else{
      try{
-      const native=await infer(this.env,requestId,{mode:actionMode,assignment});
+      const {verified_retry:retry,...baseAssignment}=assignment as any;
+      const actionAssignment=actionMode==='work'&&retry?{...baseAssignment,task:baseAssignment.task+'\nOWNER-AUTHORIZED VERIFIED PRE-PROVIDER CONTINUATION: This exact claim is a WORK turn, not a reconciliation turn. ERP attempts=3 counts accepted claims, not provider sends. Both prior claims were independently verified to stop before new provider intent; this is the final authorized work ordinal, never a fourth. Reuse the exact archived original Drive file '+retry.source_drive_id+' with SHA256 '+retry.source_sha256+'. Do not download it again. Proceed directly to missing uploads after the required readbacks; the ERP counter does not cause a pause. Keep existing Instagram coauth and all other saved receipts untouched. The only permitted first-ever provider sends are '+retry.first_send_destinations.join(', ')+'. Freeze/read back the exact current-claim caption plan and recheck provider inventories, saved IDs and pending operations immediately before each intent. Any matching receipt or uncertain send is reconcile-only; never reupload. Save exact accepted IDs and send upload-complete after all seven acceptances; do not wait for moderation.'}:baseAssignment;
+      const native=await infer(this.env,requestId,{mode:actionMode,assignment:actionAssignment});
       const key='dieter/cloud-round/'+executionKey+'/result-'+attempt+'.json';
       await this.env.DOCS.put(key,JSON.stringify(native));
       result={...identity,outcome:'completed',key};

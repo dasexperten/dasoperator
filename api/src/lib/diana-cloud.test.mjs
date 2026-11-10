@@ -78,16 +78,15 @@ test('Diana hands complete requisites to payout for the exact incoming message',
  const {draft}=await f.prepare();
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'registered');
  assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,image:false,originals:[{id:'incoming',direction:'in',text:'Расскажите о программе'}]}]);
- assert.equal((await cloud.executeCloudPayout(f.env,'payout1',f.event,'person')).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
- assert.equal(f.env.refreshedPayout,'payout1');
- f.env.executedPayout=undefined;f.originals[0].from.id='another-person';
- await assert.rejects(cloud.executeCloudPayout(f.env,'payout1',f.event,'person'),/source_changed/);assert.equal(f.env.executedPayout,undefined);
+ await assert.rejects(cloud.executeCloudPayout(f.env,'payout1',f.event,'person'),/owner_approval_required/);
+ assert.equal(f.env.executedPayout,undefined);assert.equal(f.env.refreshedPayout,undefined);
+
 });
-test('a provider read outage after submission stays visible without resending',async t=>{
+test('legacy cloud payment callback fails closed even when provider refresh is unavailable',async t=>{
  const f=fixture(t);f.env.refreshFail=true;
- const result=await cloud.executeCloudPayout(f.env,'payout1',f.event,'person');
- assert.equal(result.provider_checked,false);assert.equal(f.env.executedPayout,'payout1');
- assert.equal(JSON.parse(f.state('diana_payout_refresh_pending:payout1')).reason,'provider_read_unavailable');
+ await assert.rejects(cloud.executeCloudPayout(f.env,'payout1',f.event,'person'),/owner_approval_required/);
+ assert.equal(f.env.executedPayout,undefined);assert.equal(f.env.refreshedPayout,undefined);
+ assert.equal(f.state('diana_payout_refresh_pending:payout1'),undefined);
 });
 test('partial payment details create a durable signal without a transfer',async t=>{
  const f=fixture(t);f.originals[0].message='Телефон 89990000000';

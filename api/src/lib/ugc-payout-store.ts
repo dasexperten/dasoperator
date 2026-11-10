@@ -4,7 +4,7 @@
 import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
-import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executeManuallyApprovedPayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 import { dianaCompose, queueDianaAction } from './diana-compose';
@@ -63,12 +63,12 @@ export function payoutStore(env: Env) {
     setContractor: (id: string, contractorId: string) => db.prepare(
       `UPDATE ugc_payouts SET konsol_contractor_id=?2, updated_at=?3 WHERE id=?1`
     ).bind(id, contractorId, touch()).run(),
-    markSent: (id: string, s: { paymentId: string; contractorId: string; konsolStatus: string | null; sentAt: string; day: string; phoneMasked: string | null; bankRef: string | null }) => db.prepare(
+    markSent: (id: string, s: { paymentId: string; contractorId: string; konsolStatus: string | null; sentAt: string; approvedBy: string; day: string; phoneMasked: string | null; bankRef: string | null }) => db.prepare(
       `UPDATE ugc_payouts SET konsol_payment_id=?2, konsol_contractor_id=?3, konsol_status=?4, status='sent', sent_at=?5,
-         approved_at=COALESCE(approved_at, ?5), approved_by=COALESCE(approved_by, 'auto (limits)'), payout_date=?6,
+         approved_at=COALESCE(approved_at, ?5), approved_by=?10, payout_date=?6,
          phone_masked=COALESCE(?7, phone_masked), bank_ref=COALESCE(bank_ref, ?8), konsol_error=NULL, updated_at=?9
        WHERE id=?1 AND konsol_payment_id IS NULL`
-    ).bind(id, s.paymentId, s.contractorId, s.konsolStatus, s.sentAt, s.day, s.phoneMasked, s.bankRef, touch()).run(),
+    ).bind(id, s.paymentId, s.contractorId, s.konsolStatus, s.sentAt, s.day, s.phoneMasked, s.bankRef, touch(), s.approvedBy).run(),
     markPaid: async (id: string, s: { paidAt: string; konsolStatus: string }) => {
       const r = await db.prepare(
         `UPDATE ugc_payouts SET status='paid', paid_at=?2, konsol_status=?3, updated_at=?4 WHERE id=?1`
@@ -121,12 +121,14 @@ async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: stri
   return queueConfirmedPayoutNotice(env,String(row.id),_kind);
 }
 
+// Kept fail-closed for old workflow versions and background callers.
 export async function executeUgcPayout(env: Env, id: string, preClaim?:()=>Promise<boolean>,beforeSend?:()=>Promise<boolean>) {
-  const out = await executePayout(id, {...deps(env),preClaim,beforeSend});
-  // Owner 2026-10-20: a click stopped for lack of own RUB tells him the shortfall for the whole queue at once.
-  if (!out.ok && out.code === 'own_rub_low') await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
-  // A successful payment may leave the rest of the queue uncovered.
-  if (out.ok) await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
+  return {http:403,ok:false,code:'owner_approval_required',message:'Only the Owner can initiate this payout from ERP'};
+}
+
+export async function executeManuallyApprovedUgcPayout(env: Env, id: string, actor: import('./auth').AuthUser) {
+  const out = await executeManuallyApprovedPayout(id, deps(env), actor);
+  if ((!out.ok && out.code === 'own_rub_low') || out.ok) await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
   return out;
 }
 
@@ -397,3 +399,4 @@ export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {})
   }
   return `refreshed=${refreshed}; summary sent for ${day}: ${rows.length} payouts`;
 }
+

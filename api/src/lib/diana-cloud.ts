@@ -525,19 +525,10 @@ export async function prepareUncertainPayoutReply(env:Env,key:string,payoutId:st
  return {status:'reply',key:next};
 }
 
-export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent, recipient:string) {
-  const {executeUgcPayout,refreshUgcPayout}=await import('./ugc-payout-store');
-  const result=await executeUgcPayout(env,payoutId,async()=>{
-    const live=await cloudGraph('/'+encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,created_time}',await pageToken(env));
-    const latest=live.messages?.data?.[0];
-    return !!latest && !!recipient && String(latest.id)===event.message_id && String(latest.from?.id)===recipient && ![BRAND,PAGE].includes(recipient);
-  },async()=>dianaWorkWindow(Date.now()).direct);
-  if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
-  // Re-read the provider immediately after saving its payment ID. A callback
-  // that arrived before that ID was saved could not have matched the row.
-  const refreshed=await refreshUgcPayout(env,payoutId).catch(()=>({ok:false}));
-  if(!refreshed.ok)await stateWrite(env,'diana_payout_refresh_pending:'+payoutId,{payout_id:payoutId,reason:'provider_read_unavailable',at:Date.now()});
-  return {status:'submitted_or_already_exists',payout_id:payoutId,provider_checked:refreshed.ok};
+// Compatibility for durable workflow callbacks recorded before the manual-only
+// cutover. Fail closed: never contact the provider or claim a payout.
+export async function executeCloudPayout(_env: Env, _payoutId:string, _event:DianaCloudEvent, _recipient:string): Promise<never> {
+  throw Error('payout_execution_owner_approval_required');
 }
 
 /** Completion requires Meta original readback for every send receipt and ERP readback. */

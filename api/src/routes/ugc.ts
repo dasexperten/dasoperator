@@ -11,7 +11,7 @@ import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
 import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
-import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
+import { executeManuallyApprovedUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
 import { followPayoutStage, shownStage } from '../lib/ugc-payout-stage.mjs';
@@ -1427,7 +1427,7 @@ ugc.post('/payouts/:id/execute', async (c) => {
   const unconfirmed = await c.env.DB.prepare(`SELECT amount_minor FROM ugc_payouts WHERE id=?1`).bind(c.req.param('id')).first<{ amount_minor: number }>();
   if (unconfirmed && Number(unconfirmed.amount_minor) < 5000) return fail(c, 422, [{ code: 'amount_unconfirmed', message: 'Впишите сумму корзины перед оплатой' }]);
   // Owner follow-up 2026-10-16: enrichment runs independently and never blocks payment.
-  const out = await executeUgcPayout(c.env, c.req.param('id'));
+  const out = await executeManuallyApprovedUgcPayout(c.env, c.req.param('id'), access);
   if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
   return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);
 });
@@ -1452,3 +1452,4 @@ ugc.post('/payouts/summary', async (c) => {
 });
 
 export default ugc;
+

@@ -2,8 +2,8 @@
 // client and the Telegram sender are passed in, so the money rules are tested
 // without a network or a database (ugc-payout-execute.test.mjs).
 //
-// Owner 2026-10-14 («запускай выплаты через API»):
-//   - auto-approve within 999 ₽ per creator per day and 10 000 ₽ for all per day;
+// Owner 2026-11-10: only an authenticated manual ERP click initiates payment.
+// Historical automatic approval and background execution are disabled.
 //   - own RUB = balance − 1 905 000 ₽; pay only if own RUB ≥ amount + 30 ₽;
 //     otherwise stop and tell the Owner — the overdraft is never touched;
 //   - one Konsol payment per ugc_payouts row, ever.
@@ -18,6 +18,15 @@ import {
   konsolPhone, KONSOL_SERVICE_TITLE, mapKonsolStatus, maskPhoneWide, payoutDate,
   UGC_PAYOUT_MAX_MINOR,
 } from './ugc-payouts.mjs';
+
+const MANUAL_EXECUTION = Symbol('authenticated-owner-click');
+
+// Only the authenticated manual ERP route may use this entry point.
+// Never accept actor or authorization from request JSON, a model, or a workflow.
+export async function executeManuallyApprovedPayout(id, deps, actor) {
+  if (!actor || actor.role !== 'admin' || !actor.id) return result(403, {ok:false, code:'owner_approval_required'});
+  return executePayout(id, {...deps, [MANUAL_EXECUTION]: {id, actorId: String(actor.id)}});
+}
 
 const EXECUTABLE = new Set(['awaiting_approval', 'approved']);
 
@@ -101,6 +110,8 @@ async function findOrCreateContractor(konsol, requisites, phone) {
  * Returns { http, ok, code?, message?, payout? , already? }.
  */
 export async function executePayout(id, deps) {
+  const approval = deps[MANUAL_EXECUTION];
+  if (!approval || approval.id !== id) return result(403, {ok:false, code:'owner_approval_required', message:'Only the Owner can initiate this payout from ERP'});
   const { store, konsol, notifyOwner } = deps;
   const now = deps.now ?? Date.now();
   const row = await store.getPayout(id);
@@ -181,7 +192,7 @@ export async function executePayout(id, deps) {
   });
   if (payment.ok && payment.body && payment.body.id) {
     const sentAt = new Date(now).toISOString();
-    await store.markSent(row.id, { paymentId: payment.body.id, contractorId: contractor.id, konsolStatus: payment.body.status ?? null, sentAt, day, phoneMasked: maskPhoneWide(phone), bankRef: bank.name ?? null });
+    await store.markSent(row.id, { paymentId: payment.body.id, contractorId: contractor.id, konsolStatus: payment.body.status ?? null, sentAt, approvedBy: approval.actorId, day, phoneMasked: maskPhoneWide(phone), bankRef: bank.name ?? null });
     return result(201, { ok: true, payout: { id: row.id, status: 'sent', konsol_payment_id: payment.body.id, konsol_contractor_id: contractor.id, konsol_status: payment.body.status ?? null, sent_at: sentAt } });
   }
   if (payment.status >= 400 && payment.status < 500) {
@@ -266,3 +277,4 @@ export function matchRegistryPayment(row, payments, linkedIds = new Set()) {
   if (fits.length === 1) return { payment: fits[0] };
   return { reason: fits.length ? `ambiguous: ${fits.length} executed payments fit` : 'no executed payment fits' };
 }
+

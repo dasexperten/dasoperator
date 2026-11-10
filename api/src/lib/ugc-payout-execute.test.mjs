@@ -2,8 +2,10 @@
 // Synthetic data only — the phone below is a made-up number of the right shape.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, failedSide } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout as backgroundExecutePayout, executeManuallyApprovedPayout, failedSide } from './ugc-payout-execute.mjs';
 import { checkOwnRub, konsolPhone, mapKonsolStatus, maskPhoneWide, ownRubMinor, rubToMinor, isCommittedPayout, committedPayoutDay } from './ugc-payouts.mjs';
+
+const executePayout = (id,deps) => executeManuallyApprovedPayout(id,deps,{id:'synthetic-owner',role:'admin'});
 
 const PHONE = '+79000000011';
 const NOW = Date.parse('2026-10-14T12:00:00Z');
@@ -16,7 +18,7 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
   const calls = { payments: [], contractors: [], owner: [] };
   const store = {
     getPayout: async (id) => (db.has(id) ? { ...db.get(id) } : null),
-    getRequisites: async (id) => requisites.get(id) ?? null,
+    getRequisites: async (id) => requisites.has(id) ? {...requisites.get(id)} : null,
     sameDayMinor: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
     handedToday: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && r.id !== exclude && isCommittedPayout(r)).length,
     dayTotalMinor: async (day, exclude) => [...db.values()].filter((r) => committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
@@ -50,7 +52,7 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
   };
   const notifyOwner = async (text) => { calls.owner.push(text); return true; };
   const deps = { store, konsol, notifyOwner, now: NOW, claimToken: 'tok' };
-  return { db, deps, calls };
+  return { db, deps, calls, requisites };
 }
 
 test('a newer source or changed amount before claim cannot send a payout', async () => {
@@ -339,4 +341,39 @@ test('paid and failed handoffs queue Diana without reporting delivery or releasi
     assert.equal(w.db.get('p1').status, status === 'executed' ? 'paid' : 'failed');
     assert.ok(w.db.get('p1').paid_notice_at, 'handoff must not enter the failure-release branch');
   }
+});
+
+
+
+test('background invocation cannot pay even approved rows or body-like flags',async()=>{
+ for(const status of ['awaiting_approval','approved']) {
+  const f=world({rows:[{id:'p1',amount_minor:39000,status}]});
+  const out=await backgroundExecutePayout('p1',{...f.deps,manualApproval:true,approved_by:'owner',actor:{id:'owner',role:'admin'}});
+  assert.equal(out.code,'owner_approval_required');assert.equal(f.calls.payments.length,0);assert.equal(f.calls.contractors.length,0);
+ }
+});
+test('manual entry requires verified actor shape and admin role',async()=>{
+ for(const actor of [null,{}, {id:'m',role:'manager'},{role:'admin'}]) {
+  const f=world({rows:[{id:'p1',amount_minor:39000}]});
+  assert.equal((await executeManuallyApprovedPayout('p1',f.deps,actor)).code,'owner_approval_required');
+  assert.equal(f.calls.payments.length,0);assert.equal(f.calls.contractors.length,0);
+ }
+});
+test('background cannot consume a simultaneous manual click',async()=>{
+ const f=world({rows:[{id:'p1',amount_minor:39000}]});
+ const results=await Promise.all([backgroundExecutePayout('p1',f.deps),executePayout('p1',f.deps)]);
+ assert.equal(results[0].code,'owner_approval_required');assert.equal(results[1].ok,true);assert.equal(f.calls.payments.length,1);
+});
+
+test('manual payout rejects changed bank or recipient before atomic claim',async()=>{
+ for(const field of ['bank','phone','name']){
+  const f=world({rows:[{id:'p1',amount_minor:39000}]});
+  f.deps.preClaim=async()=>{
+   if(field==='bank')f.db.get('p1').fps_bank_member_id='100000000005';
+   if(field==='phone')f.requisites.get('p1').fps_mobile_phone='+79000000012';
+   if(field==='name')f.requisites.get('p1').first_name='Другое имя';
+   return true;
+  };
+  assert.equal((await executePayout('p1',f.deps)).ok,false);assert.equal(f.calls.payments.length,0);assert.equal(f.calls.contractors.length,0);
+ }
 });

@@ -353,6 +353,13 @@ new_sqlite_classes = ["DianaWake"]
 binding = "SEAT_DIETER_VFX"
 service = "dieter-vfx"
 
+# Dieter-only execution capability; retired Diana Direct bindings stay absent.
+# Reuse the existing managed login, never create a second authorization store.
+[[services]]
+binding = "DIETER_SUBSCRIPTION"
+service = "diana-subscription-runner"
+entrypoint = "DieterExecutionService"
+
 [[durable_objects.bindings]]
 name = "DIETER_WAKE"
 class_name = "DieterWake"

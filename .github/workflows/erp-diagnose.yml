@@ -11,6 +11,10 @@ on:
         description: 'One read-only SELECT; empty runs the standard look'
         required: false
         default: ''
+      telemetry:
+        description: 'from,to (ISO) — closed diagnostic fields for Dieter runtime only'
+        required: false
+        default: ''
       analytics:
         description: 'from,to (ISO) — Cloudflare analytics for the ERP and Diana runner instead'
         required: false
@@ -29,6 +33,13 @@ jobs:
           node-version: '20'
       - working-directory: api
         run: npm install --no-audit --no-fund >/dev/null
+      - name: Dieter runtime telemetry (closed fields only)
+        if: ${{ inputs.telemetry != '' }}
+        env:
+          T1: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          T2: ${{ secrets.CLOUDFLARE_SUBSCRIPTION_TOKEN }}
+          RANGE: ${{ inputs.telemetry }}
+        run: node scripts/dieter-runtime-diagnose.mjs "${RANGE%%,*}" "${RANGE##*,}"
       - name: Cloudflare analytics
         if: ${{ inputs.analytics != '' }}
         env:
@@ -47,7 +58,7 @@ jobs:
           echo "$SQL" | grep -qiE '\b(insert|update|delete|drop|alter|create|replace|attach|pragma)\b' && { echo "read-only only"; exit 1; }
           npx wrangler d1 execute das_erp_dev --remote --json --command="$SQL" | python3 -c 'import json,sys;d=json.load(sys.stdin);[print("ROW",json.dumps(r,ensure_ascii=False)[:2500]) for x in d for r in x.get("results",[])]'
       - name: Failures and reply state
-        if: ${{ inputs.sql == '' && inputs.analytics == '' }}
+        if: ${{ inputs.sql == '' && inputs.analytics == '' && inputs.telemetry == '' }}
         working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -57,7 +68,7 @@ jobs:
           echo "== reply / minute-check state keys"; q "SELECT key, datetime(updated_at/1000,'unixepoch') at, substr(value,1,600) v FROM crm_sync_state WHERE key LIKE '%ig_dm%' OR key LIKE '%reply%' OR key LIKE '%diana%' ORDER BY updated_at DESC LIMIT 25"
           echo "== tables"; q "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%run%' OR name LIKE '%journal%' OR name LIKE '%cron%' OR name LIKE '%incident%')"
       - name: Live logs, 120 s
-        if: ${{ inputs.sql == '' && inputs.analytics == '' }}
+        if: ${{ inputs.sql == '' && inputs.analytics == '' && inputs.telemetry == '' }}
         working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

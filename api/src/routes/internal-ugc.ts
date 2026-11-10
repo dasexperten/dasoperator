@@ -304,7 +304,16 @@ route.post('/cloud/preflight',async c=>{
  const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/preflight',{method:'POST'}));
  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
+// Owner-authorized incident acceptance: only the fixed read-only preflight,
+// never a work call, claim, publication or implicit stop removal.
+route.post('/cloud/repair-preflight',async c=>{
+ const body=await c.req.json().catch(()=>null);
+ if(!body?.claim_id)return c.json({ok:false,error:'exact_incident_claim_required'},422);
+ const r=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/repair-preflight',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({claim_id:body.claim_id})}));
+ return new Response(r.body,{status:r.status,headers:new Headers(r.headers)});
+});
 route.get('/cloud/contract',async c=>{
+ if(!c.env.DIETER_SUBSCRIPTION)return c.json({ok:false,error:'dieter_execution_binding_missing'},503);
  const response=await c.env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/contract');
  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });

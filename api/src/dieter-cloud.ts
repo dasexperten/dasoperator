@@ -20,7 +20,7 @@ async function putRecord(env:Env,key:string,value:unknown){return env.DB.prepare
 function safeNativeFailure(error:unknown){
  const message=String((error as Error)?.message??error);
  let source:any;try{source=JSON.parse(message.replace(/^dieter_native_runtime:/,''));}catch{}
- const allowed=['native_runner_unavailable','dieter_outcome_unknown_reconcile_only','request_id_conflict','subscription_auth_not_seeded','dieter_native_turn_incomplete'];
+ const allowed=['dieter_execution_binding_missing','native_runner_unavailable','dieter_outcome_unknown_reconcile_only','request_id_conflict','subscription_auth_not_seeded','dieter_native_turn_incomplete'];
  const code=allowed.includes(source?.error)?source.error:/Durable Object reset/i.test(message)?'deployment_reset':'native_call_outcome_unknown';
  const d=source?.diagnostic;
  return {error:code,...(d&&['container_startup','container_proxy','read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['placement_unavailable','port_not_ready','health_not_ready','startup_unavailable','busy','http_unavailable','ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code)?{diagnostic:{phase:d.phase,code:d.code}}:{})};
@@ -55,6 +55,7 @@ async function activateContinuation(env:Env,input:Event,workflowId:string){
 }
 async function mode(env:Env){return (await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled';}
 async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
+ if(!env.DIETER_SUBSCRIPTION||typeof env.DIETER_SUBSCRIPTION.fetch!=='function')throw Error('dieter_native_runtime:'+JSON.stringify({error:'dieter_execution_binding_missing'}));
  const response=await env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/infer',{method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({requestId,operation:'dieter_round',model:'gpt-6.1-terra',execution:{...execution,githubToken:(env as any).GITHUB_TOKEN,serviceSecret:env.EMAILER_SERVICE_SECRET,privateFiles:JSON.parse((env as any).DIETER_PRIVATE_FILES??'{}')}})});
  const result=await response.json<any>();
@@ -65,8 +66,11 @@ async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
  }
  return result;
 }
-export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))){
- if(await runtimeStopped(env))throw Error('dieter_runtime_incident_stop');
+export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms)),repairClaimId?:string){
+ if(await runtimeStopped(env)){
+  const stopped=await getRecord(env,RUNTIME_STOP);
+  if(!repairClaimId||stopped?.claim_id!==repairClaimId)throw Error('dieter_runtime_incident_stop');
+ }
  if(await env.DB.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").first())throw Error('dieter_preflight_blocked_after_three_failures');
  let result:any;
  // This read-only tool/source probe may recover a transient container HTTP
@@ -83,7 +87,7 @@ export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(res
   }
  }
  const readiness=JSON.parse(result.text);if(readiness.ready!==true)throw Error('dieter_runtime_not_ready');
- const receipt={...readiness,receipt:result.receipt,checked_at:new Date().toISOString()};
+ const receipt={...readiness,receipt:result.receipt,checked_at:new Date().toISOString(),...(repairClaimId?{diagnostic_only:true,repair_claim_id:repairClaimId}:{})};
  await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('dieter_cloud_readiness',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify(receipt),Date.now()).run();
  return receipt;
 }
@@ -97,6 +101,13 @@ export class DieterWake {
  async handle(request:Request){
   const url=new URL(request.url);
   if(url.pathname==='/preflight')return Response.json({ok:true,...await preflightDieter(this.env)});
+  if(url.pathname==='/repair-preflight'){
+   const body=await request.json() as {claim_id?:string};
+   const stopped=await getRecord(this.env,RUNTIME_STOP);
+   if(!body.claim_id||stopped?.claim_id!==body.claim_id)return Response.json({ok:false,error:'exact_incident_claim_required'},{status:409});
+   if(await this.env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first())return Response.json({ok:false,error:'active_execution_exists'},{status:409});
+   try{return Response.json({ok:true,...await preflightDieter(this.env,undefined,body.claim_id)});}catch{return Response.json({ok:false,error:'dieter_repair_readiness_not_confirmed'},{status:503});}
+  }
   if(url.pathname!=='/dispatch')return new Response('',{status:404});
   if(!await mode(this.env))return Response.json({ok:true,accepted:false,note:'cloud_disabled'});
   if(await runtimeStopped(this.env))return Response.json({ok:true,accepted:false,note:'runtime_incident_stop'});

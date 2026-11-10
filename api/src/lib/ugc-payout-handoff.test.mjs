@@ -16,7 +16,10 @@ test('a finished cloud workflow schedules a durable retry and dispatches paid no
  const out=await queueConfirmedPayoutNotice(f.env,'p1','paid');assert.equal(out.dispatch.reason,'diana_cloud_working');assert.equal(events(f).length,1);
  await f.actor.fetch(new Request('https://wake/cloud-released',{method:'POST'}));assert.equal(f.alarms.length,1);
  await f.actor.alarm();assert.equal(f.alarms.length,2);assert.equal(created.length,0);
- instances.set('direct-old','complete');await f.actor.alarm();assert.equal(created.length,1);assert.equal(created[0].params.task,'payout_paid_notice');
+ // The old workflow's final step has finished every action and atomically
+ // released the lock, even if the platform still reports it as running.
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_finished:direct-old',JSON.stringify({kind:'direct',id:'direct-old'}),Date.now());
+ await f.actor.alarm();assert.equal(created.length,1);assert.equal(created[0].params.task,'payout_paid_notice');
 });
 test('canonical paid facts durably queue then immediately wake once; dispatch is not delivery',async t=>{
  const f=fixture(t),a=await queueConfirmedPayoutNotice(f.env,'p1','paid');assert.equal(a.dispatch.dispatched,true);const [e]=events(f);assert.equal(e.task,'payout_paid_notice');assert.equal(e.paid_at,'2026-11-09T12:00:00Z');assert.equal(e.payout_id,'p1');assert.equal(e.amount_minor,45300);assert.equal(Object.hasOwn(e,'text'),false);assert.equal(f.peer.sent.length,1);

@@ -1,7 +1,7 @@
 import {WorkflowEntrypoint,type WorkflowEvent,type WorkflowStep} from 'cloudflare:workers';
 import type {Env} from './types';
 import {readCloudConversation,prepareCloudDecision,draftCloudDecision,deliverCloudDecision,completeCloudEvent,stateWrite,type DianaCloudEvent} from './lib/diana-cloud';
-import {releaseDianaCloud} from './lib/diana-cloud-lock';
+import {finishDianaCloud} from './lib/diana-cloud-lock';
 import {roundCandidates} from './lib/diana-cloud-round-cohort';
 
 type RoundInput={id:string;scheduled_at:number};
@@ -63,7 +63,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
       return outcome;
     } finally {
       await step.do('release-round-lock',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
-        await releaseDianaCloud(this.env,owner);
+        await finishDianaCloud(this.env,owner);
         const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));
         if(!(await wake.fetch('https://diana/cloud-released',{method:'POST'})).ok)throw Error('diana_round_wake_failed');
       });

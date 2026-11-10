@@ -10,7 +10,7 @@ test('round records each creator separately and keeps unsupported duties open',a
  INSERT INTO ugc_creators VALUES('a','alice','paid',NULL),('b','bob','creation',NULL);INSERT INTO ugc_ig_messages VALUES('m1','chat','in','alice','2026-01-01');`);
  const run='diana-round-2026-11-10-morning';db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_execution_lock',JSON.stringify({kind:'round',id:run}),Date.now());
  db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('manual_stage:a',JSON.stringify({to:'paid',at:1,reviewed_at:null}),1);
- const DB={prepare(sql){let args=[];return{bind(...v){args=v;return this},async all(){return{results:db.prepare(sql).all(...args)}},async first(){return db.prepare(sql).get(...args)??null},async run(){return{meta:{changes:Number(db.prepare(sql).run(...args).changes)}}}}}};
+ const DB={prepare(sql){let args=[];return{bind(...v){args=v;return this},async all(){return{results:db.prepare(sql).all(...args)}},async first(){return db.prepare(sql).get(...args)??null},async run(){return{meta:{changes:Number(db.prepare(sql).run(...args).changes)}}}}},async batch(q){const out=[];for(const item of q)out.push(await item.run());return out}};
  const env={DB,DIANA_WAKE:{idFromName(){return 1},get(){return{async fetch(){return new Response('{}')}}}}};
  const step={async do(_name,_options,fn){return fn()}};const workflow=new DianaCloudRoundWorkflow(env);
  const outcome=await workflow.run({payload:{id:run,scheduled_at:1},instanceId:run},step);

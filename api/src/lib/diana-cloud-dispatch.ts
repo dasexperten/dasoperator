@@ -13,6 +13,10 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   if(claim&&Number(claim.updated_at)>Date.now()-180_000)return {dispatched:false,reason:'diana_machine_finishing'};
   const active=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_cloud_active'").first<{value:string}>();
   if(active){
+    const finished=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_finished:'+active.value).first<{value:string}>();
+    let finishedHere=false;
+    try {const proof=JSON.parse(finished?.value??'null');finishedHere=proof?.kind==='direct'&&proof.id===active.value;} catch {}
+    if(!finishedHere){
     try {
       const instance=await env.DIANA_CLOUD.get(active.value);
       const status=await instance.status();
@@ -23,6 +27,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     } catch(error) {
       // Only a positively identified missing instance permits replay of create.
       if(!/not found|does not exist|not exist/i.test(String((error as Error)?.message??error)))throw error;
+    }
     }
   }
   const financial=(e:any)=>['payout_paid_notice','payout_failed_notice'].includes(e.task)&&e.payout_id&&String(e.event_id).startsWith('action:');

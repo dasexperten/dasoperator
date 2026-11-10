@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { Env } from './types';
-import { releaseDianaCloud } from './lib/diana-cloud-lock';
+import { finishDianaCloud } from './lib/diana-cloud-lock';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
   stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
 
@@ -43,7 +43,7 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       // instances do not take the production lock.
       if (!input.dryRun) await step.do('release-diana-cloud-lock', {retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},
         async()=>{
-          await releaseDianaCloud(this.env,{kind:'direct',id:event.instanceId});
+          await finishDianaCloud(this.env,{kind:'direct',id:event.instanceId});
           const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));
           const response=await wake.fetch('https://diana/cloud-released',{method:'POST'});
           if(!response.ok)throw Error('diana_wake_after_release_failed');

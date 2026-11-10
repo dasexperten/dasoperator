@@ -126,6 +126,16 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
           try{const status=await(await env.DIANA_CLOUD.get('direct-v1-'+oldHash)).status();if(status.status!=='complete')continue;}catch{continue;}
           recoveryFailureRetry=true;dataGuardRetry=true;recoveryAttempt=2;
         }
+        else if(data?.status==='needs_review'&&data.reason==='video_requisites_need_verified_payout_source'&&recoveryKind==='video'&&previousAttempt===1&&!data.deliveryKey){
+          // Legacy review was produced before payout handoff or delivery.
+          // Confirm the exact original workflow is finished and no reply exists.
+          const delivery=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(igDeliveryKey(event.cid,new Date(event.at).toISOString())).first();
+          const done=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_event_done:'+event.event_id).first();
+          if(delivery||done)continue;
+          const oldHash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('video-recovery:'+event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+          try{const status=await(await env.DIANA_CLOUD.get('direct-v1-'+oldHash)).status();if(status.status!=='complete')continue;}catch{continue;}
+          recoveryFailureRetry=true;recoveryAttempt=2;
+        }
         else if(data?.status==='failed'&&data.reason==='recovery_technical_retryable'&&previousAttempt<3&&Number.isFinite(Number(data.at))&&now-Number(data.at)>=180_000&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){
           try{const status=await(await env.DIANA_CLOUD.get(data.workflow_id)).status();if(!['complete','errored','terminated'].includes(status.status))continue;}catch{continue;}
           recoveryFailureRetry=true;recoveryAttempt=previousAttempt+1;

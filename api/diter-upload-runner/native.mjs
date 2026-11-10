@@ -16,3 +16,11 @@ export async function runtimeCheck(){
  let safe=false;try{await runDieterProcess(process.execPath,['-e',"require('node:fs').closeSync(0);setTimeout(()=>process.exit(0),100)"],'x'.repeat(4000000),{env,timeout:2000});}catch(error){safe=error.message==='dieter_process_stdin_failed:'+process.execPath;}
  return {version:'dieter-only-stdin-v1',tools_ready:true,dieter_stdin_safe:safe,process_alive:true,model_invocations:0};
 }
+
+// Fixed diagnostic, not a caller command or a model invocation.
+export async function runtimeProbe(requestId,{spawnImpl,now=Date.now}={}){
+ const started=now();
+ const output=await runDieterProcess(process.execPath,['-e',"setTimeout(()=>process.stdout.write('DIETER_FIXED_PROBE_COMPLETE'),180000)"],undefined,{env:{PATH:process.env.PATH},...(spawnImpl?{spawnImpl}:{}),timeout:200000});
+ if(output!=='DIETER_FIXED_PROBE_COMPLETE')throw Error('runtime_probe_failed');
+ return {text:JSON.stringify({probe_complete:true}),receipt:{transport:'synthetic-native',auth:'none',operation:'runtime_probe',requestId,model_invocations:0,elapsed_ms:now()-started}};
+}

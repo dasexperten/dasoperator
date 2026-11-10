@@ -29,7 +29,7 @@ route.post('/direct-subscription-check', async c => {
     const out=await directThink(c.env,'reply')([{role:'user',content:'Reply with the single word OK.'}],{model:'gpt-6.1-terra'});
     const imageOk=/\bred\b/i.test(image.text);
     return c.json({ok:imageOk&&out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6.1-terra',image_verified:imageOk});
-  } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|upstream_http_\d{3}|upstream_model_not_verified|upstream_empty_answer|upstream_codex_no_pass|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
+  } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|upstream_http_\d{3}|upstream_model_not_verified|upstream_empty_answer(?:_(?:completed|failed|incomplete|no_terminal))?|upstream_codex_no_pass|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
 });
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 
@@ -56,6 +56,16 @@ route.use('*', async (c, next) => {
   for (let i = 0; secret && i < Math.min(secret.length, given.length); i++) diff |= secret.charCodeAt(i) ^ given.charCodeAt(i);
   if (!secret || diff) return c.json({ ok: false, error: 'unauthorized' }, 401);
   return next();
+});
+
+// Review pressure is metadata only: never expose the message or review reason.
+route.get('/diana-review-pressure', async c => {
+  const now=Date.now();
+  const rows=await c.env.DB.prepare(`SELECT COALESCE(json_extract(value,'$.review_owner'),'unassigned') AS owner,
+    COUNT(*) AS count, MIN(COALESCE(json_extract(value,'$.review_since_ms'),updated_at)) AS oldest_ms
+    FROM crm_sync_state WHERE key LIKE 'diana_cloud_event:%' AND json_valid(value)
+    AND json_extract(value,'$.status')='needs_review' GROUP BY owner`).all<{owner:string;count:number;oldest_ms:number}>();
+  return c.json({ok:true,as_of_ms:now,groups:(rows.results??[]).map(row=>({...row,oldest_age_ms:Math.max(0,now-Number(row.oldest_ms))}))});
 });
 
 // The signal is preflight transport data; its task text is the actual upload

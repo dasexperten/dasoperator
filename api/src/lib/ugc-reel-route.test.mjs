@@ -31,7 +31,7 @@ INSERT INTO users VALUES('owner','Owner','admin',1,'{}');INSERT INTO users VALUE
 for(const [token,user] of [['owner-session-token','owner'],['staff-session-token','staff']]) sqlite.prepare('INSERT INTO sessions VALUES(?,?,?)').run(token,user,Date.now()+60000);
 const insert = () => sqlite.exec(`INSERT OR IGNORE INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at) VALUES('reel1','owner','2026-11-07T00:00:00.000Z','2026-11-07T00:00:00.000Z')`);
 const row = () => sqlite.prepare('SELECT * FROM ugc_reel_jobs').get();
-const monday = Date.parse('2026-11-09T09:15:00Z'); // 12:15 Moscow
+const monday = Date.parse('2026-11-09T09:00:00Z'); // 12:00 Moscow
 const resetAlarm = () => sqlite.exec("UPDATE ugc_reel_alarm SET consumer_id=NULL,heartbeat_at=NULL,ready=0,last_started_at=NULL,pending_content_id=NULL");
 const ready = (at=monday) => sqlite.prepare("UPDATE ugc_reel_alarm SET consumer_id='mac-dieter-test',heartbeat_at=?,ready=1").run(at);
 test('consumer registration requires capability, excludes competing identity and preserves existing published rows',async()=>{
@@ -44,7 +44,7 @@ test('consumer registration requires capability, excludes competing identity and
   const status=await(await request('/alarm/status')).json();assert.equal(status.state.ready,0);
   assert.equal(status.alarm,'erp-ugc-diter');
   assert.equal(status.schedule.timezone,'Europe/Moscow');
-  assert.deepEqual(status.schedule.weekend_daytime,['10:30','11:00','11:30','12:00','12:30']);
+  assert.deepEqual(status.schedule.weekends,['10:00','11:30','13:00','14:30','16:00','17:30','19:00','20:30','22:00']);
   const legacy=await(await request('/reel-alarm')).json();
   assert.equal(legacy.name,'diter-ugc-alarm');assert.equal(legacy.alarm,'erp-ugc-diter');
   const canonical=await(await route.request('https://erp.test/reel-alarm',{headers:{'X-Emailer-Service-Secret':env.EMAILER_SERVICE_SECRET,'X-UGC-Alarm-Name':'erp-ugc-diter'}},env)).json();
@@ -53,25 +53,20 @@ test('consumer registration requires capability, excludes competing identity and
 });
 test('fixed slots ignore intervening minutes and accept each trigger once under overlapping cron ticks',async()=>{
   sqlite.exec("DELETE FROM crm_sync_state WHERE key='slot:erp-ugc-diter'");
-  const start=new Date('2026-11-09T09:15:00Z');
+  const start=new Date('2026-11-09T09:00:00Z');
   const results=await Promise.all([tickDiterUgcAlarm(env,start),tickDiterUgcAlarm(env,start)]);
   assert.equal(results.filter(r=>r.note!=='not_due').length,1);
   for(const delta of [60000,7*60000,15*60000,29*60000]) assert.equal((await tickDiterUgcAlarm(env,new Date(+start+delta))).note,'not_due');
-  assert.notEqual((await tickDiterUgcAlarm(env,new Date(+start+30*60000))).note,'not_due');
-  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+30*60000+40000))).note,'not_due');
+  assert.notEqual((await tickDiterUgcAlarm(env,new Date(+start+90*60000))).note,'not_due');
+  assert.equal((await tickDiterUgcAlarm(env,new Date(+start+90*60000+40000))).note,'not_due');
   sqlite.exec("DELETE FROM crm_sync_state WHERE key='slot:erp-ugc-diter'");
 });
-test('fixed trigger allows bounded tool preflight but no start at arbitrary old window minutes',()=>{
+test('trigger allows bounded preflight only at the new Moscow cadence',()=>{
   const check=(s,expected)=>assert.equal(diterWindow(Date.parse(s)),expected,s);
-  check('2026-11-07T07:00:00Z',false); // Saturday now matches Sunday.
-  for(const day of ['07','08']) {
-    check(`2026-11-${day}T07:29:59Z`,false);check(`2026-11-${day}T07:30:00Z`,true);
-    check(`2026-11-${day}T07:32:59Z`,true);check(`2026-11-${day}T07:33:00Z`,false);
-    check(`2026-11-${day}T15:30:00Z`,false);check(`2026-11-${day}T16:30:00Z`,true);
-  }
-  check('2026-11-09T05:00:00Z',false);check('2026-11-10T05:00:00Z',true);
-  check('2026-11-09T09:15:00Z',true);check('2026-11-09T09:30:00Z',false);
-  check('2026-11-12T16:30:00Z',true);
+  check('2026-11-07T06:59:59Z',false);check('2026-11-07T07:00:00Z',true);
+  check('2026-11-07T07:02:59Z',true);check('2026-11-07T07:03:00Z',false);
+  check('2026-11-09T06:00:00Z',true);check('2026-11-09T09:00:00Z',true);
+  check('2026-11-09T09:15:00Z',false);check('2026-11-09T19:30:00Z',true);
 });
 test('alarm stays red without live consumer or outside windows; atomic one-job acceptance then exact assignment',async()=>{
   insert();resetAlarm();
@@ -96,7 +91,7 @@ test('alarm stays red without live consumer or outside windows; atomic one-job a
   assert.equal((await request('/alarm/ack',ack)).status,200);assert.equal((await request('/alarm/ack',ack)).status,200);
   const jobs=await(await request('/reel-jobs')).json();assert.equal(jobs.jobs[0].claim_id,undefined);
   // A dead executor never silently requeues/starts another job.
-  assert.equal((await tickDiterAlarm(env,monday+30*60000)).note,'working_job_exists');
+  assert.equal((await tickDiterAlarm(env,monday+90*60000)).note,'working_job_exists');
 });
 test('green requires every persisted destination; existing verified posts count, no reupload required',async()=>{
   const job=sqlite.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='reel1'").get();
@@ -140,12 +135,12 @@ test('15-minute start spacing and release attempt limit survive retries',async()
   sqlite.exec("DELETE FROM ugc_reel_jobs WHERE content_id='reel1'");
   ready(monday+60000);assert.equal((await tickDiterAlarm(env,monday+60000)).note,'cooldown');
   for(let i=0;i<3;i++) {
-    const now=i<2 ? monday+(i+1)*30*60000 : Date.parse('2026-11-09T16:30:00Z');ready(now);
+    const now=i<2 ? monday+(i+1)*90*60000 : monday+3*90*60000;ready(now);
     assert.equal((await tickDiterAlarm(env,now)).accepted,true);
     const job=sqlite.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='reel2'").get();
     assert.equal((await request('/reel-jobs/reel2/release',{claim_id:job.claim_id,error:'No authenticated upload access'})).status,200);
   }
-  const after=Date.parse('2026-11-09T17:00:00Z');ready(after);assert.equal((await tickDiterAlarm(env,after)).note,'empty');
+  const after=monday+4*90*60000;ready(after);assert.equal((await tickDiterAlarm(env,after)).note,'empty');
   sqlite.exec('DELETE FROM ugc_reel_jobs');
 });
 test('three failures quarantine a red reel without losing proofs or stopping the next job',async()=>{

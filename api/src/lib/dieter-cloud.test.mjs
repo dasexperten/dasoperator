@@ -15,7 +15,7 @@ function fixture(t){
  INSERT INTO crm_sync_state VALUES('dieter_cloud_mode','enabled',0);`);
  const env={DB:{prepare(sql){let args=[];const st={bind(...a){args=a;return st;},async first(){return db.prepare(sql).get(...args)??null;},async run(){return {meta:{changes:db.prepare(sql).run(...args).changes}};}};return st;}},
  DIETER_SUBSCRIPTION:{async fetch(){return Response.json({text:JSON.stringify({ready:true,activation_ready:true,org_sha:'fixture',tools:{}})});}},DIETER_CLOUD:{async create(p){created.push(p);},async get(){return{async status(){if(missing)throw Error('not found');return{status:'running'};}};}}};
- const created=[];let missing=false;const wake=new DieterWake({},env),now=Date.parse('2026-11-10T05:00:00Z');t.mock.method(Date,'now',()=>now);
+ const created=[];let missing=false;const wake=new DieterWake({},env),now=Date.parse('2026-11-10T06:00:00Z');t.mock.method(Date,'now',()=>now);
  const request=()=>new Request('https://dieter.internal/dispatch',{method:'POST',body:JSON.stringify({now})});
  return {db,env,created,wake,request,missing(){missing=true;}};
 }

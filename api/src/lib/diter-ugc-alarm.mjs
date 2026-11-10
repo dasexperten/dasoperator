@@ -4,20 +4,16 @@ export const LEGACY_ALARM = 'diter-ugc-alarm';
 export const ROUND = 'diter-ugc-round';
 export const START_GAP_MS = 15 * 60_000;
 export const SIGNAL_TTL_MS = 3 * 60_000;
-// Owner 09.11.2026: fixed trigger times, Europe/Moscow (UTC+3).
+// Owner 10.11.2026: one 90-minute cadence in Europe/Moscow.
 export const MOSCOW_SCHEDULE = {
-  weekday_midday: ['12:15', '12:45', '13:15'],
-  tuesday_to_thursday_morning: ['08:00', '08:30', '09:00', '09:30', '10:00'],
-  weekend_daytime: ['10:30', '11:00', '11:30', '12:00', '12:30'],
-  every_evening: ['19:30', '20:00', '20:30', '21:00'],
+  weekdays: ['09:00','10:30','12:00','13:30','15:00','16:30','18:00','19:30','21:00','22:30'],
+  weekends: ['10:00','11:30','13:00','14:30','16:00','17:30','19:00','20:30','22:00'],
 };
 export function triggerSlot(now = new Date()) {
   const moscow = new Date(now.getTime() + 3 * 3600_000);
   const day = moscow.getUTCDay();
   const minute = moscow.getUTCHours() * 60 + moscow.getUTCMinutes();
-  const times = [...MOSCOW_SCHEDULE.every_evening,
-    ...(day >= 1 && day <= 5 ? MOSCOW_SCHEDULE.weekday_midday : MOSCOW_SCHEDULE.weekend_daytime),
-    ...([2, 3, 4].includes(day) ? MOSCOW_SCHEDULE.tuesday_to_thursday_morning : [])];
+  const times = day >= 1 && day <= 5 ? MOSCOW_SCHEDULE.weekdays : MOSCOW_SCHEDULE.weekends;
   const slot = times.map(time => { const [h,m] = time.split(':').map(Number); return h*60+m; })
     .find(time => minute >= time && minute < time + SIGNAL_TTL_MS/60000);
   if (slot === undefined) return null;

@@ -90,22 +90,22 @@ export async function runWbNews(env, daysBack = 1, cell = { hour: 4 }) {
       });
       review = await response.json();
       if (!response.ok || !review.ok || review.reviewed !== n.total) throw new Error(review?.error || "incomplete Arina news review");
-    } catch (e) { error = `????? ?? ????????? ???????: ${String(e?.message || e)}`; }
+    } catch (e) { error = `Арина не разобрала новости: ${String(e?.message || e)}`; }
   }
   const selected = review?.decisions?.filter(x => x.status === "new_knowledge") || [];
   const relevant = review?.decisions?.filter(x => x.status === "new_knowledge" || x.status === "relevant_known") || [];
-  const line = error || `??????? WB: ????????? ${review.reviewed}, ?????? ${relevant.length}, ????? ?????? ${selected.length} ? DeepSeek`;
-  const findings = relevant.map(x => `${x.title}: ${x.summary}`).join("\n\n") || "?????? ????? ????????? ???.";
+  const line = error || `Новости WB: прочитано ${review.reviewed}, важных ${relevant.length}, новых знаний ${selected.length} · DeepSeek`;
+  const findings = relevant.map(x => `${x.title}: ${x.summary}`).join("\n\n") || "Важных новых сообщений нет.";
   const feed = wbNewsDetail(n);
-  const fullDetail = `${findings}\n\n????? WB:\n${feed}`;
+  const fullDetail = `${findings}\n\nЛента WB:\n${feed}`;
   const detail = error ? feed : fullDetail.length <= 2900 ? fullDetail :
-    `${findings.slice(0, 2700)}\n\n?????? ????? ?? ??????????? ? ???????; ????? ??????????? ??? ${n.total} ????????.`;
+    `${findings.slice(0, 2700)}\n\nПолная лента не поместилась в отметку; Арина рассмотрела все ${n.total} новостей.`;
   const mark = await markHour(env, {
     slug: "arina-volkova", hour: cell.hour, mail: {},
-    tasks: !error && relevant.length ? { actions: relevant.length, kinds: ["??????? ????????"] } : {},
+    tasks: !error && relevant.length ? { actions: relevant.length, kinds: ["новости площадки"] } : {},
     error: error || undefined, line, detail, finding: relevant.length > 0,
   }).catch(e => ({ ok: false, error: String(e?.message || e) }));
-  if (!mark.ok && !error) error = `??????? ?? ?????????: ${mark.error}`;
+  if (!mark.ok && !error) error = `Отметка не сохранена: ${mark.error}`;
   return { ...n, ok: !error, error, review, line, detail, mark };
 }
 export async function runWbWeek(env) {

@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
 let source=await readFile(new URL('./worker.mjs',import.meta.url),'utf8');
 source=source.replace("import { Container } from '@cloudflare/containers';","class Container {constructor(ctx,env){this.ctx=ctx;this.env=env;} containerFetch(...args){if(args[0]==='http://container/health'&&!this.env.startAndWaitForPorts)return new Response('ok');return this.env.containerFetch(...args);} startAndWaitForPorts(...args){return this.env.startAndWaitForPorts?.(...args);}}").replace("import { WorkerEntrypoint } from 'cloudflare:workers';","class WorkerEntrypoint {}");
-const {CodexRunner,default:handler}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+const {CodexRunner,DirectInferenceService,InferenceService,DieterExecutionService,default:handler}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 function setup(){const map=new Map();const ctx={storage:{get:async k=>map.get(k),put:async(k,v)=>map.set(k,v),delete:async k=>map.delete(k),list:async({prefix})=>new Map([...map].filter(([k])=>k.startsWith(prefix)))}};return {map,ctx};}
 test('public admin endpoint denies when key is absent, including Bearer undefined',async()=>{assert.equal((await handler.fetch(new Request('https://example/auth',{headers:{Authorization:'Bearer undefined'}}),{})).status,404);});
 test('singleton serializes refreshed auth, keeps encrypted storage and never returns credentials',async()=>{
@@ -103,4 +103,34 @@ test('runtime diagnostic checks real container health after fixed helper results
 test('failed runtime diagnostic remains closed and cannot accept a malformed pass',async()=>{
  const {ctx}=setup();const response=await new CodexRunner(ctx,{async startAndWaitForPorts(){},async containerFetch(){return Response.json({version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:false,raw:'secret'});}}).runtimeCheck();
  assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'runtime_check_failed'});
+});
+
+for(const operation of ['context','image','reply','video_frames'])test('Direct '+operation+' verifies placement and health before inference',async()=>{
+ const {ctx}=setup(),order=[];
+ const env={AUTH_KEY:Buffer.alloc(32,3).toString('base64'),async startAndWaitForPorts(options){order.push('placement');assert.equal(options.cancellationOptions.portReadyTimeoutMS,120000);},async containerFetch(request){
+  if(typeof request==='string'){order.push('health');return new Response('ok');}
+  order.push('inference');return Response.json({text:'ready',receipt:{transport:'codex-native'}});
+ }};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const result=await(await runner.infer({requestId:'direct-ready-'+operation,operation,model:'gpt-6-luna'})).json();
+ assert.deepEqual(order,['placement','health','inference']);assert.equal(result.receipt.container_health_verified,true);
+});
+for(const operation of ['context','image','reply','video_frames'])test('Direct '+operation+' stops before model on unavailable placement',async()=>{
+ const {ctx,map}=setup();let calls=0;
+ const runner=new CodexRunner(ctx,{async startAndWaitForPorts(){throw Error('There is no container instance');},async containerFetch(){calls++;}});
+ const response=await runner.infer({requestId:'direct-unavailable-'+operation,operation,model:'gpt-6-luna'});
+ assert.equal(response.status,503);assert.equal(calls,0);assert.equal(map.size,0);
+ assert.deepEqual((await response.json()).diagnostic,{phase:'container_startup',code:'placement_unavailable'});
+});
+test('Direct entrypoint preserves singleton identity and rejects Dieter execution',async()=>{
+ const names=[],requests=[];const env={RUNNER:{getByName(name){names.push(name);return {async infer(body){requests.push(body);return new Response('ok');}};}}};
+ for(const Entry of [DirectInferenceService,InferenceService]){
+  const service=new Entry();service.env=env;
+  const request=body=>new Request('https://direct.internal/infer',{method:'POST',body:JSON.stringify(body)});
+  assert.equal((await service.fetch(request({operation:'dieter_round'}))).status,400);
+  assert.equal((await service.fetch(request({operation:'context'}))).status,200);
+ }
+ assert.deepEqual(names,['subscription-singleton','subscription-singleton']);assert.equal(requests.length,2);
+ const dieter=new DieterExecutionService();dieter.env=env;
+ assert.equal((await dieter.fetch(new Request('https://dieter.internal/infer',{method:'POST',body:JSON.stringify({operation:'context'})}))).status,400);
 });

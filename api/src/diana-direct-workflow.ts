@@ -21,11 +21,17 @@ import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
 export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number};
 
-export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectSignal>{
- async run(event:WorkflowEvent<DianaDirectSignal>,step:WorkflowStep){
-  const signal=event.payload;
+export type DianaDirectPayload=DianaDirectSignal|{events:DianaDirectSignal[]};
+export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPayload>{
+ async run(event:WorkflowEvent<DianaDirectPayload>,step:WorkflowStep){
+  const payload=event.payload;
+  const signals='events' in payload?payload.events:[payload];
+  if(!Array.isArray(signals)||!signals.length||signals.length>4||signals.some(x=>!x?.cid||!x?.message_id||!x?.event_id))throw Error('direct_invalid_signals');
+  const dryRun=signals.every(x=>x.dryRun===true);
+  if(!dryRun&&signals.some(x=>x.dryRun))throw Error('direct_mixed_preview');
   try{
    return await step.do('read-decide-and-verify',{retries:{limit:0,delay:'10 seconds'},timeout:'30 minutes'},async()=>{
+    const processOne=async(signal:DianaDirectSignal)=>{
     try{
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
      const result=await runDirect({event:signal,
@@ -48,9 +54,12 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectSigna
      if(!signal.dryRun)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(result),Date.now()).run();
      return result;
     }
+    };
+    const results=await Promise.all(signals.map(processOne));
+    return results.length===1?results[0]:{status:'batch_processed',results};
    });
   }finally{
-   if(!signal.dryRun)await step.do('release-direct-lock',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
+   if(!dryRun)await step.do('release-direct-lock',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
     await finishDianaCloud(this.env,{kind:'direct',id:event.instanceId});
     await this.env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(event.instanceId).run();
     const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));

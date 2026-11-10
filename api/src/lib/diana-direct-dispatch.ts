@@ -14,9 +14,9 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
   try{status=String((await(await env.DIANA_DIRECT.get(active.value)).status()).status);}catch{return {dispatched:false,reason:'workflow_status_unknown'};}
   if(!['complete','errored','terminated'].includes(status))return {dispatched:false,reason:'diana_cloud_working'};
   const mapping=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_direct_instance:'+active.value).first<{value:string}>();
-  let eventId:string;try{eventId=JSON.parse(mapping?.value??'null')?.event_id;}catch{return {dispatched:false,reason:'workflow_mapping_missing'};}
-  if(!eventId)return {dispatched:false,reason:'workflow_mapping_missing'};
-  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
+  let eventIds:string[];try{const m=JSON.parse(mapping?.value??'null');eventIds=Array.isArray(m?.event_ids)?m.event_ids:m?.event_id?[m.event_id]:[];}catch{return {dispatched:false,reason:'workflow_mapping_missing'};}
+  if(!eventIds.length||eventIds.some(id=>typeof id!=='string'))return {dispatched:false,reason:'workflow_mapping_missing'};
+  for(const eventId of eventIds)await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
    .bind('diana_direct_event:'+eventId,JSON.stringify({status:'needs_review',reason:'terminal_workflow_without_verified_receipt',review_owner:'diana-helios',review_since_ms:now}),now).run();
   await releaseDianaCloud(env,{kind:'direct',id:active.value});
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(active.value).run();
@@ -24,8 +24,9 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
  pending.sort((a:any,b:any)=>Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
- let next:any=null, nextAttempt=1, earliest=Infinity;
+ const ready:{item:any;attempt:number}[]=[];let earliest=Infinity;
  for(const item of pending){
+  let nextAttempt=1;
   const row=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_direct_event:'+item.event_id).first<{value:string}>();
   let state:any=null;try{state=row?JSON.parse(row.value):null;}catch{continue;}
   if(state){
@@ -34,22 +35,22 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
    const retryAt=Number(state.retry_at??0);if(retryAt>now){earliest=Math.min(earliest,retryAt);continue;}
    nextAttempt=Number(state.attempt??1)+1;
   }
-  next=item;break;
+  ready.push({item,attempt:nextAttempt});if(ready.length>=4)break;
  }
- if(!next)return Number.isFinite(earliest)?{dispatched:false,reason:'media_retry_waiting',retry_at:earliest}:{dispatched:false,reason:'no_direct_signal_ready'};
- const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(next.event_id+':'+nextAttempt));
+ if(!ready.length)return Number.isFinite(earliest)?{dispatched:false,reason:'media_retry_waiting',retry_at:earliest}:{dispatched:false,reason:'no_direct_signal_ready'};
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(ready.map(({item,attempt})=>[item.event_id,attempt]))));
  const id='direct-'+[...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
  const owner={kind:'direct' as const,id};
  if(!await reserveDianaCloud(env,owner))return {dispatched:false,reason:'diana_cloud_locked'};
  const claim=await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_direct_active',?1,?2) ON CONFLICT(key) DO NOTHING").bind(id,now).run();
  if(!claim.meta.changes){await releaseDianaCloud(env,owner);return {dispatched:false,reason:'diana_cloud_working'};}
  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
-  .bind('diana_direct_instance:'+id,JSON.stringify({event_id:next.event_id,created_at:now}),now).run();
+  .bind('diana_direct_instance:'+id,JSON.stringify({event_ids:ready.map(({item})=>item.event_id),created_at:now}),now).run();
  try{
-  await env.DIANA_DIRECT.create({id,params:{cid:String(next.cid),message_id:next.message_id,event_id:next.event_id,handle:next.handle,attempt:nextAttempt}});
+  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt})=>({cid:String(item.cid),message_id:item.message_id,event_id:item.event_id,handle:item.handle,attempt}))}});
  }catch{
   // An uncertain create cannot be replayed blindly; preserve claim and lock.
   return {dispatched:false,reason:'workflow_creation_unknown'};
  }
- return {dispatched:true,workflow_id:id,event_id:next.event_id};
+ return {dispatched:true,workflow_id:id,event_ids:ready.map(({item})=>item.event_id)};
 }

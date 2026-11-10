@@ -5,7 +5,7 @@
 export interface Env {
   CODEX_DOOR?: Fetcher;
   CODEX_ROUTE_SECRET?: string;
-  DIANA_DIRECT: Workflow<{cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number}>;
+  DIANA_DIRECT: Workflow<{cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number}|{events:{cid:string;message_id:string;event_id:string;handle?:string;attempt?:number}[]}>;
   DIANA_ROUND: Workflow<{id:string;scheduled_at:number}>;
   DIETER_CLOUD: Workflow<{content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string}>;
   GITHUB_TOKEN?:string;

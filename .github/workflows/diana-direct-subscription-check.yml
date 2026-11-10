@@ -16,5 +16,5 @@ jobs:
           response=$(curl --max-time 210 --fail-with-body -sS -X POST \
             -H "X-Codex-Route-Secret: $DIRECT_SECRET" \
             https://dasoperator-api.dasexperten.workers.dev/internal/ugc/direct-subscription-check)
-          printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") and d.get("model_verified"), d'
+          printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") and d.get("model_verified") and d.get("image_verified"), d'
           echo 'Shared subscription inference verified'

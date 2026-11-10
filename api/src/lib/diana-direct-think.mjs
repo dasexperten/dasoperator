@@ -1,7 +1,7 @@
 // Use the existing organization subscription door; no separate Diana service.
 // Inputs are passed only in the request and must never be logged or persisted.
 export function directThink(env, operation) {
-  return async (messages, {model, schema} = {}) => {
+  return async (messages, {model = operation === 'reply' ? 'gpt-6.1-terra' : 'gpt-6-luna', schema} = {}) => {
     if (!['context','image','reply'].includes(operation)) throw Error('direct_invalid_operation');
     if (!['gpt-6-luna','gpt-6.1-terra'].includes(model)) throw Error('direct_invalid_model');
     if (!env.CODEX_DOOR?.fetch || !env.CODEX_ROUTE_SECRET) throw Error('direct_subscription_unavailable');

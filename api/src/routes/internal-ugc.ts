@@ -24,7 +24,7 @@ route.post('/direct-subscription-check', async c => {
   try {
     const {directThink}=await import('../lib/diana-direct-think.mjs');
     const pixel='iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAfElEQVR4nNXOQREAMAjAsK7+PTMRPLhGQd7QJnESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ES53Vg6wNShQF/fRSLfgAAAABJRU5ErkJggg==';
-    stage='image';const image=await directThink(c.env,'image')([{role:'user',content:'Name the single color of the image in English using one word.',images:[{mediaType:'image/png',data:pixel}]}],{model:'gpt-6-luna'});
+    stage='image';const image=await directThink(c.env,'image')([{role:'user',content:'Name the single color of the image in English using one word.',images:[{mediaType:'image/png',data:pixel}]}],{model:'gpt-6.1-terra'});
     stage='reply';
     const out=await directThink(c.env,'reply')([{role:'user',content:'Reply with the single word OK.'}],{model:'gpt-6.1-terra'});
     const imageOk=/\bred\b/i.test(image.text);

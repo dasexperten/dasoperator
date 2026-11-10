@@ -35,6 +35,18 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
             result=verified.status==='complete'?{status:'reviewed',outcome:verified.outcome,proof:before.deliveryKey??before.reason}:verified;
           } catch(error) {result={status:'needs_review',reason:'cloud_round_step_failed',detail:String((error as Error)?.message??error).slice(0,160)};}
         }
+        // A conversation decision does not verify publications or coauthor
+        // invitations. Keep the successful conversation result as evidence,
+        // but never mark the creator's entire round complete on that basis.
+        if(result.status==='reviewed'){
+          const conversation=result;
+          result={status:'needs_review',reason:'publication_and_coauthor_not_verified',conversation};
+        }
+        const manual=await this.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('manual_stage:'+person.id).first<{value:string}>();
+        if(manual){
+          try {const value=JSON.parse(manual.value);if(!value.reviewed_at)result.manual_stage='not_reviewed';}
+          catch {result.manual_stage='invalid_record';}
+        }
         if(result.status==='reviewed')reviewed++;else exceptions++;
         await step.do(`round-${i}-receipt`,READ,async()=>{
           const receipt={slot:run.id,creator_id:person.id,stage_before:person.lifecycle_stage,...result,checked_at:new Date().toISOString()};

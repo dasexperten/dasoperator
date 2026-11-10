@@ -1,4 +1,5 @@
 import type { Env } from '../types';
+import { canRecoverInitialTechnicalFailure } from './diana-direct-technical-recovery.mjs';
 import { pendingDianaMessages } from './diana-alarm';
 import { igDeliveryKey } from './ig-dm-delivery';
 import { dianaWorkWindow } from './diana-work-window.mjs';
@@ -85,10 +86,11 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   for(const event of waiting){
     if(recoveryOnly&&event.event_id!==priorityEventId)continue;
     const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first<{value:string}>();
-    let deferred=false,mediaResume=false,mediaRetryAt=0,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryFailureRetry=false,dataGuardRetry=false,recoveryPrevious='',recoveryId='';let recoveryAttempt=1;let recoveryKind:'video'|'text'|'unsupported'|null=null;
+    let deferred=false,mediaResume=false,mediaRetryAt=0,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryFailureRetry=false,dataGuardRetry=false,recoveryPrevious='',recoveryId='';let recoveryAttempt=1;let initialTechnicalFailure=false;let originalFailure:any=null;let recoveryKind:'video'|'text'|'unsupported'|null=null;
     if(known){try{const prior=JSON.parse(known.value);deferred=prior?.status==='deferred';
       if(prior?.status==='media_wait'&&Number.isFinite(Number(prior.retry_at))){mediaRetryAt=Number(prior.retry_at);if(now>=mediaRetryAt)mediaResume=true;else mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);}
-      recoveryCandidate=String(event.queue_key).startsWith('diana_round_alarm:')&&prior?.status==='needs_review';
+      initialTechnicalFailure=prior?.status==='failed'&&prior.reason==='recovery_technical_retryable';originalFailure=prior;
+      recoveryCandidate=String(event.queue_key).startsWith('diana_round_alarm:')&&(prior?.status==='needs_review'||initialTechnicalFailure);
     }catch{}}
     if(recoveryCandidate&&!recoveryOnly){
       // Priority dispatch is on the scanner's critical path. Do not probe old
@@ -96,6 +98,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       if(!priorityEventId)recoveryCandidates.push(event);
       continue;
     }
+    if(recoveryCandidate&&recoveryOnly&&initialTechnicalFailure&&!await canRecoverInitialTechnicalFailure(env,event,originalFailure,now))continue;
     if(recoveryCandidate&&recoveryOnly){recoveryKind=await latestOriginalRecoveryKind(env,event);videoRecovery=!!recoveryKind;}
     if(videoRecovery){
       // Only one dedicated attempt; never delete or rewrite the old receipt.
@@ -162,7 +165,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       }
     }
     if(videoRecovery){
-      if(dataGuardRetry)await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_recovery_skip_payout:'+event.event_id,'1',Date.now()).run();
+      if(dataGuardRetry||initialTechnicalFailure)await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_recovery_skip_payout:'+event.event_id,'1',Date.now()).run();
       const marker=JSON.stringify({status:'queued',event_id:event.event_id,workflow_id:id,recovery:true,recovery_attempt:recoveryAttempt,at:Date.now()});
       const inserted=recoveryResume||recoveryRetry||recoveryFailureRetry
         ?await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND value=?4').bind('diana_video_recovery_result:'+event.event_id,marker,Date.now(),recoveryPrevious).run()
@@ -174,7 +177,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_cloud_active',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
       .bind(id,Date.now()).run();
     try { await env.DIANA_CLOUD.create({id,params:{cid:event.cid,message_id:event.message_id,event_id:event.event_id,handle:event.handle,at:event.at,
-      ...(mediaResume?{mediaRetried:true}:{}),...(videoRecovery?{recovery:true,recoveryKind,recoveryAttempt,...(dataGuardRetry?{skipPayout:true}:{})}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
+      ...(mediaResume?{mediaRetried:true}:{}),...(videoRecovery?{recovery:true,recoveryKind,recoveryAttempt,...(dataGuardRetry||initialTechnicalFailure?{skipPayout:true}:{})}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
     catch(error){
       // A nonexistent instance is a real failed create, and leaves the pending
       // metadata untouched. A duplicate-ID response resolves to the same work.

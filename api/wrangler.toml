@@ -335,7 +335,7 @@ service = "erp-vn-einvoice"
 [[services]]
 binding = "DIANA_SUBSCRIPTION"
 service = "diana-subscription-runner"
-entrypoint = "InferenceService"
+entrypoint = "DirectInferenceService"
 
 # Owner 2026-11-06: keep worker logs so an outage has its cause on record.
 [observability]

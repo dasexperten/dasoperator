@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,writeFile,readFile,rm,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
-import {runDieter} from './dieter.mjs';
+import {runDieter,runDieterProcess} from './dieter.mjs';
 export const models=['gpt-6-luna','gpt-6.1-terra'];
 export function prepareInput(messages, operation = 'context') {
  const images=[];
@@ -58,4 +58,17 @@ export async function nativeInfer(body,{auth,spawnImpl=spawn}={}) {
   return {...result,auth:refreshed,receipt:{transport:'codex-native',auth:'subscription',model:body.model,model_source:'explicit_native_cli_argument',requestId:body.requestId,operation:body.operation}};
  }catch(error){try{refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));}catch{}return {error:error.message,diagnostic:error.diagnostic,auth:refreshed};}
  finally{await rm(dir,{recursive:true,force:true});}
+}
+
+// Fixed, credential-free diagnostics only. No caller-selected commands or models.
+export async function runtimeCheck({runProcess=runDieterProcess}={}) {
+ const env={PATH:process.env.PATH,SSL_CERT_FILE:process.env.SSL_CERT_FILE};
+ for(const [cmd,args] of [['git',['--version']],['python3',['--version']],['ffmpeg',['-version']],['gh',['--version']],['yt-dlp',['--version']],['codex',['--version']]])await runProcess(cmd,args,undefined,{env,timeout:15000});
+ const earlyExit=[ '-e', "require('node:fs').closeSync(0);setTimeout(()=>process.exit(0),100)" ];
+ let dieterSafe=false;
+ try{await runProcess(process.execPath,earlyExit,'x'.repeat(4000000),{env,timeout:2000});}catch(error){dieterSafe=error.message==='dieter_process_stdin_failed:'+process.execPath;}
+ const native=await nativeInfer({operation:'context',model:'gpt-6-luna',requestId:'fixed-runtime-check',messages:[{role:'user',content:'x'.repeat(4000000)}]},
+  {auth:{auth_mode:'chatgpt',tokens:{refresh_token:'synthetic-runtime-check-not-a-credential'}},spawnImpl:()=>spawn(process.execPath,earlyExit,{env,stdio:['pipe','pipe','pipe']})});
+ const alive=await runProcess(process.execPath,['-e',"process.stdout.write('alive')"],undefined,{env,timeout:2000});
+ return {version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:dieterSafe,diana_stdin_safe:native.error==='native_stdin_failed',process_alive:alive==='alive',model_invocations:0};
 }

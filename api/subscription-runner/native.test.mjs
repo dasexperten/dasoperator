@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {readFile,writeFile} from 'node:fs/promises';import {join} from 'node:path';
-import {nativeInfer,prepareInput} from './native.mjs';
+import {nativeInfer,prepareInput,runtimeCheck} from './native.mjs';
 const auth={auth_mode:'chatgpt',tokens:{refresh_token:'fixture-only'}};
 test('native command enforces subscription/no keys/no shell and preserves fresh auth',async()=>{
  let captured;const spawnImpl=(command,args,opts)=>{
@@ -44,4 +44,14 @@ test('Diana early stdin closure returns a safe failure without a container crash
  const spawnImpl=(_cmd,_args,options)=>{calls++;return spawn(process.execPath,['-e',"require('node:fs').closeSync(0);setTimeout(()=>process.exit(0),100)"],options);};
  const result=await nativeInfer({model:'gpt-6-luna',operation:'context',requestId:'stdin-closed',messages:[{role:'user',content:'x'.repeat(4000000)}]},{auth,spawnImpl});
  assert.equal(result.error,'native_stdin_failed');assert.equal(calls,1);assert.equal(result.auth.tokens.refresh_token,'fixture-only');assert.equal(result.receipt,undefined);
+});
+
+test('fixed runtime diagnostic exercises real stdin helpers without a model invocation',async()=>{
+ const {runDieterProcess}=await import('./dieter.mjs');const tools=[];
+ const result=await runtimeCheck({runProcess:(cmd,args,input,options)=>{
+  if(cmd!==process.execPath){tools.push([cmd,args]);assert.equal(input,undefined);assert.deepEqual(Object.keys(options.env).sort(),['PATH','SSL_CERT_FILE']);return Promise.resolve('synthetic-version');}
+  return runDieterProcess(cmd,args,input,options);
+ }});
+ assert.deepEqual(tools.map(([cmd])=>cmd),['git','python3','ffmpeg','gh','yt-dlp','codex']);assert.deepEqual(tools.at(-1)[1],['--version']);
+ assert.deepEqual(result,{version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:true,diana_stdin_safe:true,process_alive:true,model_invocations:0});
 });

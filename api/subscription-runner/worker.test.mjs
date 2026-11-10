@@ -86,3 +86,21 @@ test('SDK text failures become closed diagnostics without exposing raw bodies or
  const response=await runner.infer(body),result=await response.json();assert.deepEqual(result.diagnostic,{phase:'container_startup',code:'placement_unavailable'});assert.ok(!JSON.stringify(result).includes('fixture-secret'));
  assert.equal((await runner.infer(body)).status,409);assert.equal(calls,1);
 });
+
+test('runtime diagnostic is admin-only and accepts no caller-selected payload',async()=>{
+ let calls=0;const env={ADMIN_KEY:'fixture-admin',RUNNER:{getByName(){return {runtimeCheck:async()=>{calls++;return Response.json({fixed:true});}};}}};
+ assert.equal((await handler.fetch(new Request('https://example/runtime-check'),env)).status,404);assert.equal(calls,0);
+ const headers={Authorization:'Bearer fixture-admin'};
+ assert.equal((await handler.fetch(new Request('https://example/runtime-check',{method:'POST',headers,body:'arbitrary'}),env)).status,404);assert.equal(calls,0);
+ assert.equal((await handler.fetch(new Request('https://example/runtime-check?cmd=ignored',{headers}),env)).status,200);assert.equal(calls,1);
+});
+test('runtime diagnostic checks real container health after fixed helper results without stored login or intent',async()=>{
+ const {ctx,map}=setup(),paths=[];
+ const env={async startAndWaitForPorts(){},async containerFetch(path,init){paths.push(path);assert.equal(init.method,'GET');return path.endsWith('/health')?new Response('ok'):Response.json({version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:true,diana_stdin_safe:true,process_alive:true,model_invocations:0,raw_secret:'must-not-return'});}};
+ const response=await new CodexRunner(ctx,env).runtimeCheck();assert.equal(response.status,200);const result=await response.json();
+ assert.deepEqual(paths,['http://container/runtime-check','http://container/health']);assert.equal(result.container_health_after,true);assert.equal(result.raw_secret,undefined);assert.equal(map.size,0);
+});
+test('failed runtime diagnostic remains closed and cannot accept a malformed pass',async()=>{
+ const {ctx}=setup();const response=await new CodexRunner(ctx,{async startAndWaitForPorts(){},async containerFetch(){return Response.json({version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:false,raw:'secret'});}}).runtimeCheck();
+ assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'runtime_check_failed'});
+});

@@ -1,7 +1,12 @@
-import http from 'node:http';import {nativeInfer} from './native.mjs';
+import http from 'node:http';import {nativeInfer,runtimeCheck} from './native.mjs';
 let busy=false;
 http.createServer(async(req,res)=>{
  if(req.url==='/health'){res.end('ok');return;}
+ if(req.method==='GET'&&req.url==='/runtime-check'){
+  if(busy){res.writeHead(409).end();return;}busy=true;
+  try{const result=await runtimeCheck();const ok=result.tools_ready&&result.dieter_stdin_safe&&result.diana_stdin_safe&&result.process_alive;res.writeHead(ok?200:503,{'Content-Type':'application/json'}).end(JSON.stringify(result));}
+  catch{res.writeHead(503,{'Content-Type':'application/json'}).end(JSON.stringify({error:'runtime_check_failed'}));}finally{busy=false;}return;
+ }
  if(req.method!=='POST'||req.url!=='/infer'){res.writeHead(404).end();return;}
  if(busy){res.writeHead(409).end();return;}
  busy=true;let phase='read_request';

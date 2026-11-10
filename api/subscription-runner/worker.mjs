@@ -9,6 +9,18 @@ export class CodexRunner extends Container {
  async seed(auth){return this.serial(async()=>{if(await this.ctx.storage.get('auth'))throw Error('auth_already_seeded');if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('managed_chatgpt_auth_required');await this.ctx.storage.put('auth',await seal(auth,this.env.AUTH_KEY));return {seeded:true};});}
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
  async contract(){return {version:'dieter-tools-v1',operations:['image','context','reply','dieter_round'],managed_login_present:Boolean(await this.ctx.storage.get('auth'))};}
+ async runtimeCheck(){return this.serial(async()=>{
+  try{
+   await this.startAndWaitForPorts({ports:8080,cancellationOptions:{instanceGetTimeoutMS:120000,portReadyTimeoutMS:120000}});
+   const response=await this.containerFetch('http://container/runtime-check',{method:'GET'},8080);
+   if(!response.ok)throw Error('runtime_check_failed');
+   const value=await response.json();
+   if(value.version!=='stdin-safety-v1'||value.tools_ready!==true||value.dieter_stdin_safe!==true||value.diana_stdin_safe!==true||value.process_alive!==true||value.model_invocations!==0)throw Error('runtime_check_failed');
+   const health=await this.containerFetch('http://container/health',{method:'GET'},8080);
+   if(!health.ok||await health.text()!=='ok')throw Error('runtime_check_failed');
+   return Response.json({version:'stdin-safety-v1',tools_ready:true,dieter_stdin_safe:true,diana_stdin_safe:true,process_alive:true,container_health_after:true,model_invocations:0});
+  }catch{return Response.json({error:'runtime_check_failed'},{status:503});}
+ });}
  async infer(body){return this.serial(async()=>{
   if(!body.requestId||!['image','context','reply','dieter_round'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request',contract:'dieter-tools-v1',request_id_present:Boolean(body.requestId),operation_supported:['image','context','reply','dieter_round'].includes(body.operation),model_supported:['gpt-6-luna','gpt-6.1-terra'].includes(body.model)},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -87,6 +99,7 @@ export default {
   if(!env.ADMIN_KEY || request.headers.get('Authorization')!==`Bearer ${env.ADMIN_KEY}`)return new Response('',{status:404});
   const runner=env.RUNNER.getByName('subscription-singleton');
   if(request.method==='POST'&&new URL(request.url).pathname==='/auth'){try{return Response.json(await runner.seed(await request.json()));}catch{return Response.json({error:'auth_seed_rejected'},{status:409});}}
+  if(request.method==='GET'&&new URL(request.url).pathname==='/runtime-check')return runner.runtimeCheck();
   if(request.method==='POST'&&new URL(request.url).pathname==='/smoke')return runner.infer(await request.json());
   return new Response('',{status:404});
  }

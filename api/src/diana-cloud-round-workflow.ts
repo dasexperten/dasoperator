@@ -3,6 +3,7 @@ import type {Env} from './types';
 import {readCloudConversation,prepareCloudDecision,draftCloudDecision,deliverCloudDecision,completeCloudEvent,stateWrite,type DianaCloudEvent} from './lib/diana-cloud';
 import {finishDianaCloud} from './lib/diana-cloud-lock';
 import {roundCandidates} from './lib/diana-cloud-round-cohort';
+import {reviewRoundCollab} from './lib/diana-round-collab';
 
 type RoundInput={id:string;scheduled_at:number};
 const READ={retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'30 minutes' as const};
@@ -35,13 +36,16 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
             result=verified.status==='complete'?{status:'reviewed',outcome:verified.outcome,proof:before.deliveryKey??before.reason}:verified;
           } catch(error) {result={status:'needs_review',reason:'cloud_round_step_failed',detail:String((error as Error)?.message??error).slice(0,160)};}
         }
-        // A conversation decision does not verify publications or coauthor
+        const collab=await step.do(`round-${i}-coauthor`,{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},
+          ()=>reviewRoundCollab(this.env,person.id,person.normalized_handle));
+        // A conversation decision does not verify publications.
         // invitations. Keep the successful conversation result as evidence,
         // but never mark the creator's entire round complete on that basis.
         if(result.status==='reviewed'){
           const conversation=result;
-          result={status:'needs_review',reason:'publication_and_coauthor_not_verified',conversation};
+          result={status:'needs_review',reason:'publication_not_verified',conversation};
         }
+        result.coauthor=collab;
         const manual=await this.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('manual_stage:'+person.id).first<{value:string}>();
         if(manual){
           try {const value=JSON.parse(manual.value);if(!value.reviewed_at)result.manual_stage='not_reviewed';}
@@ -58,7 +62,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
       // These phases have no cloud executor yet. A per-chat model response is
       // not proof of coauthor acceptance, publication checking or manual review.
       const outcome={status:'partial',cohort:cohort.length,reviewed,exceptions,
-        remaining:['owner_button_review','manual_stage_and_message_review','publication_and_coauthor_actions'],finished_at:new Date().toISOString()};
+        remaining:['owner_button_review','manual_stage_and_message_review','publication_actions'],finished_at:new Date().toISOString()};
       await step.do('save-round-outcome',READ,()=>stateWrite(this.env,'diana_round_run:'+run.id,outcome));
       return outcome;
     } finally {

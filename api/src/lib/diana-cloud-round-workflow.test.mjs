@@ -16,6 +16,6 @@ test('round records each creator separately and keeps unsupported duties open',a
  const outcome=await workflow.run({payload:{id:run,scheduled_at:1},instanceId:run},step);
  assert.equal(outcome.status,'partial');assert.equal(outcome.exceptions,2);
  const receipt=id=>JSON.parse(db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_round_receipt:'+run+':'+id).value);
- assert.equal(receipt('a').reason,'publication_and_coauthor_not_verified');assert.equal(receipt('a').conversation.status,'reviewed');assert.equal(receipt('a').manual_stage,'not_reviewed');
+ assert.equal(receipt('a').reason,'publication_not_verified');assert.equal(receipt('a').coauthor.reason,'collab_token_unavailable');assert.equal(receipt('a').conversation.status,'reviewed');assert.equal(receipt('a').manual_stage,'not_reviewed');
  assert.equal(receipt('b').reason,'original_conversation_identity_unavailable');assert.equal(db.prepare('SELECT 1 FROM crm_sync_state WHERE key=?').get('diana_cloud_execution_lock'),undefined);
 });

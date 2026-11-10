@@ -69,7 +69,7 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
           // for a fresh dispatch after the lock is released.
           const key=cloudEventKey(input);
           const previous=await stateRead(this.env,key);
-          if(!previous||(previous.status==='deferred'&&previous.workflow_id!==event.instanceId))await stateWrite(this.env,key,{status:'needs_review',reason:'workflow_finished_without_event_receipt',event_id:input.event_id,workflow_id:event.instanceId,at:Date.now()});
+          if(!previous||(input.recovery&&previous.status==='queued')||(previous.status==='deferred'&&previous.workflow_id!==event.instanceId))await stateWrite(this.env,key,{status:'needs_review',reason:'workflow_finished_without_event_receipt',event_id:input.event_id,workflow_id:event.instanceId,at:Date.now()});
           await finishDianaCloud(this.env,{kind:'direct',id:event.instanceId});
           const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));
           const response=await wake.fetch('https://diana/cloud-released',{method:'POST'});

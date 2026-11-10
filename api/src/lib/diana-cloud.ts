@@ -21,11 +21,11 @@ import { prepareCreatorPayout } from './ugc-payout-intake';
 import {dianaWorkWindow} from './diana-work-window.mjs';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
-  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
+  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';recovery?:boolean;payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
 const PAGE = '1697038263872226', BRAND = '17841466350261166';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const PREFIX = 'diana/cloud-direct/v1/';
-export const cloudEventKey = (event: DianaCloudEvent) => (event.dryRun?'diana_cloud_preview:':'diana_cloud_event:') + event.event_id;
+export const cloudEventKey = (event: DianaCloudEvent) => (event.dryRun?'diana_cloud_preview:':event.recovery?'diana_video_recovery_result:':'diana_cloud_event:') + event.event_id;
 export async function stateRead(env: Env, key: string): Promise<any> {
   const row = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key).first<{value:string}>();
   if (!row) return null;
@@ -67,7 +67,7 @@ async function get(env: Env, key: string): Promise<any> {
   return object.json();
 }
 export async function artifactPrefix(event: DianaCloudEvent) {
-  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode((event.dryRun?'preview:':'')+event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode((event.dryRun?'preview:':event.recovery?'video-recovery:':'')+event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
   return PREFIX + hash + '/';
 }
 
@@ -142,6 +142,13 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   }
   const plans = (await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%' AND json_valid(value) AND json_extract(value,'$.conversationId')=?1")
     .bind(event.cid).all<{value:string}>()).results?.map(r=>JSON.parse(r.value))??[];
+  if(event.recovery){
+    const original=history.find(m=>m.id===event.message_id&&m.direction==='in');
+    if(!original)return {status:'needs_review',reason:'video_recovery_original_missing'};
+    // Even a pending plan may later be resumed by another worker. Never
+    // create a competing recovery plan for the same incoming message.
+    if(plans.some((p:any)=>Date.parse(p.incomingAt)===Date.parse(original.created_at)))return {status:'needs_review',reason:'video_recovery_previous_delivery_exists_or_unknown'};
+  }
   const ownerDecision = await stateRead(env,'ig_owner_decision:'+event.cid);
   let ownerChoice:any=null;
   if(event.task==='owner_choice'){
@@ -239,13 +246,14 @@ export async function draftCloudDecision(env: Env, key: string) {
   if(prepared.videoCheck&&!prepared.verifiedVideo&&!decision.escalate&&!decision.payoutRequisitesDetected&&!source.event.task){
     decision.reply='Спасибо за видео!';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
   }
-  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo});
+  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
 export async function deliverCloudDecision(env: Env, key: string, now:()=>number=Date.now) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
+  if(source.event.recovery&&(!draft.videoThanks||decision.reply!=='Спасибо за видео!'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto))return {status:'needs_review',reason:'video_recovery_only_verified_thanks_allowed'};
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
   if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {status:'deferred',reason:'outside_direct_hours'};
   const existingNotice=source.event.task&&source.event.task!=='round'&&source.event.task!=='owner_choice'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
@@ -274,7 +282,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
   // A payment action has its own immutable outbox; it must never reuse the plan
   // already delivered for the incoming message which originally supplied details.
   const result=await deliverIgReply(env,{conversationId:source.event.cid,incomingAt:source.at,handle:source.handle,...(actionId?{actionId}:{}),
-    parts:decision.parts??[decision.reply],cards},async (boundEnv,handle,text,opts)=>{
+    parts:decision.parts??[decision.reply],cards,...(source.event.recovery?{exactPlan:true}:{})},async (boundEnv,handle,text,opts)=>{
       await modeCheck(env);
       if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {ok:false,delivery:'not_sent',error:'outside_direct_hours'};
       if(source.event.task==='owner_choice'){
@@ -310,7 +318,7 @@ export async function handoffCloudPayout(env: Env, key: string) {
   if(draft.verifiedVideo){
     if(draft.decision.escalate)return {status:'not_applicable'};
     const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
-      phone:'',bank:'',first_name:'',amount_minor:1,video:true,
+      phone:'',bank:'',first_name:'',amount_minor:1,video:true,recovery:source.event.recovery===true,
       originals:source.history.map((m:any)=>({id:m.id,direction:m.direction,text:m.text}))});
     if(typeof result==='number')throw Error('payout_target_result_invalid');
     return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id,recipient:source.recipient};

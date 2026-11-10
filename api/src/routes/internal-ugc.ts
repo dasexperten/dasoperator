@@ -340,6 +340,24 @@ route.post('/cloud/repair-preflight',async c=>{
  const r=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/repair-preflight',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({claim_id:body.claim_id})}));
  return new Response(r.body,{status:r.status,headers:new Headers(r.headers)});
 });
+// Fixed, model-free diagnostic crosses the former long RPC failure boundary.
+// No caller-supplied command, provider operation or credential is accepted.
+route.post('/cloud/runtime-probe',async c=>{
+ const body=await c.req.json().catch(()=>null);
+ if(!body?.claim_id||typeof body.request_id!=='string'||!/^runtime-probe:[A-Za-z0-9_-]{1,100}$/.test(body.request_id))return c.json({ok:false,error:'invalid_diagnostic_identity'},422);
+ const stop=await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").first<{value:string}>();
+ if(!stop||JSON.parse(stop.value).claim_id!==body.claim_id)return c.json({ok:false,error:'exact_incident_claim_required'},409);
+ if(await c.env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first())return c.json({ok:false,error:'active_execution_exists'},409);
+ if(!c.env.DIETER_SUBSCRIPTION)return c.json({ok:false,error:'dieter_execution_binding_missing'},503);
+ const r=await c.env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/runtime-probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:body.request_id})});
+ return new Response(r.body,{status:r.status,headers:new Headers(r.headers)});
+});
+route.get('/cloud/runtime-result/:requestId',async c=>{
+ const id=c.req.param('requestId');if(!/^runtime-probe:[A-Za-z0-9_-]{1,100}$/.test(id))return c.json({ok:false,error:'invalid_diagnostic_identity'},422);
+ if(!c.env.DIETER_SUBSCRIPTION)return c.json({ok:false,error:'dieter_execution_binding_missing'},503);
+ const r=await c.env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/result/'+encodeURIComponent(id),{method:'GET'});
+ return new Response(r.body,{status:r.status,headers:new Headers(r.headers)});
+});
 route.get('/cloud/contract',async c=>{
  if(!c.env.DIETER_SUBSCRIPTION)return c.json({ok:false,error:'dieter_execution_binding_missing'},503);
  const response=await c.env.DIETER_SUBSCRIPTION.fetch('https://subscription.internal/contract');

@@ -67,20 +67,20 @@ function workflowFixture(t){
  f.env.DOCS={async put(){}};
  const workflow=new DieterCloudWorkflow();workflow.env=f.env;
  const event={payload:{content_id:'one',claim_id:'exact-claim'},instanceId:'dieter-exact-claim'};
- const step={async do(_name,options,callback){return (typeof options==='function'?options:callback)();}};
+ const step={async sleep(){},async do(_name,options,callback){return (typeof options==='function'?options:callback)();}};
  return {...f,workflow,event,step};
 }
 test('actual Workflow preserves work failure after successful reconciliation, holds runtime and never invents claim attempts',async t=>{
  const f=workflowFixture(t),modes=[];
  f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{
   const body=JSON.parse(init.body);modes.push(body.execution.mode);
-  return modes.length<3?Response.json({error:'native_runner_unavailable',diagnostic:{phase:'container_proxy',code:'http_unavailable',message:'secret-fixture'}},{status:503}):Response.json({text:'Reconciliation finished; no verified posts'});
+  return modes.length<3?Response.json({error:'native_runner_unavailable',diagnostic:{phase:'container_startup',code:'placement_unavailable',message:'secret-fixture'}},{status:503}):Response.json({text:'Reconciliation finished; no verified posts'});
  };
  const result=await f.workflow.run(f.event,f.step);
  assert.deepEqual(modes,['work','reconcile','reconcile']);
  assert.equal(result.publication_verified,false);assert.equal(result.runtime_completed,true);assert.equal(result.work_runtime_completed,false);assert.equal(result.reconciliation_completed,true);
  assert.equal(result.material_result,'not_assessed');assert.equal(result.execution_result,'runtime_error');assert.equal(result.first_work_failure.error,'native_runner_unavailable');
- assert.deepEqual(result.first_work_failure.diagnostic,{phase:'container_proxy',code:'http_unavailable'});
+ assert.deepEqual(result.first_work_failure.diagnostic,{phase:'container_startup',code:'placement_unavailable'});
  const row=f.db.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(row.attempts,2);assert.equal(row.status,'queued');assert.match(row.last_error,/Cloud runtime: native_runner_unavailable/);
  const read=key=>JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(key).value);
  assert.equal(read('dieter_cloud_runtime_stop').first_failure.mode,'work');assert.equal(read('dieter_cloud_execution_hold:one').automatic_retry,false);
@@ -90,12 +90,12 @@ test('actual Workflow preserves work failure after successful reconciliation, ho
  assert.equal((await(await f.wake.fetch(f.request())).json()).note,'runtime_incident_stop');
  await assert.rejects(preflightDieter(f.env),/runtime_incident_stop/);assert.equal(modes.length,3);assert.equal(f.created.length,0);
 });
-test('a persisted intent without outcome is never replayed after Workflow restart; only existing bounded reconciliation calls run',async t=>{
+test('a persisted intent without outcome is read back twice and never replays any native inference',async t=>{
  const f=workflowFixture(t),modes=[];
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_attempt:exact-claim:0:intent',JSON.stringify({claim_id:'exact-claim',mode:'work',request_id:'dieter-exact-claim-0'}));
- f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);return Response.json({text:'Read-only reconciliation'});};
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{assert.equal(init.method,'GET');modes.push('GET');return new Response('',{status:404});};
  const result=await f.workflow.run(f.event,f.step);
- assert.deepEqual(modes,['reconcile','reconcile']);assert.equal(result.first_work_failure.error,'native_call_outcome_unknown');
+ assert.deepEqual(modes,['GET','GET']);assert.equal(result.first_work_failure.error,'native_call_outcome_unknown');
  assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,2);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM crm_sync_state WHERE key='dieter_cloud_attempt:exact-claim:0:intent'").get().n,1);
 });
@@ -179,11 +179,11 @@ test('repair continuation requires runtime acceptance and does not bypass a live
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{"kind":"runtime_incident_stop"}');
  await assert.rejects(f.workflow.run(f.event,f.step),/runtime_incident_stop/);assert.equal(calls,0);assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
 });
-test('a lost continuation work intent permits one remaining read-only reconciliation and never repeats the final work',async t=>{
+test('a lost continuation work intent permits only exact result GETs and never repeats final work',async t=>{
  const f=continuationFixture(t),modes=[];
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_attempt:exact-claim:continuation:repair-one:0:intent','{"mode":"work"}');
- f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);return Response.json({text:'Reconciliation only'});};
- const result=await f.workflow.run(f.event,f.step);assert.deepEqual(modes,['reconcile']);assert.equal(result.first_work_failure.error,'native_call_outcome_unknown');assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,3);
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{assert.equal(init.method,'GET');modes.push('GET');return new Response('',{status:409});};
+ const result=await f.workflow.run(f.event,f.step);assert.deepEqual(modes,['GET','GET']);assert.equal(result.first_work_failure.error,'native_call_outcome_unknown');assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,3);
 });
 
 test('duplicate or invalid historical claim identities cannot authorize the final continuation',async t=>{
@@ -291,3 +291,42 @@ test('a removed Dieter binding fails explicitly before acceptance without reopen
 test('retired Diana capabilities and deleted backend never enter the API deployment',()=>{const source=readFileSync(new URL('../../wrangler.toml',import.meta.url),'utf8');assert.doesNotMatch(source,/binding = "DIANA_SUBSCRIPTION"|binding = "DIANA_CLOUD"|service = "diana-subscription-runner"/);if(source.includes('binding = "DIETER_SUBSCRIPTION"'))assert.match(source,/entrypoint = "DieterExecutionService"/);});
 
 test('incident repair probe invokes only read-only preflight and preserves the stop, holds and queued counters',async t=>{const f=fixture(t);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop',JSON.stringify({claim_id:'broken-claim'}));let calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{const b=JSON.parse(init.body);assert.equal(b.execution.mode,'preflight');assert.equal(b.execution.assignment,undefined);calls++;return Response.json({text:JSON.stringify({ready:true,activation_ready:true})});};await assert.rejects(preflightDieter(f.env,async()=>{},'other-claim'),/incident_stop/);const r=await preflightDieter(f.env,async()=>{},'broken-claim');assert.equal(r.diagnostic_only,true);assert.equal(calls,1);assert.ok(f.db.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").get());assert.equal(f.db.prepare("SELECT SUM(attempts) n FROM ugc_reel_jobs").get().n,0);assert.equal(f.created.length,0);});
+
+
+test('a long child survives the 164s RPC disconnect and restores only its exact result after durable waits',async t=>{
+ const f=workflowFixture(t);let elapsed=164000,posts=0,gets=0;const sleeps=[];
+ f.step.sleep=async(name,duration)=>{assert.equal(duration,'8 minutes');sleeps.push(name);elapsed+=480000;};
+ f.env.DIETER_SUBSCRIPTION.fetch=async(url,init)=>{
+  if(init.method==='GET'){
+   gets++;assert.equal(url,'https://subscription.internal/result/dieter-exact-claim-0');
+   if(elapsed<900000)return new Response('',{status:409});
+   f.db.prepare("UPDATE ugc_reel_jobs SET status='uploaded' WHERE content_id='one'").run();
+   return Response.json({text:'Exact original child completed',receipt:{requestId:'dieter-exact-claim-0',mode:'work',model:'gpt-6.1-terra',transport:'codex-native',auth:'subscription'}});
+  }
+  posts++;assert.equal(JSON.parse(init.body).execution.mode,'work');throw Error('synthetic transport disconnect');
+ };
+ const result=await f.workflow.run(f.event,f.step);
+ assert.equal(posts,1);assert.equal(gets,2);assert.equal(sleeps.length,2);assert.ok(elapsed>900000);
+ assert.equal(result.upload_completed,true);assert.equal(result.work_runtime_completed,true);assert.equal(result.runtime_incident_present,false);
+ assert.equal(f.db.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").get(),undefined);
+ const record=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_attempt:exact-claim:0:outcome'").get().value);
+ assert.equal(record.transport_recovered,true);assert.equal(record.first_transport_failure.error,'native_call_outcome_unknown');
+ assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,2);
+});
+
+test('readback exhaustion or a mismatched original receipt never triggers new inference',async t=>{
+ for(const mismatch of [false,true]){
+  const f=workflowFixture(t);let posts=0,gets=0;
+  f.env.DIETER_SUBSCRIPTION.fetch=async(url,init)=>{if(init.method!=='GET'){posts++;throw Error('disconnect');}gets++;return mismatch?Response.json({text:'wrong result',receipt:{requestId:'foreign',mode:'work',model:'gpt-6.1-terra',transport:'codex-native',auth:'subscription'}}):new Response('',{status:409});};
+  const result=await f.workflow.run(f.event,f.step);assert.equal(posts,1);assert.equal(gets,2);assert.equal(result.work_runtime_completed,false);
+  assert.equal(result.execution_result,'runtime_error');assert.ok(f.db.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").get());
+  assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,2);
+ }
+});
+
+test('a restarted step with exhausted original readback never starts reconciliation inference',async t=>{
+ const f=workflowFixture(t);let calls=0;
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_attempt:exact-claim:0:outcome',JSON.stringify({mode:'work',request_id:'dieter-exact-claim-0',outcome:'runtime_error',error:'native_call_outcome_unknown',first_transport_failure:{error:'native_call_outcome_unknown'}}));
+ f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;throw Error('must not send');};
+ const result=await f.workflow.run(f.event,f.step);assert.equal(calls,0);assert.equal(result.execution_result,'runtime_error');
+});

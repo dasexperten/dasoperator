@@ -321,3 +321,20 @@ test('known accepted API publications retain their claim while processing instea
  }
  const row=sqlite.prepare('SELECT status,claim_id,attempts FROM ugc_reel_jobs WHERE content_id=?').get(id);assert.equal(row.status,'working');assert.equal(row.claim_id,claim);assert.equal(row.attempts,1);
 });
+
+test('long diagnostic is protected, exact-incident gated, fixed and its late result is GET only',async()=>{
+ const stopKey='dieter_cloud_runtime_stop',old=sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(stopKey);
+ const priorJobs=sqlite.prepare("SELECT content_id,status FROM ugc_reel_jobs WHERE status='working'").all();
+ let calls=[];env.DIETER_SUBSCRIPTION={async fetch(url,init){calls.push({url,init});return Response.json({diagnostic:true});}};
+ try{
+  assert.equal((await request('/cloud/runtime-probe',{claim_id:'claim',request_id:'runtime-probe:one'},false)).status,401);
+  sqlite.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,0)').run(stopKey,JSON.stringify({claim_id:'incident'}));
+  assert.equal((await request('/cloud/runtime-probe',{claim_id:'wrong',request_id:'runtime-probe:one'})).status,409);
+  assert.equal((await request('/cloud/runtime-probe',{claim_id:'incident',request_id:'work-id'})).status,422);
+  sqlite.exec("UPDATE ugc_reel_jobs SET status='queued' WHERE status='working'");
+  assert.equal((await request('/cloud/runtime-probe',{claim_id:'incident',request_id:'runtime-probe:one',command:'must-never-forward',model:'must-never-forward'})).status,200);
+  assert.deepEqual(JSON.parse(calls[0].init.body),{requestId:'runtime-probe:one'});
+  assert.equal((await request('/cloud/runtime-result/runtime-probe%3Aone')).status,200);assert.equal(calls[1].init.method,'GET');assert.match(calls[1].url,/result\/runtime-probe%3Aone$/);
+  assert.equal((await request('/cloud/runtime-result/dieter-work-id')).status,422);assert.equal(calls.length,2);
+ }finally{delete env.DIETER_SUBSCRIPTION;sqlite.prepare('DELETE FROM crm_sync_state WHERE key=?').run(stopKey);if(old)sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run(stopKey,old.value);for(const j of priorJobs)sqlite.prepare('UPDATE ugc_reel_jobs SET status=? WHERE content_id=?').run(j.status,j.content_id);}
+});

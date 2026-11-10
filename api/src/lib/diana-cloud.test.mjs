@@ -26,7 +26,7 @@ await build({entryPoints:[fileURLToPath(new URL('./diana-cloud.ts',import.meta.u
 const cloud=await import(pathToFileURL(outfile));
 const dispatchFile=join(dir,'dispatch.mjs');
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud-dispatch.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:dispatchFile});
-const {dispatchDianaCloud}=await import(pathToFileURL(dispatchFile));
+const {dispatchDianaCloud,latestOriginalIsVideo}=await import(pathToFileURL(dispatchFile));
 const lockFile=join(dir,'lock.mjs');
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud-lock.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:lockFile});
 const {reserveDianaCloud,releaseDianaCloud,readDianaCloudLock}=await import(pathToFileURL(lockFile));
@@ -395,6 +395,7 @@ test('ordinary recovery probes at most one candidate and rotates past non-video 
  const now=Date.parse('2026-11-11T08:00:00+03:00');await dispatchDianaCloud(f.env,undefined,now);assert.equal(seen.length,1);await dispatchDianaCloud(f.env,undefined,now+1000);assert.equal(seen.length,2);assert.notEqual(seen[0],seen[1]);
 });
 test('a stalled Meta recovery probe releases the scan within the shared four-second deadline',async t=>{
+ const logs=[];t.mock.method(console,'log',line=>logs.push(line));
  const f=fixture(t);f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Проверить'});
  t.mock.method(globalThis,'fetch',async(_url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true})));
  const started=Date.now();let watchdog;
@@ -406,5 +407,26 @@ test('a stalled Meta recovery probe releases the scan within the shared four-sec
    new Promise((_,reject)=>{watchdog=setTimeout(()=>reject(Error('recovery probe exceeded six seconds')),6000);}),
   ]);
   assert.equal(result.dispatched,false);assert.ok(Date.now()-started<6000);assert.equal(f.state('diana_video_recovery_result:'+f.event.event_id),undefined);
+  assert.equal(JSON.parse(logs.at(-1)).outcome,'timeout');
  }finally{clearTimeout(watchdog);}
+});
+
+test('recovery probe logs only closed outcome categories, without identifiers or Meta payloads',async t=>{
+ const logs=[];t.mock.method(console,'log',line=>logs.push(line));let scenario='video';
+ t.mock.method(globalThis,'fetch',async url=>{
+  if(scenario==='meta_unavailable')throw Error('sensitive-error-secret');
+  const u=new URL(url);if(u.searchParams.get('fields')==='access_token')return Response.json({access_token:'sensitive-page-token'});
+  if(scenario==='original_unavailable')return Response.json({messages:{data:[]}});
+  const msg={id:scenario==='stale'?'different-private-id':'private-message',from:{id:'private-sender'}};
+  if(scenario!=='attachments_unavailable')msg.attachments={data:scenario==='video'?[{video_data:{url:'https://private.example/secret'}}]:scenario==='nonvideo'?[{mime_type:'image/jpeg'}]:[]};
+  return Response.json({messages:{data:[msg]}});
+ });
+ const env={META_IG_MESSAGING_TOKEN:'sensitive-token'},event={cid:'private-conversation',message_id:'private-message',event_id:'message:private-message'};
+ for(const value of ['video','nonvideo','no_attachments','stale','original_unavailable','attachments_unavailable','meta_unavailable']){
+  scenario=value;const found=await latestOriginalIsVideo(env,event);assert.equal(found,value==='video');
+  const record=JSON.parse(logs.at(-1));assert.deepEqual(Object.keys(record).sort(),['elapsed_ms','event','outcome']);assert.equal(record.event,'diana_video_recovery_probe');assert.equal(record.outcome,value);
+  assert.doesNotMatch(logs.at(-1),/private|sensitive|example|secret/);
+ }
+ assert.equal(await latestOriginalIsVideo({},event),false);assert.equal(JSON.parse(logs.at(-1)).outcome,'credential_unavailable');
+ assert.equal(await latestOriginalIsVideo(env,{...event,event_id:'invalid'}),false);assert.equal(JSON.parse(logs.at(-1)).outcome,'invalid_event');
 });

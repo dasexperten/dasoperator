@@ -6,17 +6,27 @@ import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud, recoverDianaC
 // Confirm the still-current original in Meta before allowing a legacy free-text
 // needs_review into the narrow video recovery path. Network failures are not
 // evidence that a message is safe to replay.
-async function latestOriginalIsVideo(env:Env,event:any):Promise<boolean>{
- const signal=AbortSignal.timeout(4000);
+export async function latestOriginalIsVideo(env:Env,event:any):Promise<boolean>{
+ const started=Date.now(),signal=AbortSignal.timeout(4000);
+ let outcome='meta_unavailable';
  try{
-  const token=(env as any).META_IG_MESSAGING_TOKEN;if(!token||!event.cid||!event.message_id||event.event_id!=='message:'+event.message_id)return false;
-  const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0/'+path,{headers:{Authorization:'Bearer '+key},signal});if(!r.ok)throw Error('meta_unavailable');return await r.json() as any;};
-  const page=await graph('1697038263872226?fields=access_token',token);if(!page.access_token)return false;
+  const token=(env as any).META_IG_MESSAGING_TOKEN;
+  if(!token){outcome='credential_unavailable';return false;}
+  if(!event.cid||!event.message_id||event.event_id!=='message:'+event.message_id){outcome='invalid_event';return false;}
+  const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0/'+path,{headers:{Authorization:'Bearer '+key},signal});if(!r.ok)throw Error('meta_unavailable');const value=await r.json() as any;if(value?.error)throw Error('meta_unavailable');return value;};
+  const page=await graph('1697038263872226?fields=access_token',token);if(!page.access_token){outcome='meta_unavailable';return false;}
   const original=await graph(encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,attachments{mime_type,file_url,image_data,video_data}}',String(page.access_token));
   const message=original.messages?.data?.[0];
-  if(String(message?.id??'')!==event.message_id||!message?.from?.id||['1697038263872226','17841466350261166'].includes(String(message.from.id)))return false;
-  return Array.isArray(message.attachments?.data)&&message.attachments.data.some((a:any)=>!!a.video_data||String(a.mime_type??'').startsWith('video/'));
- }catch{return false;}
+  if(!message?.id||!message?.from?.id){outcome='original_unavailable';return false;}
+  if(String(message.id)!==event.message_id||['1697038263872226','17841466350261166'].includes(String(message.from.id))){outcome='stale';return false;}
+  if(!Array.isArray(message.attachments?.data)){outcome='attachments_unavailable';return false;}
+  const video=message.attachments.data.some((a:any)=>!!a.video_data||String(a.mime_type??'').startsWith('video/'));
+  outcome=video?'video':message.attachments.data.length?'nonvideo':'no_attachments';return video;
+ }catch{outcome=signal.aborted?'timeout':'meta_unavailable';return false;}
+ finally{
+  // Closed vocabulary only: never log event IDs, URLs, responses or errors.
+  console.log(JSON.stringify({event:'diana_video_recovery_probe',outcome,elapsed_ms:Date.now()-started}));
+ }
 }
 
 // Mark only a positively absent recovery workflow, preserving its exact ID.

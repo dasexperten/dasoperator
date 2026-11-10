@@ -331,6 +331,11 @@ service = "erp-ozon-sales"
 binding = "VN_EINVOICE"
 service = "erp-vn-einvoice"
 
+# Existing shared organization subscription door; no Diana-specific runner.
+[[services]]
+binding = "CODEX_DOOR"
+service = "organizacia"
+
 # Owner 2026-11-06: keep worker logs so an outage has its cause on record.
 [observability]
 enabled = true

@@ -13,6 +13,19 @@ import {runDieterTikTokApi} from '../lib/dieter-tiktok';
 import {saveDieterFlowTiming} from '../lib/dieter-flow-timing';
 
 const route = new Hono<{ Bindings: Env }>();
+// Fixed read-only self-test. It receives no creator content and cannot send a DM.
+route.post('/direct-subscription-check', async c => {
+  const expected=c.env.CODEX_ROUTE_SECRET ?? '';
+  const given=c.req.header('X-Codex-Route-Secret') ?? '';
+  let diff=expected.length ^ given.length;
+  for(let i=0;i<Math.min(expected.length,given.length);i++)diff|=expected.charCodeAt(i)^given.charCodeAt(i);
+  if(!expected||diff)return c.json({ok:false,error:'unauthorized'},401);
+  try {
+    const {directThink}=await import('../lib/diana-direct-think.mjs');
+    const out=await directThink(c.env,'context')([{role:'user',content:'Reply with the single word OK.'}],{model:'gpt-6-luna'});
+    return c.json({ok:out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6-luna'});
+  } catch { return c.json({ok:false,error:'subscription_check_failed'},503); }
+});
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 
 route.post('/hard-answer', async (c) => {

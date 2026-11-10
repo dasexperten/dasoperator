@@ -3,6 +3,8 @@
 // =============================================================================
 
 export interface Env {
+  CODEX_DOOR?: Fetcher;
+  CODEX_ROUTE_SECRET?: string;
   DIANA_ROUND: Workflow<{id:string;scheduled_at:number}>;
   DIETER_CLOUD: Workflow<{content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string}>;
   GITHUB_TOKEN?:string;

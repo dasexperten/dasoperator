@@ -82,6 +82,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
           KONSOL_API_KEY: ${{ secrets.KONSOL_API_KEY }}
+          CODEX_ROUTE_SECRET: ${{ secrets.CODEX_ROUTE_SECRET }}
         run: |
           # Secret NAMES only (wrangler never lists values).
           if npx wrangler secret list 2>/dev/null | grep -q 'KONSOL_API_KEY'; then
@@ -91,6 +92,13 @@ jobs:
             npx wrangler secret list 2>/dev/null | grep -q 'KONSOL_API_KEY' && echo "KONSOL_API_KEY set"
           else
             echo "KONSOL_API_KEY not in CI secrets"
+          fi
+          if npx wrangler secret list 2>/dev/null | grep -q 'CODEX_ROUTE_SECRET'; then
+            echo "Shared subscription access already configured"
+          elif [ -n "$CODEX_ROUTE_SECRET" ]; then
+            printf '%s' "$CODEX_ROUTE_SECRET" | npx wrangler secret put CODEX_ROUTE_SECRET >/dev/null
+          else
+            echo "::error::Shared subscription access missing"; exit 1
           fi
 
       - name: Smoke test

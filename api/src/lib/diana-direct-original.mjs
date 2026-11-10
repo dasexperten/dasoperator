@@ -1,0 +1,37 @@
+// Read an Instagram conversation for the current execution only. This module
+// deliberately has no database, bucket, logging, or durable workflow writes.
+const PAGE = '1697038263872226';
+const BRAND = '17841466350261166';
+const GRAPH = 'https://graph.facebook.com/v21.0/';
+const FIELDS = 'id,created_time,from,message,attachments{mime_type,image_data,video_data,file_url},shares{link},is_unsupported';
+
+export async function readDirectOriginal({conversationId, messageId, token, fetchImpl = fetch}) {
+  if (!conversationId || !messageId || !token) throw Error('direct_identity_or_token_missing');
+  async function graph(path, key) {
+    const response = await fetchImpl(GRAPH + path, {
+      headers: {Authorization: `Bearer ${key}`}, signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) throw Error(`direct_original_http_${response.status}`);
+    const body = await response.json();
+    if (body.error) throw Error('direct_original_api_error');
+    return body;
+  }
+  const page = await graph(`${PAGE}?fields=access_token`, token);
+  if (!page.access_token) throw Error('direct_page_token_missing');
+  const items = [];
+  const cursors = new Set();
+  let after = '';
+  while (true) {
+    const response = await graph(`${encodeURIComponent(conversationId)}/messages?fields=${FIELDS}&limit=100${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
+    if (!Array.isArray(response.data)) throw Error('direct_original_invalid');
+    items.push(...response.data);
+    if (!response.paging?.next) break;
+    const next = response.paging?.cursors?.after;
+    if (!next || cursors.has(next) || !response.data.length) throw Error('direct_original_incomplete');
+    cursors.add(next); after = next;
+  }
+  const latest = items[0];
+  if (!latest?.id || !latest?.from?.id) throw Error('direct_original_identity_missing');
+  if (String(latest.id) !== String(messageId) || [PAGE, BRAND].includes(String(latest.from.id))) return {status:'superseded'};
+  return {status:'ready', conversationId:String(conversationId), messageId:String(messageId), messages:items.reverse()};
+}

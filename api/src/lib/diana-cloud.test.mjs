@@ -15,7 +15,7 @@ const stubs={
  'diana-subscription.mjs':`export const subscriptionInfer=(env,operation)=>async(messages,options)=>{env.inferences.push({operation,messages,options});return {text:JSON.stringify(env.decisions?.shift()??env.decision),receipt:{transport:'codex-native',auth:'subscription',model:options.model}}};`,
  'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async({task})=>task.startsWith('Inspect original video frames')?globalThis.__videoFixture:(globalThis.__imageFixture?structuredClone(globalThis.__imageFixture):({checks:[],status:'yes'}));`,
  'diana-video-vision.mjs':`export const checkVideoFrames=async()=>globalThis.__videoFixture;`,
- 'diana-video.mjs':`export const currentVideos=messages=>messages.flatMap(m=>JSON.parse(m.attachments_json||'[]').filter(a=>a.video_data||String(a.mime_type||'').startsWith('video/')).map(a=>({url:a.file_url,messageId:m.id})));export const extractCurrentVideoFrames=async(_env,videos)=>[{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'original video frame',sourceMessageId:videos[0].messageId,videoSha256:'fixture-hash'}];`,
+ 'diana-video.mjs':`export const currentVideos=messages=>messages.flatMap(m=>JSON.parse(m.attachments_json||'[]').filter(a=>a.video_data||String(a.mime_type||'').startsWith('video/')).map(a=>({url:a.file_url,messageId:m.id})));export const extractCurrentVideoFrames=async(_env,videos)=>{_env.videoReads=(_env.videoReads??0)+1;if(_env.failVideoRecheck&&_env.videoReads%2===0)throw Error('sensitive fixture');return [{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'original video frame',sourceMessageId:videos[0].messageId,videoSha256:'fixture-hash'}]};`,
  'ig-dm-watch':`export const IG_UNSUPPORTED='unsupported';export const refreshIgAttachments=async(env,id)=>env.restored?.[id]??null;export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
  'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
  'ugc-payout-intake':`export const prepareCreatorPayout=async(env,input)=>{env.partialIntake=input;return {registered:false,missing_fields:['bank','phone','first_name']}};`,
@@ -661,5 +661,27 @@ test('legacy text guard retries once only with completed workflow and absent del
   assert.equal(out.dispatched,blocked==='none');if(blocked!=='none'){assert.equal(created.length,0);continue;}
   assert.equal(created[0].params.skipPayout,true);assert.equal(created[0].params.recoveryAttempt,2);assert.equal(f.state('diana_recovery_skip_payout:'+f.event.event_id),'1');
   const event={...f.event,recovery:true,recoveryKind:'text',skipPayout:true};const {draft}=await f.prepare(event);assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'not_applicable');assert.equal(f.env.executedPayout,undefined);
+ }
+});
+
+test('video recheck outage is bounded, yields the lock, and exposes no sensitive error',async t=>{
+ const f=fixture(t);f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};f.env.failVideoRecheck=true;
+ globalThis.__videoFixture={checks:[{product:'unknown',observed:{},requisites:{},unresolved_required:['phone']}]};
+ const source=await cloud.readCloudConversation(f.env,f.event);
+ for(let n=1;n<=3;n++){
+  const out=await cloud.prepareCloudDecision(f.env,source.key);assert.equal(out.status,n<3?'media_wait':'needs_review');assert.equal(out.reason,'video_recheck_frame_extraction_unavailable');
+  if(n<3)assert.ok(out.retry_at>Date.now()+179000);const receipt=JSON.parse(f.state('diana_video_recheck_retry:'+f.event.event_id));assert.equal(receipt.count,n);assert.equal(receipt.stage,'frame_extraction');assert.doesNotMatch(JSON.stringify(receipt),/sensitive|fbcdn/);
+ }
+ assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);assert.equal(f.env.payoutHandoffs,undefined);
+});
+test('legacy video review retries once only when original and completed workflow remain safe',async t=>{
+ for(const blocked of ['none','delivery','done','running']){
+  const f=fixture(t),created=[];f.originals[0].attachments={data:[{video_data:{url:'https://x.fbcdn.net/v'}}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'old review'});
+  f.set('diana_video_recovery_result:'+f.event.event_id,{status:'needs_review',reason:'video_requisites_need_verified_payout_source'});
+  if(blocked==='delivery')f.set('ig_reply_delivery:chat:'+f.event.at,{status:'complete'});if(blocked==='done')f.set('diana_event_done:'+f.event.event_id,{verified:true});
+  f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return {status:blocked==='running'?'running':'complete'}}}}};
+  const out=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:10:00+03:00'));assert.equal(out.dispatched,blocked==='none');
+  if(blocked==='none'){assert.equal(created[0].params.recoveryKind,'video');assert.equal(created[0].params.recoveryAttempt,2);}else assert.equal(created.length,0);
+  assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);
  }
 });

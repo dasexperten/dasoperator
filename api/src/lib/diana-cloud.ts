@@ -298,17 +298,20 @@ export async function prepareCloudDecision(env: Env, key: string) {
       // Independently re-open the exact original message, download and decode
       // again, and compare bytes and recognised fields. This is evidence only:
       // the existing payout intake still owns cart/claim/transfer decisions.
-      let verification:any={verified:false,reason:'video_original_recheck_unavailable'};
+      let verification:any={verified:false,reason:'video_original_recheck_unavailable'}, recheckStage='original_read', recheckFailed=false;
       try{
         const original=await cloudGraph('/'+encodeURIComponent(source.event.message_id)+'?fields=id,from,attachments{mime_type,file_url,image_data,video_data}',await pageToken(env));
         if(String(original.id)!==source.event.message_id||String(original.from?.id)!==source.recipient)throw Error('video_original_identity_mismatch');
         const fresh=currentVideos([{id:String(original.id),direction:'in',attachments_json:JSON.stringify(original.attachments?.data??[])}]);
         if(fresh.length!==1||videos.length!==1)throw Error('video_original_count_mismatch');
+        recheckStage='frame_extraction';
         const secondFrames=await extractCurrentVideoFrames(env,fresh);
+        recheckStage='vision';
         const secondCheck=await checkVideoFrames({images:secondFrames,policy:prepared.imagePolicy,task:'Independently read this exact original video frame. Return exact phone, amount, name and bank only if every character is visible; mark uncertainty and contradictions. Never infer missing symbols.',infer:subscriptionInfer(env,'image')});
         verification=compareVideoPayoutEvidence({frames,checks},{frames:secondFrames,checks:secondCheck.checks},source.event.message_id);
+        recheckStage='evidence_storage';
         await put(env,(await artifactPrefix(source.event))+'video-recheck.json',{sourceMessageId:source.event.message_id,frames:secondFrames,videoCheck:secondCheck,verification});
-      }catch{}
+      }catch{recheckFailed=true;}
       // Signal the existing payout intake against the original message, but do
       // not promote model output into financial facts without source verification.
       if(!source.event.dryRun&&!source.event.task){
@@ -318,6 +321,15 @@ export async function prepareCloudDecision(env: Env, key: string) {
         if(pending.registered!==false)throw Error('partial_payout_intake_must_not_register');
         await stateWrite(env,'diana_payout_signal:'+source.event.event_id,{status:'incomplete',conversation_id:source.event.cid,
           message_id:source.event.message_id,event_id:source.event.event_id,missing_fields:pending.missing_fields,evidenceKey,at:Date.now()});
+      }
+      if(recheckFailed&&!source.event.dryRun){
+        // No error text, URLs or personal data in the operational receipt.
+        // Retry later without holding the global Direct lock, at most twice.
+        const retryKey='diana_video_recheck_retry:'+source.event.event_id;
+        const previous=await stateRead(env,retryKey);const count=Number(previous?.count??0)+1;
+        await stateWrite(env,retryKey,{count,stage:recheckStage,status:count<3?'waiting':'exhausted',at:Date.now()});
+        if(count<3)return {status:'media_wait',reason:'video_recheck_'+recheckStage+'_unavailable',retry_at:Date.now()+180_000,evidenceKey};
+        return {status:'needs_review',reason:'video_recheck_'+recheckStage+'_unavailable',evidenceKey};
       }
       if(!verification.verified)return {status:'needs_review',reason:'video_requisites_need_verified_payout_source',evidenceKey,videoSourceVerified:false};
       verifiedVideo={message_id:source.event.message_id};

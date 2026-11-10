@@ -27,3 +27,11 @@ test('Luna amount yes with invalid numeric currency evidence escalates to Terra'
 test('an explicit before-order checkout is basket evidence with original classification retained',async()=>{
  const f=infer([{...good,kind:'checkout',seller:'unknown',seller_evidence:'absent'}]);const r=await checkSubscriptionImages({...args,infer:f.call});assert.equal(r.status,'yes');assert.equal(r.checks[0].kind,'basket');assert.equal(r.checks[0].source_kind,'checkout');assert.deepEqual(f.models,['gpt-6-luna']);
 });
+
+
+test('unreadable payment characters always escalate even when product does not match',async()=>{
+ for(const field of ['holder_name','bank','phone','card','amount']){
+  const luna={...good,product:'no',unresolved_required:[field]};const terra={...good,product:'no',unresolved_required:[]};
+  const f=infer([luna,terra]);await checkSubscriptionImages({...args,infer:f.call});assert.deepEqual(f.models,['gpt-6-luna','gpt-6.1-terra']);
+ }
+});

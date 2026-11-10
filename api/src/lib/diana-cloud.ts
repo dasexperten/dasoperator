@@ -3,10 +3,13 @@
 // Payment preparation/execution remains in its existing independent lane.
 import type { Env } from '../types';
 import { archiveIgMessage } from './ig-dm-archive';
-import { incomingScreenshots } from './ig-dm-attachments';
+import { incomingScreenshots, imageUrls } from './ig-dm-attachments';
 import { prepareDianaContext } from './diana-context.mjs';
 import { subscriptionInfer } from './diana-subscription.mjs';
 import { checkSubscriptionImages } from './diana-subscription-vision.mjs';
+import { currentVideos, extractCurrentVideoFrames } from './diana-video.mjs';
+import { compareVideoPayoutEvidence } from './diana-video-verify.mjs';
+import { checkVideoFrames } from './diana-video-vision.mjs';
 import { guardReply, JSON_SPEC, SCENARIO_CARDS, OZON_CARD_PHOTO } from './ig-dm-reply-guard.mjs';
 import { deliverIgReply, acknowledgeIgDelivery, igDeliveryKey } from './ig-dm-delivery';
 import { sendIgDirect } from './ig-dm-watch';
@@ -161,14 +164,58 @@ export async function prepareCloudDecision(env: Env, key: string) {
   const lastOut = source.history.map((m:any)=>m.direction).lastIndexOf('out');
   const current = source.history.slice(lastOut+1);
   if (current.some((m:any)=>m.unsupported)) return {status:'needs_review',reason:'meta_attachment_unavailable'};
+  let videos:any[]=[];
+  try { videos=currentVideos(current); } catch { return {status:'needs_review',reason:'video_metadata_or_url_unavailable'}; }
   const task = JSON.stringify({task:source.event.task==='round'?'Review this paid, ordered, creation or posted creator for the scheduled round. Read the entire original conversation, do not initiate video reminders, scouting, or duplicate any action. If an action needs a browser or other unavailable tool, escalate and state the reason. If no message is appropriate return no reply with the actual observation.':source.event.task==='owner_choice'?'The Owner selected the attached exact option for this original conversation. Follow that decision in Diana’s voice; never invent or modify its terms. If the conversation changed or the choice cannot safely be applied, escalate instead of sending.':source.event.task?`ERP confirmed ${source.event.task} for payout ${source.event.payout_id}. Read the original conversation and the exact confirmed payout. Write Diana's notice once and the next appropriate collaboration step. If the notice is already in the original conversation, or later conversation proves this historical step is obsolete, return no reply and explain the evidence. Do not reopen old orders, repeat a notice or blame the creator's bank without its confirmed rejection. This is a notice only, never a new transfer.`:'Write the next Diana Direct decision for this original conversation. This is incoming chat handling only, not scouting or proactive reminders.',
     handle:source.handle,creator:source.creator,payouts:source.payouts,delivery_plans:source.plans,owner_decision:source.ownerChoice??source.ownerDecision,history:source.history});
   const prepared = await prepareDianaContext({task,githubToken:(env as any).GITHUB_TOKEN??'',infer:subscriptionInfer(env,'context')});
   const screenshots = await incomingScreenshots(env,source.history,source.at);
   if (screenshots.currentUnavailable) throw Error('current_image_unavailable');
+  let videoCheck:any=null, verifiedVideo:any=null;
+  if(videos.length){
+    let frames:any[];
+    try{frames=await extractCurrentVideoFrames(env,videos);}catch{return {status:'needs_review',reason:'video_download_or_frame_extraction_unavailable'};}
+    try{videoCheck=await checkVideoFrames({images:frames,policy:prepared.imagePolicy,task:'Inspect original video frames. Confirm our product only when the product identity is visibly clear. Precisely read any phone, amount, recipient name and bank; identify every unreadable character. Never infer missing characters or combine conflicting details. Do not assess video quality or publication.',infer:subscriptionInfer(env,'image')});}
+    catch{return {status:'needs_review',reason:'video_frame_analysis_unavailable'};}
+    const evidenceKey=await put(env,(await artifactPrefix(source.event))+'video-evidence.json',{sourceMessageIds:videos.map((v:any)=>v.messageId),frames,videoCheck,sampled:true});
+    const checks=videoCheck?.checks??[];
+    const finance=checks.some((c:any)=>Object.values(c.requisites??{}).some(Boolean)||(c.unresolved_required??[]).some((v:string)=>['holder_name','bank','phone','card','amount','contradictory_evidence'].includes(v)));
+    if(finance){
+      // Independently re-open the exact original message, download and decode
+      // again, and compare bytes and recognised fields. This is evidence only:
+      // the existing payout intake still owns cart/claim/transfer decisions.
+      let verification:any={verified:false,reason:'video_original_recheck_unavailable'};
+      try{
+        const original=await cloudGraph('/'+encodeURIComponent(source.event.message_id)+'?fields=id,from,attachments{mime_type,file_url,image_data,video_data}',await pageToken(env));
+        if(String(original.id)!==source.event.message_id||String(original.from?.id)!==source.recipient)throw Error('video_original_identity_mismatch');
+        const fresh=currentVideos([{id:String(original.id),direction:'in',attachments_json:JSON.stringify(original.attachments?.data??[])}]);
+        if(fresh.length!==1||videos.length!==1)throw Error('video_original_count_mismatch');
+        const secondFrames=await extractCurrentVideoFrames(env,fresh);
+        const secondCheck=await checkVideoFrames({images:secondFrames,policy:prepared.imagePolicy,task:'Independently read this exact original video frame. Return exact phone, amount, name and bank only if every character is visible; mark uncertainty and contradictions. Never infer missing symbols.',infer:subscriptionInfer(env,'image')});
+        verification=compareVideoPayoutEvidence({frames,checks},{frames:secondFrames,checks:secondCheck.checks},source.event.message_id);
+        await put(env,(await artifactPrefix(source.event))+'video-recheck.json',{sourceMessageId:source.event.message_id,frames:secondFrames,videoCheck:secondCheck,verification});
+      }catch{}
+      // Signal the existing payout intake against the original message, but do
+      // not promote model output into financial facts without source verification.
+      if(!source.event.dryRun&&!source.event.task){
+        const pending=await prepareCreatorPayout(env,{verified:true,handle:source.handle,conversation_id:source.event.cid,
+          cycle_message_id:source.event.message_id,source_message_ids:[source.event.message_id],amount_minor:1,
+          phone:'',first_name:null,fps_bank_member_id:'',bank_ref:''});
+        if(pending.registered!==false)throw Error('partial_payout_intake_must_not_register');
+        await stateWrite(env,'diana_payout_signal:'+source.event.event_id,{status:'incomplete',conversation_id:source.event.cid,
+          message_id:source.event.message_id,event_id:source.event.event_id,missing_fields:pending.missing_fields,evidenceKey,at:Date.now()});
+      }
+      if(!verification.verified)return {status:'needs_review',reason:'video_requisites_need_verified_payout_source',evidenceKey,videoSourceVerified:false};
+      verifiedVideo={message_id:source.event.message_id};
+    }
+    if(!verifiedVideo&&!checks.some((c:any)=>c.product==='yes'&&c.observed?.product_name))return {status:'needs_review',reason:'video_product_not_confirmed_in_sampled_frames',evidenceKey};
+    // A short thank-you can be delivered independently. Preserve an explicit
+    // separate review item because sparse frames cannot exclude payment details.
+    if(!verifiedVideo&&!source.event.dryRun)await stateWrite(env,'diana_video_pending:'+source.event.event_id,{status:'needs_review',reason:'video_payment_coverage_unverified',event_id:source.event.event_id,message_id:source.event.message_id,conversation_id:source.event.cid,evidenceKey,at:Date.now()});
+  }
   const imageCheck = screenshots.images.length ? await checkSubscriptionImages({images:screenshots.images,policy:prepared.imagePolicy,task,infer:subscriptionInfer(env,'image')}) : null;
   const system = prepared.system + '\n' + JSON_SPEC + `\nAdd payout_requisites_detected: true if this incoming message contains any actual bank, phone or recipient payment details, including incomplete details; otherwise false. Cloud execution facts: tools are performed by this workflow, never claim an action already happened. All payout registration and transfers are a separate ERP process. Do not confirm requisites were saved unless the supplied payout row proves it. Current creator stage and manual decisions are authoritative. Existing card delivery receipts are authoritative: do not re-send cards already delivered. An order screenshot is required before scenario cards. Acknowledgements can require no reply; explain that decision in reason. If this requires a browser or a consultation not in these sources, escalate without pretending the tool ran. Image evidence: ${JSON.stringify(imageCheck)}. Unavailable historical images: ${screenshots.unreadable}. Do not guess absent facts.`;
-  const contextKey=await put(env,(await artifactPrefix(source.event))+'context.json',{sourceKey:key,system,task,receipt:prepared.receipt,imageCheck});
+  const contextKey=await put(env,(await artifactPrefix(source.event))+'context.json',{sourceKey:key,system,task,receipt:prepared.receipt,imageCheck,videoCheck,verifiedVideo});
   await stateWrite(env,'diana_context:'+source.event.cid,{...prepared.receipt,at:source.at,executor:'cloudflare_workflow',image_check:imageCheck});
   return {status:'ready',key:contextKey};
 }
@@ -179,6 +226,7 @@ export async function draftCloudDecision(env: Env, key: string) {
   const previous=await stateRead(env,cloudEventKey(source.event));
   const oldDraft=(await artifactPrefix(source.event))+'decision.json';
   if(previous?.status==='deferred'&&await env.DOCS.head(oldDraft))return {key:oldDraft,status:'resume'};
+  if(prepared.videoCheck&&!prepared.verifiedVideo) {prepared.system += '\nThe original video visibly shows our product. Reply only with a short thanks for the video. Do not assess quality or publication, or imply publication approval.';}
   const result = await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
   let parsed;
   try { parsed=JSON.parse(result.text); } catch { throw Error('diana_cloud_invalid_decision'); }
@@ -187,8 +235,11 @@ export async function draftCloudDecision(env: Env, key: string) {
   const incoming=source.history.filter((m:any)=>m.direction==='in');
   const guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
     lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!(source.ownerChoice??source.ownerDecision)});
-  const decision={...guarded,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
-  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt});
+  const decision:any={...guarded,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
+  if(prepared.videoCheck&&!prepared.verifiedVideo&&!decision.escalate&&!decision.payoutRequisitesDetected&&!source.event.task){
+    decision.reply='Спасибо за видео!';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
+  }
+  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
@@ -256,6 +307,14 @@ export async function handoffCloudPayout(env: Env, key: string) {
   await modeCheck(env,source.event);
   if (source.event.dryRun || source.event.task || draft.decision.refused)
     return {status:'not_applicable'};
+  if(draft.verifiedVideo){
+    if(draft.decision.escalate)return {status:'not_applicable'};
+    const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
+      phone:'',bank:'',first_name:'',amount_minor:1,video:true,
+      originals:source.history.map((m:any)=>({id:m.id,direction:m.direction,text:m.text}))});
+    if(typeof result==='number')throw Error('payout_target_result_invalid');
+    return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id,recipient:source.recipient};
+  }
   if((!r || draft.decision.escalate) && draft.decision.payoutRequisitesDetected){
     // The payout intake validates and records the original without creating an
     // executable row. Values not independently verified are left incomplete.
@@ -270,6 +329,7 @@ export async function handoffCloudPayout(env: Env, key: string) {
   if(!r)return {status:'not_applicable'};
   const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
     phone:r.phone,bank:r.bank,first_name:r.first_name,amount_minor:r.amount_minor,
+    image:source.history.some((m:any)=>{if(m.id!==source.event.message_id||m.direction!=='in')return false;try{return imageUrls(m.attachments_json).length>0;}catch{return false;}}),
     originals:source.history.map((m:any)=>({id:m.id,direction:m.direction,text:m.text}))});
   if(typeof result==='number')throw Error('payout_target_result_invalid');
   return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id,recipient:source.recipient};

@@ -1,11 +1,17 @@
 import type {Env} from '../types';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
+import {konsolPhone} from './ugc-payouts.mjs';
 import {reviewPayoutCart,payoutImagePolicy} from './ugc-cart-review';
 import {prepareCreatorPayout} from './ugc-payout-intake';
+import {compareVideoPayoutEvidence} from './diana-video-verify.mjs';
+import {rubMinor} from './ugc-cart-decision.mjs';
+import {imageUrls,loadInstagramImage} from './ig-dm-image-cache';
+import {checkSubscriptionImages} from './diana-subscription-vision.mjs';
+import {subscriptionInfer} from './diana-subscription.mjs';
 const PAGE='1697038263872226', IG='17841466350261166';
 const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
 // Original-message intake with subscription image review; no replies, read marks or payment calls.
-export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number;originals:{id:string;direction:string;text:string}[]}){
+export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number;video?:boolean;image?:boolean;originals:{id:string;direction:string;text:string}[]}){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
  if(!token)throw Error('payment_source_token_missing');
  async function graph(path:string,key:string):Promise<any>{
@@ -34,9 +40,47 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
    await env.DB.batch(rows.map((m:any)=>env.DB.prepare(`INSERT INTO ugc_ig_messages(id,conversation_id,direction,from_id,from_username,text,attachments_json,created_at,seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(id) DO UPDATE SET text=CASE WHEN ugc_ig_messages.text IS NULL OR ugc_ig_messages.text='' THEN excluded.text ELSE ugc_ig_messages.text END,attachments_json=CASE WHEN ugc_ig_messages.attachments_json IS NULL OR ugc_ig_messages.attachments_json IN ('[]','') THEN excluded.attachments_json ELSE ugc_ig_messages.attachments_json END`).bind(m.id,m.conversation_id,m.direction,m.from_id,m.from_username,m.text,m.attachments_json,m.created_at,new Date(now).toISOString())));
    // Read the original archive, not last-word/read state. An acknowledgement cannot hide requisites.
    const archived=await env.DB.prepare(`SELECT id,direction,text,created_at,from_username,attachments_json FROM ugc_ig_messages WHERE conversation_id=?1 AND created_at>=?2 ORDER BY created_at DESC LIMIT 500`).bind(c.id,new Date(since).toISOString()).all<any>();
-   const messages=archived.results??[],r=latestRequisites(messages);
+   const messages=archived.results??[];let r:any=latestRequisites(messages);let videoAmount:number|null=null;
+   if(target?.video){
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('message:'+target.message_id));
+    const hash=[...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('');
+    const prefix='diana/cloud-direct/v1/'+hash+'/';
+    const firstObject=await env.DOCS.get(prefix+'video-evidence.json'),secondObject=await env.DOCS.get(prefix+'video-recheck.json');
+    if(!firstObject||!secondObject)throw Error('video_payout_evidence_missing');
+    const first:any=await firstObject.json(),second:any=await secondObject.json();
+    const verified=compareVideoPayoutEvidence({frames:first.frames,checks:first.videoCheck?.checks},{frames:second.frames,checks:second.videoCheck?.checks},target.message_id);
+    if(!verified.verified)throw Error('video_payout_source_unverified');
+    // A newer video can contain a new cart. The screenshot cart verifier
+    // cannot price video frames, so never reuse an older cart when either
+    // independent video pass detects a cart/order or an unknown frame.
+    if([...(first.videoCheck?.checks??[]),...(second.videoCheck?.checks??[])].some((c:any)=>!['other','product_photo'].includes(c.kind)))throw Error('video_cart_requires_review');
+    const facts=verified.facts,original=messages.find((m:any)=>m.id===target.message_id&&m.direction==='in');
+    if(!original||!original.from_username)throw Error('video_payout_original_missing');
+    const bankMatches=Object.entries(BANK_LABELS).filter(([id,name])=>facts.bank===id||name.toLocaleLowerCase()===String(facts.bank).trim().toLocaleLowerCase());
+    if(bankMatches.length!==1||!/^\p{L}+(?:[-']\p{L}+)?$/u.test(facts.holder_name))throw Error('video_payout_recipient_ambiguous');
+    if(facts.amount){videoAmount=rubMinor(facts.amount,facts.currency??'');if(videoAmount===null)throw Error('video_payout_amount_ambiguous');}
+    r={phone:facts.phone,bank:bankMatches[0][0],first_name:facts.holder_name,source_message_ids:[target.message_id],cycle_message_id:target.message_id,source_at:Date.parse(original.created_at)};
+   }
+   const textMatches=!!r&&!!target&&r.source_message_ids.includes(target.message_id)&&konsolPhone(r.phone)===konsolPhone(target.phone)&&r.bank===target.bank&&r.first_name.trim().toLocaleLowerCase()===target.first_name.trim().toLocaleLowerCase();
+   if(target?.image&&!target.video&&!textMatches){
+    const original=rows.find((m:any)=>m.id===target.message_id&&m.direction==='in');
+    if(!original)throw Error('image_payout_original_missing');
+    const urls=imageUrls(original.attachments_json);
+    if(urls.length!==1)throw Error('image_payout_source_ambiguous');
+    // No cache: independently fetch the current original screenshot from Meta.
+    const image=await loadInstagramImage(env,undefined,0,urls[0]);
+    const imagePolicy=await policy();
+    const proof=await checkSubscriptionImages({images:[{...image,label:'Original incoming payment screenshot'}],policy:imagePolicy.policy,
+      task:'Read exact recipient first name, bank and phone from this original screenshot. Preserve every character and mark any unreadable or contradictory field; never guess or merge values.',infer:subscriptionInfer(env,'image')});
+    const check=proof.checks?.[0], facts=check?.requisites;
+    if(!facts||!facts.phone||!facts.bank||!facts.holder_name||(check.unresolved_required??[]).some((v:string)=>['phone','bank','holder_name','card','amount','contradictory_evidence'].includes(v)))throw Error('image_payout_source_unverified');
+    const bankMatches=Object.entries(BANK_LABELS).filter(([id,name])=>facts.bank===id||name.toLocaleLowerCase()===String(facts.bank).trim().toLocaleLowerCase());
+    if(bankMatches.length!==1||!/^\p{L}+(?:[-']\p{L}+)?$/u.test(facts.holder_name))throw Error('image_payout_recipient_ambiguous');
+    if(facts.amount){videoAmount=rubMinor(facts.amount,facts.currency??'');if(videoAmount===null)throw Error('image_payout_amount_ambiguous');}
+    r={phone:facts.phone,bank:bankMatches[0][0],first_name:facts.holder_name,source_message_ids:[target.message_id],cycle_message_id:target.message_id,source_at:Date.parse(original.created_at)};
+   }
    if(!r){if(target)throw Error('diana_payout_original_requisites_missing');continue;}
-   if(target && (!r.source_message_ids.includes(target.message_id) || r.phone.replace(/\D/g,'')!==target.phone.replace(/\D/g,'') ||
+   if(target && !target.video && (!r.source_message_ids.includes(target.message_id) || (!konsolPhone(r.phone)||konsolPhone(r.phone)!==konsolPhone(target.phone)) ||
       r.bank!==target.bank || r.first_name.trim().toLocaleLowerCase()!==target.first_name.trim().toLocaleLowerCase()))
      throw Error('diana_payout_facts_do_not_match_original');
    if(target && r.source_message_ids.some((id:string)=>{
@@ -63,7 +107,7 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
       continue;
     }
    }
-   if(target && observedAmount!==target.amount_minor)throw Error('diana_payout_amount_not_verified');
+   if(target && (target.video ? videoAmount!==null&&videoAmount!==observedAmount : observedAmount!==target.amount_minor || (videoAmount!==null&&videoAmount!==observedAmount)))throw Error('diana_payout_amount_not_verified');
    if(existing){
     const receipt=await env.DB.prepare('SELECT value,updated_at FROM crm_sync_state WHERE key=?1').bind('diana_payout_intake:'+existing.creator_id).first<{value:string;updated_at:number}>();
     if(receipt&&Number(JSON.parse(receipt.value).source_at)>=r.source_at){

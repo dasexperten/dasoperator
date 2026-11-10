@@ -17,7 +17,7 @@ export function validateImageResult(value) {
  return result;
 }
 export function escalationReasons(result) {
- if(['product','seller'].some(k=>result[k]==='no')&&!result.unresolved_required.includes('contradictory_evidence')) return [];
+ if(['product','seller'].some(k=>result[k]==='no')&&!result.unresolved_required.some(k=>['holder_name','bank','phone','card','amount','contradictory_evidence'].includes(k))) return [];
  const reported=result.unresolved_required.filter(k=>!(k==='seller'&&result.kind==='basket')).map(k=>`required_${k}_unresolved`);
  if(result.kind==='other')return reported;
  if(result.kind==='unknown') return ['kind_unknown',...reported];

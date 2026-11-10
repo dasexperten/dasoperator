@@ -1,4 +1,5 @@
 import type {Env} from './types';
+import type {WorkflowStep} from 'cloudflare:workers';
 import type {TikTokSource} from './lib/dieter-tiktok';
 import {runDieterTikTokApi} from './lib/dieter-tiktok';
 import {reelPublicationProof,reelScope} from './lib/ugc-reel-jobs.mjs';
@@ -24,10 +25,22 @@ export async function scheduleDieterTikTokTransport(env:Env,args:TikTokSource,co
  if(await stopped(env))throw Error('dieter_tiktok_runtime_incident_stop');
  await authorizedJob(env,args,continuationId);
  const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(args.contentId+'\n'+args.claimId+'\n'+args.sourceSha256)))].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,32);
- const workflowId='dieter-tiktok-'+hash;
- const definition={args,continuation_id:continuationId??null,workflow_id:workflowId,provider:'tiktok',model_calls:0,first_provider_action:true};
+ let workflowId='dieter-tiktok-'+hash;
+ let definition={args,continuation_id:continuationId??null,workflow_id:workflowId,provider:'tiktok',model_calls:0,first_provider_action:true};
  const key=definitionKey(hash);await putOnce(env,key,definition);
- if(JSON.stringify(await read(env,key))!==JSON.stringify(definition))throw Error('dieter_tiktok_immutable_transport_conflict');
+ const existing=await read(env,key);
+ if(JSON.stringify(existing.args)!==JSON.stringify(args)||existing.continuation_id!==(continuationId??null)||existing.provider!=='tiktok'||existing.model_calls!==0)throw Error('dieter_tiktok_immutable_transport_conflict');
+ definition=existing;workflowId=definition.workflow_id;
+ // An instance that failed before its first durable assignment did not send
+ // a provider request. After a code repair, allow one bounded execution
+ // recovery, while the immutable source/provider operation stays the same.
+ let previousStatus:any;try{previousStatus=await(await env.DIETER_CLOUD.get(workflowId)).status();}catch{}
+ if(previousStatus?.status==='errored'&&!workflowId.endsWith('-recovery-1')&&!await read(env,key+':started')&&!await read(env,`ugc-tiktok-business:${args.contentId}:${args.sourceSha256}`)){
+  const next={...definition,workflow_id:workflowId+'-recovery-1'};
+  await putOnce(env,key+':prior-execution:'+workflowId,{definition,status:'errored_before_assignment',provider_intents:0});
+  await env.DB.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=? AND value=?').bind(JSON.stringify(next),Date.now(),key,JSON.stringify(definition)).run();
+  definition=await read(env,key);workflowId=definition.workflow_id;
+ }
  const params:TikTokTransportEvent={content_id:args.contentId,claim_id:args.claimId,transport:'tiktok',transport_id:hash};
  try{await env.DIETER_CLOUD.create({id:workflowId,params});}
  catch(error){try{await(await env.DIETER_CLOUD.get(workflowId)).status();}catch{throw error;}}
@@ -46,8 +59,8 @@ export async function finalizeDieterApiPublication(env:Env,contentId:string,clai
  if(!result.meta.changes)throw Error('dieter_tiktok_final_proof_conflict');
  return {publication_verified:true,missing:[],published_at:now};
 }
-export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEvent,workflowId:string,step:any){
- const definition=await step.do('read-api-transport-assignment',{retries:{limit:0},timeout:'1 minute'},async()=>{
+export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEvent,workflowId:string,step:WorkflowStep){
+ const definition=await step.do('read-api-transport-assignment',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},async()=>{
   if(!/^[a-f0-9]{32}$/.test(input.transport_id))throw Error('dieter_tiktok_invalid_transport');
   const d=await read(env,definitionKey(input.transport_id));
   if(!d||d.provider!=='tiktok'||d.model_calls!==0||d.workflow_id!==workflowId||d.args.contentId!==input.content_id||d.args.claimId!==input.claim_id)throw Error('dieter_tiktok_transport_mismatch');
@@ -62,10 +75,10 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
   return d;
  });
  // This is one first provider action, never another native/LLM work call.
- let result=await step.do('tiktok-publish-once',{retries:{limit:0},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
+ let result=await step.do('tiktok-publish-once',{retries:{limit:0,delay:'1 second'},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
  for(let index=0;result.status==='pending'&&index<2;index++){
   await step.sleep('tiktok-processing-wait-'+index,index===0?'30 seconds':'2 minutes');
-  result=await step.do('tiktok-readback-'+index,{retries:{limit:0},timeout:'1 minute'},()=>runDieterTikTokApi(env,definition.args,'reconcile'));
+  result=await step.do('tiktok-readback-'+index,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>runDieterTikTokApi(env,definition.args,'reconcile'));
  }
  const completion=result.status==='verified'?await step.do('verify-seven-saved-platforms',()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id)):{publication_verified:false};
  const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),model_calls:0,workflow_id:workflowId};

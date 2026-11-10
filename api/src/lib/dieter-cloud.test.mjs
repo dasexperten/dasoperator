@@ -228,7 +228,7 @@ test('TikTok-only API Workflow finishes seven platforms without a native call, c
  const f=transportFixture(t);let nativeCalls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{nativeCalls++;throw Error('native forbidden');};
  const scheduled=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
  const proof={platform:'tiktok',url:'https://tiktok.com/@dasbroadcast/video/1234567890',account:'dasbroadcast',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'API complete exact provider ID/caption/duration fixture'};
- const step={async do(name,options,callback){if(name==='tiktok-publish-once'){f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));return {status:'verified',proof};}return (typeof options==='function'?options:callback)();},async sleep(){throw Error('not pending');}};
+ const step={async do(name,options,callback){if(typeof options==='object'&&options.retries){assert.equal(typeof options.retries.delay,'string','Cloudflare retries.delay is required even for limit0');assert.ok(options.retries.delay.length>0);}if(name==='tiktok-publish-once'){f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));return {status:'verified',proof};}return (typeof options==='function'?options:callback)();},async sleep(){throw Error('not pending');}};
  const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim',transport:'tiktok',transport_id:scheduled.transport_id},instanceId:scheduled.workflow_id},step);
  assert.equal(result.publication_verified,true);assert.equal(result.model_calls,0);assert.equal(nativeCalls,0);
  const row=f.db.prepare("SELECT * FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(row.status,'published');assert.equal(row.attempts,3);assert.equal(row.started_at,'2026-11-10T04:00:00Z');assert.deepEqual(JSON.parse(row.publications).slice(0,6),f.proofs);
@@ -247,4 +247,13 @@ test('TikTok transport rechecks stop after cached assignment immediately before 
  const step={async do(name,options,callback){if(name==='tiktok-publish-once')f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{}');return (typeof options==='function'?options:callback)();},async sleep(){sleeps++;}};
  const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim',transport:'tiktok',transport_id:scheduled.transport_id},instanceId:scheduled.workflow_id},step);
  assert.equal(result.tiktok_status,'blocked');assert.equal(result.code,'dieter_tiktok_runtime_incident_stop');assert.equal(sleeps,0);assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
+});
+
+test('one pre-assignment execution recovery preserves provider identity and cannot become an unbounded restart loop',async t=>{
+ const f=transportFixture(t);const first=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
+ f.env.DIETER_CLOUD.get=async()=>({async status(){return {status:'errored'};}});
+ const recovered=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');assert.equal(recovered.workflow_id,first.workflow_id+'-recovery-1');assert.equal(recovered.transport_id,first.transport_id);
+ const again=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');assert.equal(again.workflow_id,recovered.workflow_id);
+ assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
+ assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'dieter_tiktok_transport:%:prior-execution:%'").get().n,1);
 });

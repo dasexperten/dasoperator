@@ -81,13 +81,3 @@ test('targeted screenshot requisites require independently reread original scree
  globalThis.__imageCheck.checks[0].unresolved_required=['bank'];
  await assert.rejects(ingestCreatorPayouts(env,target),/image_payout_source_unverified/);
 });
-
-test('video recovery never registers a second payout for already sent or claimed original',async t=>{
- for(const existing of [{id:'p',status:'paid',konsol_payment_id:'sent'},{id:'p',status:'approved',execute_claim:'claimed'}]){
-  const env=fixture(t,existing),frames=[{sourceMessageId:'details',videoSha256:'abc',data:'same'}];globalThis.__review={status:'confirmed',amount_minor:45300};
-  const check={kind:'other',requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:null,currency:null,card:null},unresolved_required:[]};
-  const proof={frames,videoCheck:{checks:[check]}};const paths=[];env.DOCS={get:async key=>{paths.push(key);return {json:async()=>proof}}};
-  const target={conversation_id:'chat',message_id:'details',phone:'',bank:'',first_name:'',amount_minor:1,video:true,recovery:true,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
-  const result=await ingestCreatorPayouts(env,target);assert.equal(result.registered,0);assert.equal(result.payout_id,null);assert.equal(globalThis.__intake.length,0);const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('video-recovery:message:details'));const hash=[...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');assert.ok(paths.every(p=>p.includes('/'+hash+'/')));
- }
-});

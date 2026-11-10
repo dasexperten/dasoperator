@@ -11,7 +11,7 @@ export async function finishDieterUploads(env:Env,contentId:string,claimId:strin
  const read=async(key:string)=>{const r=await env.DB.prepare('SELECT value,updated_at FROM crm_sync_state WHERE key=?').bind(key).first();return r?{value:JSON.parse(r.value),at:new Date(r.updated_at).toISOString()}:null;};
  for(const platform of required.filter((p:string)=>!accepted.some(a=>a.platform===p))){
   if(platform==='tiktok'){
-   const result=await env.DB.prepare("SELECT value,updated_at FROM crm_sync_state WHERE key LIKE ? AND json_extract(value,'$.identity.claimId')=?").bind('ugc-tiktok-business:'+contentId+':%',claimId).all();
+   const result=await env.DB.prepare("SELECT value,updated_at FROM crm_sync_state WHERE substr(key,1,length(?))=? AND json_valid(value) AND json_extract(value,'$.identity.claimId')=?").bind('ugc-tiktok-business:'+contentId+':','ugc-tiktok-business:'+contentId+':',claimId).all();
    for(const r of result.results??[]){const v=JSON.parse(r.value);if(v.identity?.contentId===contentId&&v.identity?.sourceUrl===row.content_url&&/^[a-f0-9]{64}$/.test(v.identity?.sourceSha256??'')&&['accepted','verified'].includes(v.state)&&typeof v.shareId==='string'&&v.shareId&&Number.isFinite(v.acceptedAt))accepted.push({platform,status:'accepted_processing',provider_id:v.shareId,accepted_at:new Date(v.acceptedAt).toISOString(),source_sha256:v.identity.sourceSha256});}
   }else if(platform==='rutube'){
    const r=await read(`ugc-rutube-pending:${contentId}:${claimId}`),v=r?.value;

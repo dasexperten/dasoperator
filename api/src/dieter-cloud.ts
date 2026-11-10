@@ -162,9 +162,9 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
   });
   const executionKey=input.continuation_id?input.claim_id+':continuation:'+input.continuation_id:input.claim_id;
   work:for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
-   const before=await step.do('read-result-'+attempt,()=>dieterOutcome(this.env,input));
+   const before=await step.do('read-result-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>dieterOutcome(this.env,input));
    if(before.verified||before.status!=='working')break;
-   if(attempt>0){const completed=await step.do('complete-accepted-uploads-'+attempt,()=>finishDieterUploads(this.env,input.content_id,input.claim_id));if(completed.upload_completed)break;}
+   if(attempt>0){const completed=await step.do('complete-accepted-uploads-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>finishDieterUploads(this.env,input.content_id,input.claim_id));if(completed.upload_completed)break;}
    const action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'18 minutes'},async()=>{
     const actionMode=attempt===0?'work':'reconcile';
     const requestId=input.continuation_id?'dieter-continuation-'+input.continuation_id+'-'+attempt:'dieter-'+input.claim_id+'-'+attempt;

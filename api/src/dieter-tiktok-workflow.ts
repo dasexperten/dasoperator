@@ -75,7 +75,7 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
  });
  // This is one first provider action, never another native/LLM work call.
  let result=await step.do('tiktok-publish-once',{retries:{limit:0,delay:'1 second'},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
- const completion=await step.do('complete-accepted-uploads',()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id));
+ const completion=await step.do('complete-accepted-uploads',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id));
  const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),model_calls:0,workflow_id:workflowId};
  await putOnce(env,definitionKey(input.transport_id)+':execution:'+workflowId+':result',receipt);
  const current=await read(env,definitionKey(input.transport_id));
@@ -90,7 +90,7 @@ export async function awaitsDieterApiCompletion(env:Env,contentId:string,claimId
  if(!missing.length||missing.some((p:string)=>!['rutube','tiktok'].includes(p)))return false;
  if(missing.includes('rutube')&&!await read(env,`ugc-rutube-pending:${contentId}:${claimId}`))return false;
  if(missing.includes('tiktok')){
-  const ledger=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE ? AND json_extract(value,'$.identity.claimId')=? LIMIT 1").bind(`ugc-tiktok-business:${contentId}:%`,claimId).first<{value:string}>();
+  const ledger=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE substr(key,1,length(?))=? AND json_valid(value) AND json_extract(value,'$.identity.claimId')=? LIMIT 1").bind(`ugc-tiktok-business:${contentId}:`,`ugc-tiktok-business:${contentId}:`,claimId).first<{value:string}>();
   if(!ledger||!['accepted','verified'].includes(JSON.parse(ledger.value).state))return false;
  }
  return true;

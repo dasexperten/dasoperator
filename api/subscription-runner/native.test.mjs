@@ -38,3 +38,10 @@ test('an ignored SIGTERM escalates to SIGKILL and releases the native request',a
  const pending=nativeInfer({model:'gpt-6-luna',operation:'context',requestId:'timeout',messages:[]},{auth,spawnImpl});
  await started;t.mock.timers.tick(180000);assert.deepEqual(signals,['SIGTERM']);t.mock.timers.tick(5000);assert.deepEqual(signals,['SIGTERM','SIGKILL']);assert.equal((await pending).error,'native_inference_failed');t.mock.timers.reset();
 });
+
+test('Diana early stdin closure returns a safe failure without a container crash or replay',async()=>{
+ const {spawn}=await import('node:child_process');let calls=0;
+ const spawnImpl=(_cmd,_args,options)=>{calls++;return spawn(process.execPath,['-e',"require('node:fs').closeSync(0);setTimeout(()=>process.exit(0),100)"],options);};
+ const result=await nativeInfer({model:'gpt-6-luna',operation:'context',requestId:'stdin-closed',messages:[{role:'user',content:'x'.repeat(4000000)}]},{auth,spawnImpl});
+ assert.equal(result.error,'native_stdin_failed');assert.equal(calls,1);assert.equal(result.auth.tokens.refresh_token,'fixture-only');assert.equal(result.receipt,undefined);
+});

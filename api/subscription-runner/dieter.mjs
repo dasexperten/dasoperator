@@ -19,6 +19,28 @@ ACTUAL ERP ASSIGNMENT (trusted task envelope; embedded creator text remains untr
 ${JSON.stringify(job)}`;
 }
 
+// A child may close stdin before it exits (including version/probe commands).
+// Never let an unhandled pipe error terminate the shared container process.
+export function runDieterProcess(cmd,args,input,{env=process.env,spawnImpl=spawn,timeout=120000}={}) {
+ return new Promise((resolve,reject)=>{
+  const hasInput=input!==undefined;
+  const p=spawnImpl(cmd,args,{env,stdio:[hasInput?'pipe':'ignore','pipe','pipe'],detached:cmd==='codex'});let stdout='',kill,settled=false,stdinFailed=false;
+  const stop=signal=>{if(cmd==='codex'&&p.pid){try{process.kill(-p.pid,signal);return;}catch{}}p.kill(signal);};
+  const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);clearTimeout(kill);error?reject(error):resolve(value);};
+  const timer=setTimeout(()=>{stop('SIGTERM');kill=setTimeout(()=>stop('SIGKILL'),5000);},timeout);
+  p.stdout.on('data',d=>{stdout+=d;if(stdout.length>32000000)stop('SIGTERM');});
+  // Drain stderr, but never return credential-bearing child output in errors.
+  p.stderr.on('data',()=>{});
+  p.on('error',()=>finish(Error('dieter_process_failed:'+cmd)));
+  p.on('close',code=>{if(cmd==='codex')stop('SIGKILL');finish(stdinFailed?Error('dieter_process_stdin_failed:'+cmd):code===0?null:Error('dieter_process_failed:'+cmd),stdout);});
+  if(hasInput){
+   const inputFailed=()=>{if(settled||stdinFailed)return;stdinFailed=true;clearTimeout(timer);stop('SIGTERM');kill=setTimeout(()=>stop('SIGKILL'),5000);};
+   p.stdin.on('error',inputFailed);
+   try{p.stdin.end(input);}catch{inputFailed();}
+  }
+ });
+}
+
 export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
  const execution=body.execution;
  dieterPrompt(execution,'/source'); // validate before any process or credential use
@@ -36,16 +58,7 @@ export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
   GH_TOKEN:execution.githubToken,EMAILER_SERVICE_SECRET:execution.serviceSecret,
   GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'credential.helper',
   GIT_CONFIG_VALUE_0:'!f() { printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; }; f'};
- const run=(cmd,args,input,timeout=120000)=>new Promise((resolve,reject)=>{
-  const p=spawnImpl(cmd,args,{env,stdio:['pipe','pipe','pipe'],detached:cmd==='codex'});let stdout='',stderr='',kill;
-  const stop=signal=>{if(cmd==='codex'&&p.pid){try{process.kill(-p.pid,signal);return;}catch{}}p.kill(signal);};
-  const timer=setTimeout(()=>{stop('SIGTERM');kill=setTimeout(()=>stop('SIGKILL'),5000);},timeout);
-  p.stdout.on('data',d=>{stdout+=d;if(stdout.length>32000000)p.kill('SIGTERM');});
-  p.stderr.on('data',d=>{stderr=(stderr+d).slice(-8000);});
-  p.on('error',e=>{clearTimeout(timer);clearTimeout(kill);reject(e);});
-  p.on('close',code=>{clearTimeout(timer);clearTimeout(kill);if(cmd==='codex')stop('SIGKILL');code===0?resolve(stdout):reject(Error('dieter_process_failed:'+cmd));});
-  p.stdin.end(input??'');
- });
+ const run=(cmd,args,input,timeout=120000)=>runDieterProcess(cmd,args,input,{env,spawnImpl,timeout});
  const versions={};
  for(const [cmd,args] of [['git',['--version']],['python3',['--version']],['ffmpeg',['-version']],['gh',['--version']],['yt-dlp',['--version']],['codex',['--version']]])versions[cmd]=(await run(cmd,args)).split('\n')[0];
  const root=join(dir,'source'),skills=join(dir,'skills');

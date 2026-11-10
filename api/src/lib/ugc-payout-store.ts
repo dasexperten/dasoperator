@@ -197,7 +197,7 @@ export async function linkRegistryPayouts(env: Env): Promise<string> {
 }
 
 export async function ugcPayoutSweep(env: Env): Promise<number> {
-  const failures = { registry: 0, refresh: 0, paid_notice: 0, failed_notice: 0, reminders: 0 };
+  const failures = { registry: 0, refresh: 0, paid_notice: 0, failed_notice: 0 };
   try {
     const linked = await linkRegistryPayouts(env);
     // No match/nothing to link is ordinary. Only the explicit failed-list
@@ -251,7 +251,6 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
       await d.store.releaseNotice(row.id);
     }
   }
-  refreshed += await paidOrderReminders(env).catch(() => { failures.reminders++; return 0; });
   // Preserve completed work and the existing claim/retry decisions, then make
   // a partial failure visible to the adaptive runner instead of returning green.
   const failed = Object.entries(failures).filter(([, count]) => count > 0);

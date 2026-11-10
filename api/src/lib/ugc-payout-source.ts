@@ -64,7 +64,7 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
     }
    }
    try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:observedAmount,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false){saved++;savedId=String(result.id??'');}}
-   catch(error){const code=error instanceof Error?error.message:'intake_failed';if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
+   catch(error){const code=error instanceof Error?error.message:'intake_failed';if(target)throw Error('diana_payout_intake_'+code);if(!/newer_payment_details|already_handed_over|busy_retry/.test(code))failures.push(handle+':'+code);}
   }
   after=list.paging?.cursors?.after??'';if(!list.paging?.next||!after)break;
  }

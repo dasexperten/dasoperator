@@ -206,22 +206,22 @@ test('saved TikTok requirements cannot reconcile green until TikTok proof exists
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,required_destinations,publications)VALUES(?,?,?,?,?,?)").run(id,'owner',stamp,stamp,JSON.stringify(source),JSON.stringify(proofs));
  const get=()=>sqlite.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?').get(id);const before=get();
  assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'wrong'})).status,422);
- let res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-nine-api-2026-11-09'});assert.equal(res.status,422);assert.deepEqual((await res.json()).missing,['tiktok']);
+ let res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-seven-optional-wibes-ozon-2026-11-10'});assert.equal(res.status,422);assert.deepEqual((await res.json()).missing,['tiktok']);
  proofs.push({...base,platform:'tiktok',account:'dasbroadcast',url:'https://tiktok.com/@dasbroadcast/video/123456789'});sqlite.prepare('UPDATE ugc_reel_jobs SET publications=? WHERE content_id=?').run(JSON.stringify(proofs),id);
- res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-nine-api-2026-11-09'});assert.equal(res.status,200);let body=await res.json();
+ res=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-seven-optional-wibes-ozon-2026-11-10'});assert.equal(res.status,200);let body=await res.json();
  assert.deepEqual(body.destination_scope.active,source);assert.deepEqual(body.destination_scope.deferred,[]);assert.equal(get().required_destinations,before.required_destinations);assert.equal(get().publications,JSON.stringify(proofs));assert.equal(get().claim_id,null);assert.equal(get().status,'published');
  const audit=JSON.parse(sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-reel-scope:'+id).value);assert.equal(audit.completion,'attended_existing_proofs');assert.equal(audit.original_required_destinations.length,5);
 });
 test('historical Rutube becomes active but needs its own saved proof before green',async()=>{
  const id='scope-paused';sqlite.prepare("INSERT INTO ugc_content VALUES(?,?,?,?)").run(id,'profile','https://instagram.com/reel/PAUSEDORIGINAL/','video');const stamp=new Date().toISOString();
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,required_destinations)VALUES(?,?,?,?,?)").run(id,'owner',stamp,stamp,'["tiktok","rutube"]');
- assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-nine-api-2026-11-09'})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-seven-optional-wibes-ozon-2026-11-10'})).status,422);
  assert.equal(sqlite.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').get(id).status,'queued');
  const proof={platform:'rutube',url:'https://rutube.ru/video/0123456789abcdef0123456789abcdef/',account:'59945486',verified:true,verified_at:stamp,evidence:'Official company channel public playable video checked'};
  sqlite.prepare('UPDATE ugc_reel_jobs SET publications=? WHERE content_id=?').run(JSON.stringify([proof]),id);
- const withoutTikTok=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-nine-api-2026-11-09'});assert.equal(withoutTikTok.status,422);assert.deepEqual((await withoutTikTok.json()).missing,['tiktok']);
+ const withoutTikTok=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-seven-optional-wibes-ozon-2026-11-10'});assert.equal(withoutTikTok.status,422);assert.deepEqual((await withoutTikTok.json()).missing,['tiktok']);
  sqlite.prepare('UPDATE ugc_reel_jobs SET publications=? WHERE content_id=?').run(JSON.stringify([proof,{...proof,platform:'tiktok',account:'dasbroadcast',url:'https://tiktok.com/@dasbroadcast/video/1234567890'}]),id);
- const result=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-nine-api-2026-11-09'});assert.equal(result.status,200);
+ const result=await request('/reel-jobs/'+id+'/reconcile-scope',{scope_version:'ugc-select-seven-optional-wibes-ozon-2026-11-10'});assert.equal(result.status,200);
  const body=await result.json();assert.deepEqual(body.destination_scope.active,['tiktok','rutube']);assert.deepEqual(body.destination_scope.deferred,[]);
  assert.equal(sqlite.prepare('SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=?').get(id).required_destinations,'["tiktok","rutube"]');
 });
@@ -267,17 +267,23 @@ test('Owner caption-only fallback saves an unresolved product without inventing 
 });
 
 
-test('a full new round cannot turn green with any one of nine destinations missing',async()=>{
+test('seven verified destinations complete a nine-destination job; optional proofs can be appended later',async()=>{
  const id='full-seven-api',claim='full-seven-claim',stamp=new Date().toISOString();
  sqlite.prepare('INSERT INTO ugc_content VALUES(?,?,?,?)').run(id,'profile','https://instagram.com/reel/FULLSOURCE/','video');
  const required=['instagram','threads','youtube','facebook','vk','rutube','tiktok','wibes','ozon'];
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id,required_destinations)VALUES(?,?,?,?,?,?,?)").run(id,'owner',stamp,stamp,'working',claim,JSON.stringify(required));
  const urls={instagram:'https://instagram.com/reel/FULLDEST/',threads:'https://threads.com/@dasexperten/post/FULLDEST',youtube:'https://youtube.com/watch?v=AbC123def_0',facebook:'https://facebook.com/reel/1234567890/',vk:'https://vk.ru/video-229095983_456240575',rutube:'https://rutube.ru/video/0123456789abcdef0123456789abcdef/',tiktok:'https://tiktok.com/@dasbroadcast/video/1234567890',wibes:'https://wibes.ru/clips/verified-video',ozon:'https://ozon.ru/product/3570424416/'};
  const proofs=required.map(platform=>({...(['wibes','ozon'].includes(platform)?{publication_transport:'api'}:{}),...(platform==='ozon'?{placement:'product_video',ozon_sku:'3570424416',ozon_video_url:'https://v-1.ozone.ru/vod/video-67/verified/asset_1_h264.mp4'}:{}),platform,url:urls[platform],account:platform==='tiktok'?'dasbroadcast':'dasexperten',verified:true,verified_at:stamp,evidence:'Official API public original and exact account verified'}));
- for(const missing of required){
+ for(const missing of required.filter(p=>!['wibes','ozon'].includes(p))){
   const res=await request('/reel-jobs/'+id+'/complete',{claim_id:claim,publications:proofs.filter(p=>p.platform!==missing)});
   assert.equal(res.status,422,missing);assert.deepEqual((await res.json()).missing,[missing]);
   assert.equal(sqlite.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').get(id).status,'working');
  }
- assert.equal((await request('/reel-jobs/'+id+'/complete',{claim_id:claim,publications:proofs})).status,200);
+ const seven=proofs.filter(p=>!['wibes','ozon'].includes(p.platform));
+ const beforeScope=sqlite.prepare('SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=?').get(id).required_destinations;
+ const completed=await request('/reel-jobs/'+id+'/complete',{claim_id:claim,publications:seven});assert.equal(completed.status,200);
+ const result=await completed.json();assert.equal(result.status,'published');assert.equal(result.publications.length,7);assert.deepEqual(result.destination_scope.optional,['wibes','ozon']);
+ const original=sqlite.prepare('SELECT required_destinations,published_at FROM ugc_reel_jobs WHERE content_id=?').get(id);assert.equal(original.required_destinations,beforeScope);
+ const appended=await request('/reel-jobs/'+id+'/publications',{publications:proofs.filter(p=>['wibes','ozon'].includes(p.platform))});assert.equal(appended.status,200);assert.equal((await appended.json()).publications.length,9);
+ assert.equal(sqlite.prepare('SELECT published_at FROM ugc_reel_jobs WHERE content_id=?').get(id).published_at,original.published_at);
 });

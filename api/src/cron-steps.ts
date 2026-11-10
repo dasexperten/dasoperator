@@ -58,6 +58,8 @@ export const STEPS: Record<string, Step> = {
   // Owner 2026-11-06: metadata detector only, fixed three-minute clock, 06:00?02:00 Yerevan.
   // No message body, generation, image interpretation, reply or model client in ERP Direct.
   'erp-ugc-direct': async (env) => {
+    const {dianaWorkWindow}=await import('./lib/diana-work-window.mjs');
+    if(!dianaWorkWindow(Date.now()).direct)return JSON.stringify({skipped:true,reason:'outside_direct_hours'});
     const { detectDianaMessages } = await import('./lib/diana-alarm');
     return JSON.stringify(await detectDianaMessages(env));
   },

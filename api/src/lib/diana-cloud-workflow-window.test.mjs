@@ -27,3 +27,10 @@ test('a missing current failure receipt replaces an older deferred state before 
  await assert.rejects(new DianaCloudWorkflow(env).run({payload:{event_id:'e'},instanceId:'new'},{async do(_name,_opts,fn){return fn()}}),/temporary write failure/);
  assert.equal(env.saved.v.status,'needs_review');assert.equal(env.saved.v.reason,'workflow_finished_without_event_receipt');assert.equal(env.saved.v.workflow_id,'new');assert.equal(env.released,true);
 });
+
+test('valid requisites never submit a payment from Diana workflow',async t=>{
+ globalThis.__clock=Date.parse('2026-11-11T10:00:00+03:00');t.mock.method(Date,'now',()=>globalThis.__clock);
+ const names=[],env={scenario:'normal',DIANA_WAKE:{idFromName(){return 1},get(){return{async fetch(){return new Response('{}')}}}}};
+ await new DianaCloudWorkflow(env).run({payload:{event_id:'e'},instanceId:'id'},{async do(name,_opts,fn){names.push(name);return fn()}});
+ assert.equal(env.handoff,true);assert.equal(env.paid,undefined);assert.equal(names.includes('submit-payout-once'),false);assert.equal(env.released,true);
+});

@@ -4,7 +4,7 @@ import { finishDianaCloud } from './lib/diana-cloud-lock';
 import {dianaWorkWindow} from './lib/diana-work-window.mjs';
 import {prepareReviewPlan} from './lib/diana-review-plan';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
-  stateRead, stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, prepareUncertainPayoutReply, type DianaCloudEvent } from './lib/diana-cloud';
+  stateRead, stateWrite, cloudEventKey, handoffCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
 
 // Each read/model step has at most three attempts. Durable send intents are never
 // blindly retried by Workflows; only their separately persisted receipts allow resume.
@@ -34,21 +34,10 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
           if(await defer('before-payout-handoff'))return {status:'deferred'};
           const payout=await step.do('handoff-confirmed-requisites-to-payout',READ,()=>handoffCloudPayout(this.env,draft.key));
           if(payout.payout_id){
-            if(await defer('before-payout-submission'))return {status:'deferred'};
-            let uncertain:any=null;
-            try {
-              beforeExternalEffects=false;
-              await step.do('submit-payout-once',{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>executeCloudPayout(this.env,payout.payout_id!,input,payout.recipient!));
-            } catch(error) {
-              const detail=String((error as Error)?.message??error);
-              if(detail.includes('payout_execution_outside_direct_hours')&&await defer('payout-cutoff'))return {status:'deferred'};
-              if(!/^payout_execution_(?:execute_unclear|konsol_unclear)$/.test(detail))throw error;
-              uncertain=await step.do('preserve-uncertain-payout-and-answer',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>prepareUncertainPayoutReply(this.env,draft.key,payout.payout_id!));
-            }
-            if(uncertain?.key){
-              if(await defer('before-uncertain-reply'))return {status:'deferred'};
-              outcome=await step.do('deliver-independent-answer',{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>deliverCloudDecision(this.env,uncertain.key));
-            }else outcome=uncertain??{status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
+            // Requisites create an approval row, never a transfer. Only the
+            // authenticated Owner's payment button may execute the payout.
+            if(await defer('before-owner-approval'))return {status:'deferred'};
+            outcome={status:'no_reply',reason:'Verified requisites saved in ERP; awaiting Owner payment approval.'};
           }else{
             if(await defer('before-delivery'))return {status:'deferred'};
             beforeExternalEffects=false;

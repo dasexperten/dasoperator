@@ -8,3 +8,6 @@ export function executePayout(id: string, deps: Record<string, any>): Promise<Ex
 export function applyKonsolPayment(row: Record<string, any>, payment: Record<string, any>, deps: Record<string, any>): Promise<{ changed: boolean; reason?: string; status?: string; konsol_status?: string; noticed?: boolean }>;
 export const REGISTRY_LINK_IDS: string[];
 export function matchRegistryPayment(row: Record<string, any>, payments: any[], linkedIds?: Set<string>): { payment?: any; reason?: string };
+
+
+export function executeManuallyApprovedPayout(id: string, deps: Record<string, any>, actor: {id:string;role:string}): Promise<ExecuteResult>;

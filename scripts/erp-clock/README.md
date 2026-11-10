@@ -79,7 +79,7 @@ the clock suite verifies no catch-up, no retries, concurrency and secret handlin
 
 The November 2026 VPS installation retains its existing registry in
 `schedules-vps-17f196ac.json`. It is based on release 17f196ac and changes only
-UGC Direct's hours. Start the clock with `--schedules` pointing to this file
+UGC Direct's hours and the payout status cadence. Start the clock with `--schedules` pointing to this file
 when upgrading that installation; using the default registry would alter other
 workers. Compare the installed registry before switching releases. This snapshot
 is specific to that installation and is not the default for new installations.

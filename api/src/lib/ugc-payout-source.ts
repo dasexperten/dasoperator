@@ -50,8 +50,13 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
    if(existing&&(existing.execute_claim||existing.konsol_payment_id||!['awaiting_approval','approved'].includes(existing.status)))continue;
    let observedAmount=existing?.amount_minor>=5000?existing.amount_minor:1;
    // Never replace an Owner-entered amount. Unconfirmed/new payouts get source recognition first.
-   if(!existing||existing.amount_minor<5000){
-    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});if(review.status==='confirmed'&&review.amount_minor)observedAmount=review.amount_minor;}
+   if(target||!existing||existing.amount_minor<5000){
+    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});
+      if(target&&(review.status!=='confirmed'||!review.amount_minor))throw Error('current_cart_not_confirmed');
+      if(review.status==='confirmed'&&review.amount_minor){
+        if(target&&existing?.amount_minor>=5000&&existing.amount_minor!==review.amount_minor)throw Error('existing_amount_differs_from_current_cart');
+        observedAmount=review.amount_minor;
+      }}
     catch{
       failures.push(handle+':cart_recognition_pending');
       await env.DB.batch([env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('ugc_cart_review_error:'+c.id,JSON.stringify({status:'pending',reason:'recognition_unavailable',checked_at:now}),now)]);

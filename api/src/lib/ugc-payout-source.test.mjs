@@ -31,3 +31,10 @@ test('Diana target requires original matching details and confirmed cart amount'
  await assert.rejects(ingestCreatorPayouts(env,{...target,amount_minor:45400}),/amount_not_verified/);
  await assert.rejects(ingestCreatorPayouts(env,{...target,originals:[{id:'details',direction:'in',text:'changed'}]}),/original_archive_mismatch/);
 });
+test('a previously saved amount cannot replace a newer cart',async t=>{
+ const env=fixture(t,{id:'p1',status:'awaiting_approval',creator_id:'c1',amount_minor:45300});
+ globalThis.__review={status:'confirmed',amount_minor:45400};
+ const target={conversation_id:'chat',message_id:'details',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
+ await assert.rejects(ingestCreatorPayouts(env,target),/payment_intake_failed/);
+ assert.equal(globalThis.__intake.length,0);
+});

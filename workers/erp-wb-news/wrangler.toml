@@ -38,3 +38,8 @@ crons = ["5 4 * * *", "5 12 * * *"]
 binding = "WB_GATEWAY"
 service = "dasoperator-api"
 entrypoint = "WbGateway"
+
+[[services]]
+binding = "ARINA_NEWS"
+service = "arina-wb"
+entrypoint = "WbNewsReview"

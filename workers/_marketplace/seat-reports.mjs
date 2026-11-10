@@ -78,25 +78,35 @@ export async function runWbDayTurnover(env) {
   return { ...t, line, mark };
 }
 export async function runWbNews(env, daysBack = 1, cell = { hour: 4 }) {
-  const n = await wbNews(env, { daysBack });
-  const line = wbNewsLine(n);
-  // Владелец 2026-08-21: в клетку идёт строка, в окно — разбор всей ленты.
-  // Собран из уже полученного списка, площадка второй раз не дёргается.
-  const detail = wbNewsDetail(n);
-  console.log("[arina-wb:news] " + JSON.stringify({ total: n.total, hot: n.hot, ours: n.ours, error: n.error }));
-  const worth = (n.hot || 0) + (n.ours || 0);
+  const n = await wbNews(env, { daysBack, limit: Infinity });
+  let review = null;
+  let error = n.ok ? null : n.error;
+  if (!error) {
+    try {
+      if (!env.ARINA_NEWS) throw new Error("Arina news review binding missing");
+      const response = await env.ARINA_NEWS.fetch("https://arina-internal/news-review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ total: n.total, items: n.items }),
+      });
+      review = await response.json();
+      if (!response.ok || !review.ok || review.reviewed !== n.total) throw new Error(review?.error || "incomplete Arina news review");
+    } catch (e) { error = `????? ?? ????????? ???????: ${String(e?.message || e)}`; }
+  }
+  const selected = review?.decisions?.filter(x => x.status === "new_knowledge") || [];
+  const relevant = review?.decisions?.filter(x => x.status === "new_knowledge" || x.status === "relevant_known") || [];
+  const line = error || `??????? WB: ????????? ${review.reviewed}, ?????? ${relevant.length}, ????? ?????? ${selected.length} ? DeepSeek`;
+  const findings = relevant.map(x => `${x.title}: ${x.summary}`).join("\n\n") || "?????? ????? ????????? ???.";
+  const feed = wbNewsDetail(n);
+  const fullDetail = `${findings}\n\n????? WB:\n${feed}`;
+  const detail = error ? feed : fullDetail.length <= 2900 ? fullDetail :
+    `${findings.slice(0, 2700)}\n\n?????? ????? ?? ??????????? ? ???????; ????? ??????????? ??? ${n.total} ????????.`;
   const mark = await markHour(env, {
-    slug: "arina-volkova",
-    hour: cell.hour,
-    outcome: n.ok ? (worth ? "сделано" : "проверено") : "ошибка",
-    mail: {},
-    tasks: worth ? { actions: worth, kinds: ["новости площадки"] } : {},
-    error: n.ok ? undefined : n.error,
-    line,
-    detail,
-    finding: (n.ours || 0) > 0,
-  }).catch((e) => ({ ok: false, error: String(e && e.message || e) }));
-  return { ...n, line, detail, mark };
+    slug: "arina-volkova", hour: cell.hour, mail: {},
+    tasks: !error && relevant.length ? { actions: relevant.length, kinds: ["??????? ????????"] } : {},
+    error: error || undefined, line, detail, finding: relevant.length > 0,
+  }).catch(e => ({ ok: false, error: String(e?.message || e) }));
+  if (!mark.ok && !error) error = `??????? ?? ?????????: ${mark.error}`;
+  return { ...n, ok: !error, error, review, line, detail, mark };
 }
 export async function runWbWeek(env) {
   const w = await weekRollup(env, "wb");

@@ -12,16 +12,21 @@ import { compareVideoPayoutEvidence } from './diana-video-verify.mjs';
 import { checkVideoFrames } from './diana-video-vision.mjs';
 import { guardReply, JSON_SPEC, SCENARIO_CARDS, OZON_CARD_PHOTO } from './ig-dm-reply-guard.mjs';
 import { deliverIgReply, acknowledgeIgDelivery, igDeliveryKey } from './ig-dm-delivery';
-import { sendIgDirect } from './ig-dm-watch';
+import { sendIgDirect, refreshIgAttachments, IG_UNSUPPORTED } from './ig-dm-watch';
 import { acknowledgeDianaEvent } from './diana-alarm';
 import { mapKonsolStatus } from './ugc-payouts.mjs';
 import { recordPayoutNotice } from './ugc-payout-notice';
 import { ingestCreatorPayouts } from './ugc-payout-source';
 import { prepareCreatorPayout } from './ugc-payout-intake';
+import {prepareReviewPlan} from './diana-review-plan';
+import {latestRequisites} from './ugc-latest-requisites.mjs';
+import {sellerAnswerForBasket,SELLER_QUESTION} from './ugc-seller-followup.mjs';
+import {summarizeImageChecks} from './diana-image-check.mjs';
+import {publicationLinks} from './ugc-publication-links.mjs';
 import {dianaWorkWindow} from './diana-work-window.mjs';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
-  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';recovery?:boolean;payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
+  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';recovery?:boolean;recoveryKind?:'video'|'text'|'unsupported';recoveryAttempt?:number;mediaRetried?:boolean;payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
 const PAGE = '1697038263872226', BRAND = '17841466350261166';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const PREFIX = 'diana/cloud-direct/v1/';
@@ -110,9 +115,22 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   if (!/^[a-z0-9_.]{1,30}$/.test(handle)) throw Error('diana_creator_handle_missing');
   const seen = new Date().toISOString();
   for (const message of originals) await archiveIgMessage(env,event.cid,message,seen,0);
+  // Re-open only recent unreadable originals; never guess missing content.
+  // Limit Meta work so one conversation cannot hold the whole Direct lane.
+  let repairs=0;
+  for(const message of originals){
+    if([BRAND,PAGE].includes(String(message.from?.id)))break;
+    if(message.is_unsupported!==true||repairs>=3)continue;repairs++;
+    try{
+      const fresh=await refreshIgAttachments(env,String(message.id));
+      if(!fresh||fresh===IG_UNSUPPORTED)continue;
+      const attachments=JSON.parse(fresh);if(!Array.isArray(attachments)||!attachments.length)continue;
+      message.attachments={data:attachments};message.is_unsupported=false;message.recovered_media=true;
+    }catch{} // Exact media stays pending if Meta cannot return it.
+  }
   const history = originals.slice().reverse().map(m=>({id:String(m.id),direction:[BRAND,PAGE].includes(String(m.from.id))?'out':'in',
-    text: m.message || m.shares?.data?.map((s:any)=>s.link).join('\n') || '',attachments_json:JSON.stringify(m.attachments?.data??[]),
-    unsupported:m.is_unsupported===true,created_at:new Date(m.created_time).toISOString()}));
+    from_id:String(m.from?.id??''),from_username:String(m.from?.id??'')===String(sender.from.id)?handle:String(m.from?.username??''),text: m.message || m.shares?.data?.map((s:any)=>s.link).join('\n') || '',attachments_json:JSON.stringify(m.attachments?.data??[]),
+    unsupported:m.is_unsupported===true,recovered_media:m.recovered_media===true,created_at:new Date(m.created_time).toISOString()}));
   let creator = await env.DB.prepare("SELECT c.* FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform IN ('instagram','other') AND p.normalized_handle=?1 ORDER BY CASE WHEN p.platform='instagram' THEN 0 ELSE 1 END LIMIT 1")
     .bind(handle).first<any>();
   if (!creator && !event.dryRun && event.task!=='round') {
@@ -149,6 +167,23 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
     // create a competing recovery plan for the same incoming message.
     if(plans.some((p:any)=>Date.parse(p.incomingAt)===Date.parse(original.created_at)))return {status:'needs_review',reason:'video_recovery_previous_delivery_exists_or_unknown'};
   }
+  // Owner: a clear, standalone confirmation of receipt advances to creation;
+  // an older inaccessible attachment does not invalidate that confirmation.
+  // Do not infer what was received from a longer or negated statement.
+  const receiptText=String(sender.message??'').trim();
+  const confirmsOrder=/^(?:я\s+)?(?:заказала|заказал|оформила\s+заказ|оформил\s+заказ)[\s.!👍🏼✅🙏🙂😊]*$/iu.test(receiptText);
+  const confirmsReceipt=/^(?:я\s+)?(?:забрала|забрал|получила|получил|забрала\s+товар|забрал\s+товар|получила\s+товар|получил\s+товар|товар\s+получила|товар\s+получил|товар\s+забрала|товар\s+забрал)[\s.!👍✅🙏🙂😊]*$/iu.test(receiptText);
+  if(!event.dryRun&&!event.task&&(confirmsReceipt||confirmsOrder)&&!sender.is_unsupported&&creator.id&&['','new','found','qualified','sent','invited','replied','agreed','cart','paid','ordered','silent'].includes(creator.lifecycle_stage??'')){
+    const next=Date.now();const changed=await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2,updated_at=?3 WHERE id=?1 AND lifecycle_stage IS ?4 AND updated_at IS ?5
+      AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||?1 AND json_valid(value) AND json_type(value,'$.to')='text' AND json_type(value,'$.at') IN ('integer','real'))`)
+      .bind(creator.id,'creation',next,creator.lifecycle_stage??null,creator.updated_at??null).run();
+    const reread=await env.DB.prepare('SELECT * FROM ugc_creators WHERE id=?1').bind(creator.id).first<any>();
+    if(!reread)throw Error('receipt_creator_unavailable');
+    if(Number(changed.meta.changes)===1&&(reread.lifecycle_stage!=='creation'||Number(reread.updated_at)!==next))throw Error('receipt_stage_not_verified');
+    creator=reread;
+    const receiptKey='diana_creator_progress:'+event.event_id;
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(receiptKey,JSON.stringify({event_id:event.event_id,message_id:event.message_id,conversation_id:event.cid,creator_id:creator.id,status:'verified',confirmation_kind:confirmsReceipt?'received':'ordered',stage_updated:Number(changed.meta.changes)===1,at:next}),next).run();
+  }
   const ownerDecision = await stateRead(env,'ig_owner_decision:'+event.cid);
   let ownerChoice:any=null;
   if(event.task==='owner_choice'){
@@ -157,6 +192,8 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
     if(!ownerChoice||ownerChoice.cid!==event.cid||String(ownerChoice.handle??'').toLowerCase()!==handle||!ownerChoice.choice||
        !ownerChoice.options||!Array.isArray(ownerChoice.options[ownerChoice.choice]))throw Error('owner_choice_source_unverified');
     if(ownerChoice.answered_at)throw Error('owner_choice_already_answered');
+    const original=history.find(m=>m.id===event.message_id&&m.direction==='in');
+    if(!original||Date.parse(String(ownerChoice.at??''))!==Date.parse(original.created_at))throw Error('owner_choice_original_changed');
   }
   const lastIncoming=history.filter(m=>m.direction==='in').at(-1);
   const key = await put(env,(await artifactPrefix(event))+'source.json',{event,handle,recipient:String(sender.from.id),latestId:String(newest.id),at:lastIncoming?.created_at??new Date(sender.created_time).toISOString(),
@@ -170,9 +207,75 @@ export async function prepareCloudDecision(env: Env, key: string) {
   await modeCheck(env,source.event);
   const lastOut = source.history.map((m:any)=>m.direction).lastIndexOf('out');
   const current = source.history.slice(lastOut+1);
-  if (current.some((m:any)=>m.unsupported)) return {status:'needs_review',reason:'meta_attachment_unavailable'};
+  const unreadable=current.filter((m:any)=>m.direction==='in'&&m.unsupported);let partialReceiptReply=false;
+  if(unreadable.length&&!source.event.dryRun){
+    // Preserve every missing original independently of whether a later text is
+    // answered. Never claim to know what that inaccessible attachment contains.
+    for(const item of unreadable){
+      if(!item.id)throw Error('unreadable_media_identity_missing');
+      const mediaKey='diana_unreadable_media:'+item.id;
+      await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(mediaKey,JSON.stringify({status:'needs_review',reason:'meta_attachment_unavailable',conversation_id:source.event.cid,message_id:item.id,event_id:source.event.event_id,at:Date.now()}),Date.now()).run();
+    }
+    // A readable requisites message is a distinct original from a following
+    // inaccessible attachment. Signal intake only; never submit a transfer.
+    const details=[...current].reverse().find((m:any)=>m.direction==='in'&&!m.unsupported&&m.from_id===source.recipient&&/(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(m.text??'')));
+    if(details&&!source.event.task){
+      const pending=await prepareCreatorPayout(env,{verified:true,handle:source.handle,conversation_id:source.event.cid,cycle_message_id:details.id,
+        source_message_ids:[details.id],amount_minor:1,phone:'',first_name:null,fps_bank_member_id:'',bank_ref:''});
+      if(pending.registered!==false)throw Error('partial_payout_intake_must_not_register');
+      await stateWrite(env,'diana_payout_signal:'+source.event.event_id,{status:'incomplete',conversation_id:source.event.cid,
+        message_id:details.id,latest_message_id:source.event.message_id,event_id:source.event.event_id,missing_fields:pending.missing_fields,at:Date.now()});
+      const saved=await stateRead(env,'diana_payout_signal:'+source.event.event_id);
+      if(saved?.status!=='incomplete'||saved.message_id!==details.id||saved.latest_message_id!==source.event.message_id)throw Error('partial_payout_signal_not_verified');
+      const verifiedText=latestRequisites(current.filter((m:any)=>m.direction==='in'&&!m.unsupported&&m.from_id===source.recipient));
+      partialReceiptReply=!!verifiedText&&verifiedText.cycle_message_id===details.id;
+
+    }
+  }
+  if(unreadable.length&&!source.event.dryRun&&!source.event.mediaRetried){
+    // Defer this conversation only. The workflow returns and releases the
+    // shared lock; a later workflow re-fetches the exact Meta originals.
+    const retryKey='diana_media_retry:'+source.event.event_id;
+    const first={status:'waiting',event_id:source.event.event_id,conversation_id:source.event.cid,message_id:source.event.message_id,media_ids:unreadable.map((m:any)=>m.id),retry_at:Date.now()+180_000};
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(retryKey,JSON.stringify(first),Date.now()).run();
+    const saved=await stateRead(env,retryKey);if(saved?.event_id!==source.event.event_id||!Number.isFinite(Number(saved.retry_at)))throw Error('media_retry_not_saved');
+    return {status:'media_wait',reason:'media_retry_scheduled',retry_at:Number(saved.retry_at)};
+  }
+  const latestReadable=current.at(-1);
+  const priorVideoThanks=source.history.some((m:any)=>m.direction==='out'&&/спасибо[^.!?]{0,50}(?:видео|ролик)/iu.test(String(m.text??'')));
+  const recognizedVideo=priorVideoThanks||(source.creator?.id?await env.DB.prepare("SELECT id FROM ugc_content WHERE creator_id=?1 AND product_status='identified' LIMIT 1").bind(source.creator.id).first<{id:string}>():null);
+  const friendlyAfterVideo=!!recognizedVideo&&latestReadable?.direction==='in'&&!latestReadable.unsupported&&/^(?:спасибо(?:\s+большое)?|благодарю|вам\s+тоже|хорошего\s+(?:дня|вечера)|взаимно)[\s.!🙏🙂😊❤️]*$/iu.test(String(latestReadable.text??'').trim());
+  const latestText=String(latestReadable?.text??'');
+  const discovered=current.filter((m:any)=>m.direction==='in'&&!m.unsupported).flatMap((m:any)=>publicationLinks(String(m.text??'')).map((link:any)=>({...link,source_message_id:m.id})));
+  const publicationNotice=discovered.length>0&&/(?:опубликовал|выложил|разместил|публикац|тик\s*ток|tiktok)/iu.test(latestText);
+  if(publicationNotice&&!source.event.dryRun){
+    const key='diana_publication_pending:'+source.event.event_id;
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(key,JSON.stringify({status:'pending',verified:false,event_id:source.event.event_id,conversation_id:source.event.cid,message_id:source.event.message_id,links:discovered.map((l:any)=>({url:l.url,platform:l.platform,source_message_id:l.source_message_id})),at:Date.now()}),Date.now()).run();
+    const saved=await stateRead(env,key);if(saved?.verified!==false||saved.event_id!==source.event.event_id)throw Error('publication_pending_not_saved');
+  }
+  const senderQuestion=latestReadable?.direction==='in'&&!latestReadable.unsupported&&/^(?:подскажите[,\s]*)?от\s+кого\s+(?:(?:был|приш[её]л|поступил)\s+)?(?:перевод|плат[её]ж)[\s?!.,]*$/iu.test(String(latestReadable.text??'').trim());
+  if(senderQuestion&&!source.event.dryRun){const key='diana_sender_reconciliation:'+source.event.event_id;await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(key,JSON.stringify({status:'needs_reconciliation',reason:'sender_not_confirmed',event_id:source.event.event_id,message_id:source.event.message_id,conversation_id:source.event.cid,at:Date.now()}),Date.now()).run();const saved=await stateRead(env,key);if(saved?.message_id!==source.event.message_id)throw Error('sender_reconciliation_not_saved');}
+  const orderConfirmed=latestReadable?.direction==='in'&&!latestReadable.unsupported&&/^(?:я\s+)?(?:заказала|заказал|оформила\s+заказ|оформил\s+заказ)[\s.!👍🏼✅🙏🙂😊]*$/iu.test(String(latestReadable.text??'').trim());
+  const failedPayouts=source.payouts.filter((p:any)=>p.status==='failed'&&p.id);
+  const priorPaymentClaim=[...source.history].reverse().find((m:any)=>m.direction==='out'&&/(?:получил(?:ось|ась)\s+оплатить|оплатили|перевели)/i.test(String(m.text??'')));
+  const reconciliationPending=!!orderConfirmed&&failedPayouts.length>0&&!!priorPaymentClaim;
+  if(reconciliationPending&&!source.event.dryRun){
+    const conflictKey='diana_payout_reconciliation:'+source.event.event_id;
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(conflictKey,JSON.stringify({status:'needs_reconciliation',reason:'provider_failed_prior_outgoing_payment_claim',conversation_id:source.event.cid,event_id:source.event.event_id,source_message_id:source.event.message_id,prior_outgoing_message_id:priorPaymentClaim.id,payout_ids:failedPayouts.map((p:any)=>p.id),at:Date.now()}),Date.now()).run();
+    const saved=await stateRead(env,conflictKey);if(saved?.status!=='needs_reconciliation'||saved.source_message_id!==source.event.message_id)throw Error('payment_reconciliation_not_saved');
+  }
+  const latestCurrent=current.at(-1);
+  // Only a later explicit, readable text may be addressed independently.
+  // An inaccessible newest message is left pending, with any text signal saved.
+  if(unreadable.length&&!partialReceiptReply&&(!latestCurrent||latestCurrent.unsupported||latestCurrent.direction!=='in'||(!String(latestCurrent.text??'').trim()&&!latestCurrent.recovered_media)))return {status:'needs_review',reason:'meta_attachment_unavailable'};
   let videos:any[]=[];
   try { videos=currentVideos(current); } catch { return {status:'needs_review',reason:'video_metadata_or_url_unavailable'}; }
+  if(source.event.recoveryKind==='text'&&!source.event.dryRun){
+    // Preserve the older unresolved review separately before a new reply can
+    // acknowledge this message. Never replace the original event receipt.
+    const key='diana_text_recovery_unresolved:'+source.event.event_id;
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(key,JSON.stringify({status:'needs_review',reason:'prior_review_preserved',event_id:source.event.event_id,message_id:source.event.message_id,conversation_id:source.event.cid,at:Date.now()}),Date.now()).run();
+  }
   const task = JSON.stringify({task:source.event.task==='round'?'Review this paid, ordered, creation or posted creator for the scheduled round. Read the entire original conversation, do not initiate video reminders, scouting, or duplicate any action. If an action needs a browser or other unavailable tool, escalate and state the reason. If no message is appropriate return no reply with the actual observation.':source.event.task==='owner_choice'?'The Owner selected the attached exact option for this original conversation. Follow that decision in Diana’s voice; never invent or modify its terms. If the conversation changed or the choice cannot safely be applied, escalate instead of sending.':source.event.task?`ERP confirmed ${source.event.task} for payout ${source.event.payout_id}. Read the original conversation and the exact confirmed payout. Write Diana's notice once and the next appropriate collaboration step. If the notice is already in the original conversation, or later conversation proves this historical step is obsolete, return no reply and explain the evidence. Do not reopen old orders, repeat a notice or blame the creator's bank without its confirmed rejection. This is a notice only, never a new transfer.`:'Write the next Diana Direct decision for this original conversation. This is incoming chat handling only, not scouting or proactive reminders.',
     handle:source.handle,creator:source.creator,payouts:source.payouts,delivery_plans:source.plans,owner_decision:source.ownerChoice??source.ownerDecision,history:source.history});
   const prepared = await prepareDianaContext({task,githubToken:(env as any).GITHUB_TOKEN??'',infer:subscriptionInfer(env,'context')});
@@ -220,9 +323,16 @@ export async function prepareCloudDecision(env: Env, key: string) {
     // separate review item because sparse frames cannot exclude payment details.
     if(!verifiedVideo&&!source.event.dryRun)await stateWrite(env,'diana_video_pending:'+source.event.event_id,{status:'needs_review',reason:'video_payment_coverage_unverified',event_id:source.event.event_id,message_id:source.event.message_id,conversation_id:source.event.cid,evidenceKey,at:Date.now()});
   }
-  const imageCheck = screenshots.images.length ? await checkSubscriptionImages({images:screenshots.images,policy:prepared.imagePolicy,task,infer:subscriptionInfer(env,'image')}) : null;
-  const system = prepared.system + '\n' + JSON_SPEC + `\nAdd payout_requisites_detected: true if this incoming message contains any actual bank, phone or recipient payment details, including incomplete details; otherwise false. Cloud execution facts: tools are performed by this workflow, never claim an action already happened. All payout registration and transfers are a separate ERP process. Do not confirm requisites were saved unless the supplied payout row proves it. Current creator stage and manual decisions are authoritative. Existing card delivery receipts are authoritative: do not re-send cards already delivered. An order screenshot is required before scenario cards. Acknowledgements can require no reply; explain that decision in reason. If this requires a browser or a consultation not in these sources, escalate without pretending the tool ran. Image evidence: ${JSON.stringify(imageCheck)}. Unavailable historical images: ${screenshots.unreadable}. Do not guess absent facts.`;
-  const contextKey=await put(env,(await artifactPrefix(source.event))+'context.json',{sourceKey:key,system,task,receipt:prepared.receipt,imageCheck,videoCheck,verifiedVideo});
+  let imageCheck = screenshots.images.length ? await checkSubscriptionImages({images:screenshots.images,policy:prepared.imagePolicy,task,infer:subscriptionInfer(env,'image')}) : null;
+  let sellerQuestion=false,sellerProvided=false;
+  const basket=imageCheck?.checks?.at(-1);
+  if(basket?.kind==='basket'&&basket.product==='yes'&&basket.amount==='yes'&&basket.seller==='unknown'&&!source.event.task){
+    const answer=sellerAnswerForBasket(source.history,{created_at:basket.label?.match(/сообщения (\S+), вложение/)?.[1]},prepared.imagePolicy,source.handle);
+    if(answer){sellerProvided=true;basket.seller=answer.registry_match?'yes':'unknown';basket.seller_evidence='creator_answer';basket.observed={...basket.observed,seller_name:answer.name};basket.unresolved_required=(basket.unresolved_required??[]).filter((v:string)=>v!=='seller');basket.seller_source=answer;imageCheck=summarizeImageChecks(imageCheck.checks);}
+    else sellerQuestion=true;
+  }
+  const system = prepared.system + (recognizedVideo?'\nA prior original company message already thanked the creator for her video, or a product proof exists. For a friendly unrelated message, reply warmly and do not prompt publication unless a real current next step requires it.':'') + (sellerProvided?'\nThe creator has supplied the seller name in the original chat. Treat it as her statement, never invent a seller or claim an unverified registry match. Do not ask for additional proof of the seller name; continue the conversation.':'') + (source.event.recoveryKind==='text'?'\nThis is a separate answer to the latest explicit readable message. The older review remains unresolved. Answer only what is independently supported by verified current programme rules; never repeat an old unconfirmed claim or promise, and escalate if the current rules do not establish the answer.':'') + (unreadable.length?'\nAn earlier incoming attachment is inaccessible. Do not describe, infer, confirm, or claim to have seen it. Address only the latest readable text if independently answerable from verified current rules; otherwise escalate. The unreadable attachment remains separately pending.':'') + '\n' + JSON_SPEC + `\nAdd payout_requisites_detected: true if this incoming message contains any actual bank, phone or recipient payment details, including incomplete details; otherwise false. Cloud execution facts: tools are performed by this workflow, never claim an action already happened. All payout registration and transfers are a separate ERP process. Do not confirm requisites were saved unless the supplied payout row proves it. Current creator stage and manual decisions are authoritative. Existing card delivery receipts are authoritative: do not re-send cards already delivered. An order screenshot is required before scenario cards. Acknowledgements can require no reply; explain that decision in reason. If this requires a browser or a consultation not in these sources, escalate without pretending the tool ran. Image evidence: ${JSON.stringify(imageCheck)}. Unavailable historical images: ${screenshots.unreadable}. Do not guess absent facts.`;
+  const contextKey=await put(env,(await artifactPrefix(source.event))+'context.json',{sourceKey:key,system,task,receipt:prepared.receipt,imageCheck,videoCheck,verifiedVideo,unreadableMedia:unreadable.length>0,partialReceiptReply,reconciliationPending,senderQuestion,sellerQuestion,friendlyAfterVideo,publicationNotice});
   await stateWrite(env,'diana_context:'+source.event.cid,{...prepared.receipt,at:source.at,executor:'cloudflare_workflow',image_check:imageCheck});
   return {status:'ready',key:contextKey};
 }
@@ -234,26 +344,61 @@ export async function draftCloudDecision(env: Env, key: string) {
   const oldDraft=(await artifactPrefix(source.event))+'decision.json';
   if(previous?.status==='deferred'&&await env.DOCS.head(oldDraft))return {key:oldDraft,status:'resume'};
   if(prepared.videoCheck&&!prepared.verifiedVideo) {prepared.system += '\nThe original video visibly shows our product. Reply only with a short thanks for the video. Do not assess quality or publication, or imply publication approval.';}
-  const result = await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
+  let result = await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
   let parsed;
   try { parsed=JSON.parse(result.text); } catch { throw Error('diana_cloud_invalid_decision'); }
   if (!parsed || typeof parsed.escalate!=='boolean' || typeof parsed.reason!=='string' || !(parsed.reply===null || typeof parsed.reply==='string')
     || !(parsed.replies===null || Array.isArray(parsed.replies)&&parsed.replies.every((p:unknown)=>typeof p==='string'))) throw Error('diana_cloud_invalid_decision');
   const incoming=source.history.filter((m:any)=>m.direction==='in');
-  const guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
+  let guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
     lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!(source.ownerChoice??source.ownerDecision)});
-  const decision:any={...guarded,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
+  let learningUncertainty:string|null=null;
+  // A model's ordinary uncertainty is not itself an Owner gate. Ask for one
+  // safe answer grounded in current facts; the same mandatory guard still
+  // blocks refunds, commercial decisions and unconfirmed financial claims.
+  if(guarded.escalate&&!/Owner decides/i.test(String(guarded.reason??''))&&!source.event.task&&String(incoming.at(-1)?.text??'').trim()){
+    learningUncertainty=String(guarded.reason??'uncertainty').slice(0,200);
+    try{
+      const retry=await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system+'\nAnswer the latest readable message using only confirmed facts. State uncertainty honestly and continue where safe. Do not invent payment, sender, product or terms; if a decision is truly necessary, escalate.'},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
+      const retryParsed=JSON.parse(retry.text);
+      if(retryParsed&&typeof retryParsed.escalate==='boolean'&&typeof retryParsed.reason==='string'&&(retryParsed.reply===null||typeof retryParsed.reply==='string')&&(retryParsed.replies===null||Array.isArray(retryParsed.replies)&&retryParsed.replies.every((p:unknown)=>typeof p==='string'))){
+        const checked=guardReply(retry.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!(source.ownerChoice??source.ownerDecision)});
+        if(!checked.escalate&&checked.reply){guarded=checked;parsed=retryParsed;result=retry;}
+      }
+    }catch{} // Original review remains durable when no safe answer is available.
+  }
+  const decision:any={...guarded,learningUncertainty,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
+  const ownerDecisionRequired=/Owner decides/i.test(String(decision.reason??''));
+  if(prepared.friendlyAfterVideo&&!source.event.task&&!ownerDecisionRequired&&!decision.refused){decision.reply='Спасибо! Очень приятно 😊';decision.parts=[decision.reply];decision.escalate=false;decision.reason='friendly_followup_after_recognized_video';decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;}
+  if(prepared.publicationNotice&&!source.event.task&&!ownerDecisionRequired&&!decision.refused){decision.reply='Спасибо, что поделились ссылками!';decision.parts=[decision.reply];decision.escalate=false;decision.reason='publication_links_pending_verification';decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;}
+
+  if(prepared.sellerQuestion&&!source.event.task&&!ownerDecisionRequired&&!decision.refused){
+    decision.reply=SELLER_QUESTION;decision.parts=[decision.reply];decision.escalate=false;decision.reason='seller_name_required';decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;decision.payoutRequisitesDetected=!!decision.requisites||decision.payoutRequisitesDetected;decision.requisites=null;
+  }
+  if(prepared.senderQuestion&&!source.event.task&&!ownerDecisionRequired&&!decision.refused){decision.reply='Пока не могу подтвердить отправителя перевода.';decision.parts=[decision.reply];decision.escalate=false;decision.reason='sender_not_confirmed';decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;decision.payoutRequisitesDetected=false;decision.requisites=null;}
+  if(prepared.reconciliationPending&&!source.event.task&&!ownerDecisionRequired&&!decision.refused){
+    decision.reply='Спасибо, что сообщили! Когда получите товар, напишите, пожалуйста.';decision.parts=[decision.reply];decision.escalate=false;decision.reason='payment_reconciliation_pending';decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;decision.payoutRequisitesDetected=false;decision.requisites=null;
+  }
+  if(prepared.partialReceiptReply&&!ownerDecisionRequired&&!decision.refused&&!source.event.task){
+    decision.escalate=false;decision.reason='partial_payout_signal_saved';decision.reply='Спасибо! Передали реквизиты в обработку.';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
+  }
   if(prepared.videoCheck&&!prepared.verifiedVideo&&!decision.escalate&&!decision.payoutRequisitesDetected&&!source.event.task){
     decision.reply='Спасибо за видео!';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
   }
-  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
+  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,contextKey:key,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,unreadableMedia:prepared.unreadableMedia,partialReceiptReply:prepared.partialReceiptReply,reconciliationPending:prepared.reconciliationPending,senderQuestion:prepared.senderQuestion,sellerQuestion:prepared.sellerQuestion,restoredMedia:source.history.some((m:any)=>m.id===source.event.message_id&&m.recovered_media),friendlyAfterVideo:prepared.friendlyAfterVideo,publicationNotice:prepared.publicationNotice,textRecovery:source.event.recoveryKind==='text',videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
 export async function deliverCloudDecision(env: Env, key: string, now:()=>number=Date.now) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
-  if(source.event.recovery&&(!draft.videoThanks||decision.reply!=='Спасибо за видео!'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto))return {status:'needs_review',reason:'video_recovery_only_verified_thanks_allowed'};
+  if(source.event.recovery&&source.event.recoveryKind==='text'){
+    if(!draft.textRecovery||decision.sendCards||decision.sendOzonPhoto||decision.agreed||decision.refused)return {status:'needs_review',reason:'text_recovery_requires_separate_review'};
+  }else if(source.event.recovery&&source.event.recoveryKind==='unsupported'&&draft.partialReceiptReply){
+    if(decision.reply!=='Спасибо! Передали реквизиты в обработку.'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto)return {status:'needs_review',reason:'partial_receipt_reply_not_verified'};
+  }else if(source.event.recovery&&source.event.recoveryKind==='unsupported'&&draft.restoredMedia&&!draft.unreadableMedia){
+    // Exact original was recovered and passed through the normal vision/guard path.
+  }else if(source.event.recovery&&(!draft.videoThanks||decision.reply!=='Спасибо за видео!'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto))return {status:'needs_review',reason:'video_recovery_only_verified_thanks_allowed'};
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
   if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {status:'deferred',reason:'outside_direct_hours'};
   const existingNotice=source.event.task&&source.event.task!=='round'&&source.event.task!=='owner_choice'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
@@ -266,7 +411,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
   if (decision.escalate) return {status:'needs_review',reason:decision.reason};
   const actionId=source.event.task?source.event.event_id:undefined;
   const deliveryKey=igDeliveryKey(source.event.cid,source.at,actionId);
-  if((await stateRead(env,deliveryKey))?.status==='complete')return {status:'delivered',deliveryKey};
+  if((await stateRead(env,deliveryKey))?.status==='complete')return {status:'delivered',deliveryKey,decisionKey:key};
   const currentCreator=await env.DB.prepare('SELECT * FROM ugc_creators WHERE id=?1').bind(source.creator.id).first<any>();
   const currentPayouts=(await env.DB.prepare('SELECT id,amount_minor,status,product,paid_at,failed_at,sent_at,created_at,konsol_payment_id,konsol_status,konsol_error,notice_status,notice_message_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC')
     .bind(source.creator.id).all()).results??[];
@@ -305,7 +450,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
   if(result.status==='pending'&&result.error==='outside_direct_hours')return {status:'deferred',reason:'outside_direct_hours',deliveryKey};
   if (result.status!=='complete') return {status:'needs_review',reason:result.error??result.status,deliveryKey,
     retryable:result.status==='pending'&&/rate limit|too many requests/i.test(result.error??'')};
-  return {status:'delivered',deliveryKey};
+  return {status:'delivered',deliveryKey,decisionKey:key};
 }
 
 // Diana's decision starts payout intake for this one original conversation.
@@ -315,6 +460,8 @@ export async function handoffCloudPayout(env: Env, key: string) {
   await modeCheck(env,source.event);
   if (source.event.dryRun || source.event.task || draft.decision.refused)
     return {status:'not_applicable'};
+  if(draft.reconciliationPending||draft.senderQuestion)return {status:'not_applicable'}; // Never retry a disputed prior transfer.
+  if(draft.unreadableMedia)return {status:'partial'}; // Unknown media may contain corrections; no transfer.
   if(draft.verifiedVideo){
     if(draft.decision.escalate)return {status:'not_applicable'};
     const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
@@ -343,6 +490,20 @@ export async function handoffCloudPayout(env: Env, key: string) {
   return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id,recipient:source.recipient};
 }
 
+// Keep an ambiguous transfer locked for reconciliation, while permitting a
+// separate neutral answer to an actual readable question. Never assert payment.
+export async function prepareUncertainPayoutReply(env:Env,key:string,payoutId:string){
+ const draft=await get(env,key),source=await get(env,draft.sourceKey);await modeCheck(env,source.event);
+ const current=source.history.find((m:any)=>m.id===source.event.message_id&&m.direction==='in');
+ const marker='diana_payout_reconciliation:'+source.event.event_id;
+ await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(marker,JSON.stringify({status:'needs_reconciliation',reason:'provider_outcome_unknown',event_id:source.event.event_id,message_id:source.event.message_id,conversation_id:source.event.cid,payout_ids:[payoutId],at:Date.now()}),Date.now()).run();
+ const saved=await stateRead(env,marker);if(saved?.event_id!==source.event.event_id)throw Error('payment_reconciliation_not_saved');
+ if(source.event.task||current?.unsupported||!String(current?.text??'').includes('?'))return {status:'needs_review',reason:'payment_outcome_unknown'};
+ const decision={...draft.decision,reply:'Спасибо за сообщение! Мы уточним информацию.',parts:['Спасибо за сообщение! Мы уточним информацию.'],escalate:false,reason:'payment_outcome_unknown',sendCards:false,sendOzonPhoto:false,agreed:false,refused:false,requisites:null,payoutRequisitesDetected:false,learningUncertainty:'payment_outcome_unknown'};
+ const next=await put(env,(await artifactPrefix(source.event))+'payment-uncertain-decision.json',{...draft,decision,reconciliationPending:true});
+ return {status:'reply',key:next};
+}
+
 export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent, recipient:string) {
   const {executeUgcPayout,refreshUgcPayout}=await import('./ugc-payout-store');
   const result=await executeUgcPayout(env,payoutId,async()=>{
@@ -361,11 +522,16 @@ export async function executeCloudPayout(env: Env, payoutId:string, event:DianaC
 /** Completion requires Meta original readback for every send receipt and ERP readback. */
 export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome: any) {
   if (event.dryRun) {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now(),dry_run:true});return outcome;}
+  if(outcome.status==='media_wait'){await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome;}
   if(outcome.status==='deferred') {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome;}
   if (outcome.status==='superseded') { await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome; }
   if (!['delivered','no_reply'].includes(outcome.status)) {
     await stateWrite(env,'ig_reply_escalated:'+event.cid,{at:event.at,handle:event.handle,status:'needs_review',kind:'technical',reason:outcome.reason??'cloud_execution_review'});
-    await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome;
+    await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});
+    // Durable owner intent prevents duplicate questions if an acknowledgement is lost.
+    // The prepared plan survives even when the owner channel is unavailable.
+    await prepareReviewPlan(env,event,outcome);
+    return outcome;
   }
   if (outcome.status==='delivered') {
     const plan=await stateRead(env,outcome.deliveryKey);
@@ -384,7 +550,8 @@ export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome
   // Preserve manual edits and newer payout-driven stages while advancing the
   // same creator only from the snapshot Diana actually read.
   const base=await artifactPrefix(event);
-  const draft=await get(env,base+'decision.json'),source=await get(env,draft.sourceKey),decision=draft.decision;
+  const actualDecisionKey=outcome.decisionKey===base+'payment-uncertain-decision.json'?outcome.decisionKey:base+'decision.json';
+  const draft=await get(env,actualDecisionKey),source=await get(env,draft.sourceKey),decision=draft.decision;
   if(event.task==='owner_choice'){
     if(outcome.status!=='delivered')throw Error('owner_choice_delivery_not_verified');
     const key='ig_hard:'+event.question_id;
@@ -441,6 +608,18 @@ export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome
         .bind(source.creator.id).all<{id:string}>()).results??[];
       for(const payout of open)await stateWrite(env,'payout_hold:'+payout.id,{reason:'blogger_refused',event_id:event.event_id,at:new Date().toISOString()});
     }
+  }
+  if(outcome.status==='delivered'){
+    // Capture what actually reached Meta, not merely the proposed model draft.
+    // This is a pending Owner review, never a claim that training occurred.
+    const plan=await stateRead(env,outcome.deliveryKey);
+    if(plan?.status!=='complete'||!Array.isArray(plan.items)||!plan.items.length||plan.items.some((i:any)=>i.status!=='sent'||!i.messageId))throw Error('learning_delivery_receipt_missing');
+    const evidenceKey=await put(env,base+'learning-observation.json',{event_id:event.event_id,message_id:event.message_id,sourceKey:draft.sourceKey,contextKey:draft.contextKey??null,decisionKey:actualDecisionKey,deliveryKey:outcome.deliveryKey,
+      original_message_ids:source.history.map((m:any)=>m.id),unreadable_message_ids:source.history.filter((m:any)=>m.unsupported).map((m:any)=>m.id),decision_reason:decision.reason??null,learning_uncertainty:decision.learningUncertainty??null,
+      sent:plan.items.map((i:any)=>({message_id:i.messageId,text:i.text??null,image_url:i.imageUrl??null})),status:'pending_owner_review'});
+    const observationKey='diana_learning_observation:'+event.event_id;
+    await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind(observationKey,JSON.stringify({status:'pending_owner_review',event_id:event.event_id,message_id:event.message_id,evidenceKey,deliveryKey:outcome.deliveryKey,at:Date.now()}),Date.now()).run();
+    const saved=await stateRead(env,observationKey);if(saved?.evidenceKey!==evidenceKey||saved?.deliveryKey!==outcome.deliveryKey)throw Error('learning_observation_not_verified');
   }
   const proof={event_id:event.event_id,message_id:event.message_id,cid:event.cid,verified:true,executor:'cloudflare_workflow',outcome:outcome.status,
     proof:outcome.deliveryKey??outcome.reason,checked_at:new Date().toISOString()};

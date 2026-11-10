@@ -3,8 +3,8 @@
 export function confirmedCartAmount(imageCheck, latestImageAt) {
   const check = imageCheck?.checks?.at(-1);
   if (!latestImageAt || imageCheck?.status !== 'yes' || check?.kind !== 'basket'
-    || check.product !== 'yes' || check.amount !== 'yes' || check.seller === 'no'
-    || (check.unresolved_required ?? []).some(field => field !== 'seller')) return null;
+    || check.product !== 'yes' || check.amount !== 'yes' || check.seller !== 'yes'
+    || (check.unresolved_required ?? []).length>0) return null;
   const sourceAt = check.label?.match(/сообщения (\S+), вложение/)?.[1];
   if (!sourceAt || sourceAt !== latestImageAt) return null;
   if (!/^(RUB|₽|руб\.?|рублей)$/iu.test(check.observed?.currency?.trim() ?? '')) return null;

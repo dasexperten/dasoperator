@@ -57,3 +57,12 @@ test('Owner Direct-only mode pauses other actions durably and never routes to Ai
  f.peer.meta.role='secondary';const paused=await (await f.actor.fetch(new Request('https://wake/dispatch'))).json();assert.equal(paused.reason,'no_machine_connected');assert.equal(f.peer.sent.length,0);
  f.peer.meta.role='primary';await f.actor.fetch(new Request('https://wake/dispatch'));assert.equal(f.peer.sent.length,1);assert.deepEqual(f.peer.sent[0].messages.map(x=>x.event_id),['message:direct']);assert.equal(events(f).length,1);
 });
+
+test('media retry alarm is scheduled at its due time without keeping the shared lock',async t=>{
+ const f=fixture(t),now=Date.parse('2026-11-11T08:00:00+03:00');t.mock.method(Date,'now',()=>now);
+ const event={cid:'chat',message_id:'original',event_id:'message:original',handle:'creator',at:'2026-11-09T10:00:00Z'};
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_mode','enabled',now);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_round_alarm:chat',JSON.stringify(event),now);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_event:'+event.event_id,JSON.stringify({status:'media_wait',retry_at:now+180000}),now);
+ await f.actor.alarm();assert.equal(f.alarms.at(-1),now+180000);assert.equal(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='diana_cloud_lock'").get(),undefined);
+});

@@ -6,28 +6,33 @@ import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud, recoverDianaC
 // Confirm the still-current original in Meta before allowing a legacy free-text
 // needs_review into the narrow video recovery path. Network failures are not
 // evidence that a message is safe to replay.
-export async function latestOriginalIsVideo(env:Env,event:any):Promise<boolean>{
+export async function latestOriginalRecoveryKind(env:Env,event:any):Promise<'video'|'text'|'unsupported'|null>{
  const started=Date.now(),signal=AbortSignal.timeout(4000);
  let outcome='meta_unavailable';
  try{
   const token=(env as any).META_IG_MESSAGING_TOKEN;
-  if(!token){outcome='credential_unavailable';return false;}
-  if(!event.cid||!event.message_id||event.event_id!=='message:'+event.message_id){outcome='invalid_event';return false;}
+  if(!token){outcome='credential_unavailable';return null;}
+  if(!event.cid||!event.message_id||event.event_id!=='message:'+event.message_id){outcome='invalid_event';return null;}
   const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0/'+path,{headers:{Authorization:'Bearer '+key},signal});if(!r.ok)throw Error('meta_unavailable');const value=await r.json() as any;if(value?.error)throw Error('meta_unavailable');return value;};
-  const page=await graph('1697038263872226?fields=access_token',token);if(!page.access_token){outcome='meta_unavailable';return false;}
-  const original=await graph(encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,attachments{mime_type,file_url,image_data,video_data}}',String(page.access_token));
+  const page=await graph('1697038263872226?fields=access_token',token);if(!page.access_token){outcome='meta_unavailable';return null;}
+  const original=await graph(encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,message,is_unsupported,shares{link},attachments{mime_type,file_url,image_data,video_data}}',String(page.access_token));
   const message=original.messages?.data?.[0];
-  if(!message?.id||!message?.from?.id){outcome='original_unavailable';return false;}
-  if(String(message.id)!==event.message_id||['1697038263872226','17841466350261166'].includes(String(message.from.id))){outcome='stale';return false;}
-  if(!Array.isArray(message.attachments?.data)){outcome='attachments_unavailable';return false;}
-  const video=message.attachments.data.some((a:any)=>!!a.video_data||String(a.mime_type??'').startsWith('video/'));
-  outcome=video?'video':message.attachments.data.length?'nonvideo':'no_attachments';return video;
- }catch{outcome=signal.aborted?'timeout':'meta_unavailable';return false;}
+  if(!message?.id||!message?.from?.id){outcome='original_unavailable';return null;}
+  if(String(message.id)!==event.message_id||['1697038263872226','17841466350261166'].includes(String(message.from.id))){outcome='stale';return null;}
+  const attachments=message.attachments?.data;
+  const video=Array.isArray(attachments)&&attachments.some((a:any)=>!!a.video_data||String(a.mime_type??'').startsWith('video/'));
+  if(video){outcome='video';return 'video';}
+  if(message.is_unsupported===true){outcome='unsupported';return 'unsupported';}
+  if(typeof message.message==='string'&&message.message.trim()&&!message.is_unsupported&&(!Array.isArray(attachments)||attachments.length===0)&&!(message.shares?.data?.length)){outcome='text';return 'text';}
+  if(!Array.isArray(attachments)){outcome='attachments_unavailable';return null;}
+  outcome=attachments.length?'nonvideo':'no_attachments';return null;
+ }catch{outcome=signal.aborted?'timeout':'meta_unavailable';return null;}
  finally{
   // Closed vocabulary only: never log event IDs, URLs, responses or errors.
   console.log(JSON.stringify({event:'diana_video_recovery_probe',outcome,elapsed_ms:Date.now()-started}));
  }
 }
+export async function latestOriginalIsVideo(env:Env,event:any):Promise<boolean>{return (await latestOriginalRecoveryKind(env,event))==='video';}
 
 // Mark only a positively absent recovery workflow, preserving its exact ID.
 // The caller leaves unknown/transport errors locked for review.
@@ -75,12 +80,13 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   const ownerChoice=(e:any)=>e.task==='owner_choice'&&e.question_id&&String(e.event_id).startsWith('action:');
   const waiting=(await pendingDianaMessages(env)).filter(e=>e.message_id&&(financial(e)||ownerChoice(e)||String(e.queue_key).startsWith('diana_round_alarm:')&&e.event_id==='message:'+e.message_id))
     .sort((a,b)=>Number(b.event_id===priorityEventId)-Number(a.event_id===priorityEventId)||Number(!!financial(b))-Number(!!financial(a))||Date.parse(b.at)-Date.parse(a.at));
-  const recoveryCandidates:any[]=[];
+  const recoveryCandidates:any[]=[];let mediaNext:number|null=null;
   for(const event of waiting){
     if(recoveryOnly&&event.event_id!==priorityEventId)continue;
     const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first<{value:string}>();
-    let deferred=false,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryPrevious='',recoveryId='';
+    let deferred=false,mediaResume=false,mediaRetryAt=0,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryFailureRetry=false,recoveryPrevious='',recoveryId='';let recoveryAttempt=1;let recoveryKind:'video'|'text'|'unsupported'|null=null;
     if(known){try{const prior=JSON.parse(known.value);deferred=prior?.status==='deferred';
+      if(prior?.status==='media_wait'&&Number.isFinite(Number(prior.retry_at))){mediaRetryAt=Number(prior.retry_at);if(now>=mediaRetryAt)mediaResume=true;else mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);}
       recoveryCandidate=String(event.queue_key).startsWith('diana_round_alarm:')&&prior?.status==='needs_review';
     }catch{}}
     if(recoveryCandidate&&!recoveryOnly){
@@ -89,7 +95,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       if(!priorityEventId)recoveryCandidates.push(event);
       continue;
     }
-    if(recoveryCandidate&&recoveryOnly)videoRecovery=await latestOriginalIsVideo(env,event);
+    if(recoveryCandidate&&recoveryOnly){recoveryKind=await latestOriginalRecoveryKind(env,event);videoRecovery=!!recoveryKind;}
     if(videoRecovery){
       // Only one dedicated attempt; never delete or rewrite the old receipt.
       let previous=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_video_recovery_result:'+event.event_id).first<{value:string}>();
@@ -103,14 +109,21 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
             if(!previous)continue;try{data=JSON.parse(previous.value);}catch{continue;}
           }
         }
-        if(data?.status==='create_missing'&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){recoveryRetry=true;recoveryId=data.workflow_id;}
+        const previousAttempt=Number(data.recovery_attempt??1);
+        if(!Number.isInteger(previousAttempt)||previousAttempt<1||previousAttempt>3)continue;
+        recoveryAttempt=previousAttempt;
+        if(data?.status==='media_wait'&&Number.isFinite(Number(data.retry_at))){mediaRetryAt=Number(data.retry_at);if(now<mediaRetryAt){mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);continue;}mediaResume=true;recoveryResume=true;}
+        else if(data?.status==='create_missing'&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){recoveryRetry=true;recoveryId=data.workflow_id;}
         else if(data?.status==='deferred'&&Number.isFinite(Number(data.at))&&dianaWorkWindow(Number(data.at)).date<dianaWorkWindow(now).date)recoveryResume=true;
-        else continue;
+        else if(data?.status==='failed'&&data.reason==='recovery_technical_retryable'&&previousAttempt<3&&Number.isFinite(Number(data.at))&&now-Number(data.at)>=180_000&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){
+          try{const status=await(await env.DIANA_CLOUD.get(data.workflow_id)).status();if(!['complete','errored','terminated'].includes(status.status))continue;}catch{continue;}
+          recoveryFailureRetry=true;recoveryAttempt=previousAttempt+1;
+        }else continue;
         recoveryPrevious=previous.value;
       }
     }
-    if(known&&!deferred&&!videoRecovery)continue;
-    const identity=videoRecovery?`video-recovery:${event.event_id}${recoveryResume?':resume:'+dianaWorkWindow(now).date:''}`:deferred?`${event.event_id}:resume:${dianaWorkWindow(now).date}`:event.event_id;
+    if(known&&!deferred&&!mediaResume&&!videoRecovery)continue;
+    const identity=videoRecovery?`video-recovery:${event.event_id}${mediaResume?':media:'+mediaRetryAt:recoveryResume?':resume:'+dianaWorkWindow(now).date:recoveryFailureRetry?':retry:'+recoveryAttempt:''}`:mediaResume?`${event.event_id}:media:${mediaRetryAt}`:deferred?`${event.event_id}:resume:${dianaWorkWindow(now).date}`:event.event_id;
     const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity)))].map(x=>x.toString(16).padStart(2,'0')).join('');
     const id=recoveryRetry?recoveryId:'direct-v1-'+hash;
     const previous=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_recovery:direct:'+id).first<{value:string}>();
@@ -128,8 +141,8 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       }
     }
     if(videoRecovery){
-      const marker=JSON.stringify({status:'queued',event_id:event.event_id,workflow_id:id,recovery:true,at:Date.now()});
-      const inserted=recoveryResume||recoveryRetry
+      const marker=JSON.stringify({status:'queued',event_id:event.event_id,workflow_id:id,recovery:true,recovery_attempt:recoveryAttempt,at:Date.now()});
+      const inserted=recoveryResume||recoveryRetry||recoveryFailureRetry
         ?await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND value=?4').bind('diana_video_recovery_result:'+event.event_id,marker,Date.now(),recoveryPrevious).run()
         :await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_video_recovery_result:'+event.event_id,marker,Date.now()).run();
       if(!inserted.meta.changes){await releaseDianaCloud(env,{kind:'direct',id});continue;}
@@ -139,7 +152,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_cloud_active',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
       .bind(id,Date.now()).run();
     try { await env.DIANA_CLOUD.create({id,params:{cid:event.cid,message_id:event.message_id,event_id:event.event_id,handle:event.handle,at:event.at,
-      ...(videoRecovery?{recovery:true}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
+      ...(mediaResume?{mediaRetried:true}:{}),...(videoRecovery?{recovery:true,recoveryKind,recoveryAttempt}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
     catch(error){
       // A nonexistent instance is a real failed create, and leaves the pending
       // metadata untouched. A duplicate-ID response resolves to the same work.
@@ -160,5 +173,6 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(cursorKey,chosen.event_id,Date.now()).run();
     return dispatchDianaCloud(env,chosen.event_id,now,true);
   }
+  if(mediaNext!==null)return {dispatched:false,reason:'media_retry_waiting',retry_at:mediaNext,pending:waiting.length};
   return {dispatched:false,reason:waiting.length?'cloud_events_await_review':'queue_empty',pending:waiting.length};
 }

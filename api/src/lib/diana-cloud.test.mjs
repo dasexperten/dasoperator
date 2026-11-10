@@ -10,13 +10,13 @@ const {build}=createRequire(import.meta.url)('esbuild');
 const dir=mkdtempSync(join(tmpdir(),'diana-cloud-test-'));
 const outfile=join(dir,'cloud.mjs');
 const stubs={
- 'ig-dm-attachments':`export const imageUrls=s=>JSON.parse(s||'[]').filter(a=>a.image_data||String(a.mime_type||'').startsWith('image/')).map(a=>a.image_data?.url||a.file_url);export const incomingScreenshots=async(env)=>({images:[],unreadable:0,currentUnavailable:env.unavailable===true,omitted:0});`,
- 'diana-context.mjs':`export const prepareDianaContext=async({task})=>({system:'Full Diana profile',imagePolicy:{},receipt:{org_sha:'fixture',skills:['ugc-master','personizer']}});`,
- 'diana-subscription.mjs':`export const subscriptionInfer=(env,operation)=>async(messages,options)=>{env.inferences.push({operation,messages,options});return {text:JSON.stringify(env.decision),receipt:{transport:'codex-native',auth:'subscription',model:options.model}}};`,
- 'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async({task})=>task.startsWith('Inspect original video frames')?globalThis.__videoFixture:({checks:[],status:'yes'});`,
+ 'ig-dm-attachments':`export const imageUrls=s=>JSON.parse(s||'[]').filter(a=>a.image_data||String(a.mime_type||'').startsWith('image/')).map(a=>a.image_data?.url||a.file_url);export const incomingScreenshots=async(env)=>env.screenshots??({images:[],unreadable:0,currentUnavailable:env.unavailable===true,omitted:0});`,
+ 'diana-context.mjs':`export const prepareDianaContext=async({task})=>({system:'Full Diana profile. Verified fixture terms: order the product; reimbursement follows receipt confirmation.',imagePolicy:{sellers:[{legal_name:'ООО ДАС ЭКСПЕРТЕН ЕВРАЗИЯ'}]},receipt:{org_sha:'fixture',skills:['ugc-master','personizer']}});`,
+ 'diana-subscription.mjs':`export const subscriptionInfer=(env,operation)=>async(messages,options)=>{env.inferences.push({operation,messages,options});return {text:JSON.stringify(env.decisions?.shift()??env.decision),receipt:{transport:'codex-native',auth:'subscription',model:options.model}}};`,
+ 'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async({task})=>task.startsWith('Inspect original video frames')?globalThis.__videoFixture:(globalThis.__imageFixture?structuredClone(globalThis.__imageFixture):({checks:[],status:'yes'}));`,
  'diana-video-vision.mjs':`export const checkVideoFrames=async()=>globalThis.__videoFixture;`,
  'diana-video.mjs':`export const currentVideos=messages=>messages.flatMap(m=>JSON.parse(m.attachments_json||'[]').filter(a=>a.video_data||String(a.mime_type||'').startsWith('video/')).map(a=>({url:a.file_url,messageId:m.id})));export const extractCurrentVideoFrames=async(_env,videos)=>[{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'original video frame',sourceMessageId:videos[0].messageId,videoSha256:'fixture-hash'}];`,
- 'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
+ 'ig-dm-watch':`export const IG_UNSUPPORTED='unsupported';export const refreshIgAttachments=async(env,id)=>env.restored?.[id]??null;export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
  'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
  'ugc-payout-intake':`export const prepareCreatorPayout=async(env,input)=>{env.partialIntake=input;return {registered:false,missing_fields:['bank','phone','first_name']}};`,
  'ugc-payout-store':`export const executeUgcPayout=async(env,id,check)=>{if(!await check())return {ok:false,code:'source_changed'};env.executedPayout=id;return {ok:true}};export const refreshUgcPayout=async(env,id)=>{env.refreshedPayout=id;return {ok:!env.refreshFail}};`
@@ -30,10 +30,14 @@ const {dispatchDianaCloud,latestOriginalIsVideo}=await import(pathToFileURL(disp
 const lockFile=join(dir,'lock.mjs');
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud-lock.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:lockFile});
 const {reserveDianaCloud,releaseDianaCloud,readDianaCloudLock}=await import(pathToFileURL(lockFile));
+const questionFile=join(dir,'question.mjs');
+await build({entryPoints:[fileURLToPath(new URL('./ugc-hard-question.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:questionFile});
+const {answerHardQuestion}=await import(pathToFileURL(questionFile));
 rmSync(dir,{recursive:true});
 function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);
+ CREATE TABLE ugc_content(id TEXT PRIMARY KEY,creator_id TEXT,product_status TEXT);
  CREATE TABLE ugc_ig_messages(id TEXT PRIMARY KEY,conversation_id TEXT,direction TEXT,from_id TEXT,from_username TEXT,text TEXT,attachments_json TEXT,created_at TEXT,seen_at TEXT);
  CREATE TABLE ugc_creators(id TEXT PRIMARY KEY,normalized_handle TEXT,lifecycle_stage TEXT,updated_at INTEGER);
  CREATE TABLE ugc_creator_platforms(creator_id TEXT,normalized_handle TEXT,platform TEXT);
@@ -121,7 +125,7 @@ test('cutoff defers without acknowledging and next day resumes only the unsent p
 });
 test('unsupported or unreadable current attachment cannot produce an invented answer',async t=>{
  const f=fixture(t);f.originals[0].is_unsupported=true;let source=await cloud.readCloudConversation(f.env,f.event);
- assert.equal((await cloud.prepareCloudDecision(f.env,source.key)).status,'needs_review');assert.equal(f.env.inferences.length,0);
+ assert.equal((await cloud.prepareCloudDecision(f.env,source.key)).status,'media_wait');assert.equal(f.env.inferences.length,0);
  delete f.originals[0].is_unsupported;f.env.unavailable=true;source=await cloud.readCloudConversation(f.env,f.event);
  await assert.rejects(cloud.prepareCloudDecision(f.env,source.key),/current_image_unavailable/);assert.equal(f.sends.length,0);
 });
@@ -159,7 +163,7 @@ test('dispatcher creates exactly one durable event, waits on its real status and
  f.set('diana_action_pending:action:reminder',{...f.event,event_id:'action:reminder',task:'video_reminder'});
  assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).dispatched,true);assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'diana_cloud_working');assert.equal(creates.length,1);
  assert.ok(f.state('diana_action_pending:action:reminder'));
- instances.set(creates[0].id,'complete');f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
+ instances.set(creates[0].id,'complete');f.originals[0].message='';f.originals[0].attachments={data:[{mime_type:'image/jpeg'}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
  assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'cloud_events_await_review');assert.equal(creates.length,1);
 });
 test('a terminal instance without a verified event receipt is not reported as dispatched or replayed',async t=>{
@@ -429,4 +433,207 @@ test('recovery probe logs only closed outcome categories, without identifiers or
  }
  assert.equal(await latestOriginalIsVideo({},event),false);assert.equal(JSON.parse(logs.at(-1)).outcome,'credential_unavailable');
  assert.equal(await latestOriginalIsVideo(env,{...event,event_id:'invalid'}),false);assert.equal(JSON.parse(logs.at(-1)).outcome,'invalid_event');
+});
+
+test('full readable requisites then an unreadable attachment receive a single processing acknowledgement after a durable signal',async t=>{
+ const f=fixture(t);const details={id:'details',from:{id:'person',username:'creator'},message:'89990000000 Сбербанк Елена',created_time:'2026-11-09T09:00:00Z'};
+ f.originals=[{id:'unknown',from:{id:'person',username:'creator'},message:'',is_unsupported:true,created_time:'2026-11-09T09:00:01Z'},details];
+ const event={...f.event,message_id:'unknown',event_id:'message:unknown',at:'2026-11-09T09:00:01.000Z',recovery:true,recoveryKind:'unsupported',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ const source=await cloud.readCloudConversation(f.env,event);const context=await cloud.prepareCloudDecision(f.env,source.key);assert.equal(context.status,'ready');
+ assert.equal(f.env.partialIntake.cycle_message_id,'details');assert.deepEqual(f.env.partialIntake.source_message_ids,['details']);
+ const signal=JSON.parse(f.state('diana_payout_signal:'+event.event_id));assert.equal(signal.message_id,'details');assert.equal(signal.latest_message_id,'unknown');
+ assert.equal(JSON.parse(f.state('diana_unreadable_media:unknown')).message_id,'unknown');
+ const draft=await cloud.draftCloudDecision(f.env,context.key);assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'partial');
+ const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо! Передали реквизиты в обработку.');
+ await cloud.completeCloudEvent(f.env,event,result);await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);assert.equal(f.env.payoutHandoffs,undefined);assert.equal(f.env.executedPayout,undefined);assert.ok(f.state('diana_unreadable_media:unknown'));
+});
+test('a later clear text can be answered once while the earlier inaccessible media remains pending',async t=>{
+ const f=fixture(t);f.originals=[{id:'clear',from:{id:'person',username:'creator'},message:'Забрала',created_time:'2026-11-09T09:00:02Z'},
+ {id:'unknown',from:{id:'person',username:'creator'},message:'',is_unsupported:true,created_time:'2026-11-09T09:00:01Z'}];
+ f.db.prepare("UPDATE ugc_creators SET lifecycle_stage='paid' WHERE id='creator-id'").run();
+ const event={...f.event,message_id:'clear',event_id:'message:clear',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ const old={status:'needs_review',reason:'Не удалось прочитать вложение'};f.set('diana_cloud_event:'+event.event_id,old);f.env.decision={...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!']};
+ const {draft}=await f.prepare(event);assert.match(f.env.inferences[0].messages[0].content,/earlier incoming attachment is inaccessible/);
+ assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'partial');const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');await cloud.completeCloudEvent(f.env,event,out);
+ assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,'Спасибо, что сообщили!');assert.equal(f.db.prepare("SELECT lifecycle_stage FROM ugc_creators WHERE id='creator-id'").get().lifecycle_stage,'creation');assert.ok(f.state('diana_creator_progress:'+event.event_id));assert.ok(f.state('diana_unreadable_media:unknown'));
+ const observation=JSON.parse(f.state('diana_learning_observation:'+event.event_id));const evidence=JSON.parse(f.files.get(observation.evidenceKey));assert.equal(observation.status,'pending_owner_review');assert.equal(evidence.sent[0].text,'Спасибо, что сообщили!');assert.ok(evidence.unreadable_message_ids.includes('unknown'));assert.equal(evidence.sent[0].message_id,'out-1');assert.ok(f.state('diana_text_recovery_unresolved:'+event.event_id));assert.deepEqual(JSON.parse(f.state('diana_cloud_event:'+event.event_id)),old);
+ await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);assert.equal(f.env.executedPayout,undefined);
+});
+test('a new clear question can receive an independent durable reply while the old review remains open',async t=>{
+ const f=fixture(t);f.originals[0].message='Какие у вас условия?';const event={...f.event,recovery:true,recoveryKind:'text'};
+ const old={status:'needs_review',reason:'Старое утверждение не подтверждено'};f.set('diana_cloud_event:'+event.event_id,old);
+ f.env.decision={...f.env.decision,reply:'Вы заказываете товар, а мы возмещаем стоимость после подтверждения получения.',replies:['Вы заказываете товар, а мы возмещаем стоимость после подтверждения получения.']};
+ const {draft}=await f.prepare(event);assert.match(f.env.inferences[0].messages[0].content,/verified current programme rules/);
+ const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');await cloud.completeCloudEvent(f.env,event,out);assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,'Вы заказываете товар, а мы возмещаем стоимость после подтверждения получения.');
+ assert.deepEqual(JSON.parse(f.state('diana_cloud_event:'+event.event_id)),old);assert.ok(f.state('diana_text_recovery_unresolved:'+event.event_id));await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);
+});
+test('plain original text gets its own recovery workflow, with no fabricated attachments',async t=>{
+ const f=fixture(t),created=[];f.originals[0].message='Какие у вас условия?';f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Старое утверждение не подтверждено'});
+ f.env.DIANA_CLOUD={async create(x){created.push(x)}};const out=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));
+ assert.equal(out.dispatched,true);assert.equal(created[0].params.recoveryKind,'text');assert.equal(created.length,1);assert.equal(f.sends.length,0);
+});
+
+
+test('a still-current unsupported original starts a separate safe intake-only recovery',async t=>{
+ const f=fixture(t),created=[];f.originals[0].message='';f.originals[0].is_unsupported=true;f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нельзя прочитать вложение'});
+ f.env.DIANA_CLOUD={async create(x){created.push(x)}};const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));
+ assert.equal(result.dispatched,true);assert.equal(created[0].params.recoveryKind,'unsupported');assert.equal(f.sends.length,0);
+});
+
+test('technical recovery failure waits, verifies terminal status and retries with a bounded new attempt',async t=>{
+ const f=fixture(t),created=[];f.originals[0].message='Какие у вас условия?';f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Старый review'});
+ const now=Date.parse('2026-11-11T08:10:00+03:00'),oldId='direct-v1-'+'c'.repeat(64);let status='running';
+ f.set('diana_video_recovery_result:'+f.event.event_id,{status:'failed',reason:'recovery_technical_retryable',workflow_id:oldId,recovery_attempt:1,at:now-1000});
+ f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return{status}}}}};
+ assert.equal((await dispatchDianaCloud(f.env,undefined,now)).dispatched,false);
+ f.set('diana_video_recovery_result:'+f.event.event_id,{status:'failed',reason:'recovery_technical_retryable',workflow_id:oldId,recovery_attempt:1,at:now-181000});
+ assert.equal((await dispatchDianaCloud(f.env,undefined,now)).dispatched,false);status='errored';
+ assert.equal((await dispatchDianaCloud(f.env,undefined,now)).dispatched,true);assert.equal(created.length,1);assert.notEqual(created[0].id,oldId);assert.equal(created[0].params.recoveryAttempt,2);assert.equal(created[0].params.recoveryKind,'text');
+ assert.equal(JSON.parse(f.state('diana_cloud_event:'+f.event.event_id)).reason,'Старый review');
+});
+test('payment-specific or exhausted recovery failures never restart automatically',async t=>{
+ for(const prior of [{status:'failed',reason:'payout_execution_unknown',recovery_attempt:1},{status:'failed',reason:'recovery_technical_retryable',recovery_attempt:3}]){
+  const f=fixture(t),created=[];f.originals[0].message='Какие у вас условия?';f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Старый review'});
+  const now=Date.parse('2026-11-11T08:10:00+03:00');f.set('diana_video_recovery_result:'+f.event.event_id,{...prior,workflow_id:'direct-v1-'+'d'.repeat(64),at:now-181000});
+  f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return{status:'errored'}}}}};
+  assert.equal((await dispatchDianaCloud(f.env,undefined,now)).dispatched,false);assert.equal(created.length,0);
+ }
+});
+
+test('explicit receipt advances early stage without fabricating payout, while manual or later stages are preserved',async t=>{
+ for(const [stage,manual,expected] of [['replied',false,'creation'],['agreed',false,'creation'],['posted',false,'posted'],['replied',true,'replied']]){
+  const f=fixture(t);f.db.prepare('UPDATE ugc_creators SET lifecycle_stage=? WHERE id=?').run(stage,'creator-id');if(manual)f.set('manual_stage:creator-id',{to:'replied',at:1});f.originals[0].message='Забрала';
+  const source=await cloud.readCloudConversation(f.env,f.event);assert.equal(source.status,'ready');assert.equal(f.db.prepare("SELECT lifecycle_stage FROM ugc_creators WHERE id='creator-id'").get().lifecycle_stage,expected);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);assert.equal(f.sends.length,0);
+ }
+});
+
+
+test('order message with failed payout and earlier payment claim produces reconciliation without asserting money was received',async t=>{
+ const f=fixture(t);f.originals=[{id:'order',from:{id:'person',username:'creator'},message:'Заказала 👍🏼',created_time:'2026-11-09T09:00:02Z'},{id:'prior-out',from:{id:'17841466350261166'},message:'Наконец-то получилось оплатить',created_time:'2026-11-09T09:00:01Z'}];
+ f.db.prepare("INSERT INTO ugc_payouts(id,creator_id,status,amount_minor) VALUES('p1','creator-id','failed',45300)").run();
+ const event={...f.event,message_id:'order',event_id:'message:order',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ const {draft}=await f.prepare(event);const conflict=JSON.parse(f.state('diana_payout_reconciliation:'+event.event_id));assert.equal(conflict.reason,'provider_failed_prior_outgoing_payment_claim');assert.equal(conflict.prior_outgoing_message_id,'prior-out');
+ assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'not_applicable');const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что сообщили! Когда получите товар, напишите, пожалуйста.');
+ assert.doesNotMatch(f.sends[0].text,/перевод|оплатили|деньги/);assert.equal(f.env.executedPayout,undefined);assert.equal(f.env.payoutHandoffs,undefined);
+});
+
+test('unknown sender question gets an honest answer and a background reconciliation without payment claims',async t=>{
+ const f=fixture(t);f.originals[0].message='От кого пришёл перевод?';f.env.decision={...f.env.decision,escalate:true,reply:null,reason:'Неизвестен отправитель'};
+ const event={...f.event,recovery:true,recoveryKind:'text'};const {draft}=await f.prepare(event);
+ const record=JSON.parse(f.state('diana_sender_reconciliation:'+event.event_id));assert.equal(record.reason,'sender_not_confirmed');
+ assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'not_applicable');const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');
+ assert.equal(f.sends[0].text,'Пока не могу подтвердить отправителя перевода.');assert.equal(f.env.executedPayout,undefined);await cloud.completeCloudEvent(f.env,event,result);
+ const observation=JSON.parse(f.state('diana_learning_observation:'+event.event_id));const evidence=JSON.parse(f.files.get(observation.evidenceKey));assert.equal(evidence.decision_reason,'sender_not_confirmed');assert.equal(evidence.sent[0].text,f.sends[0].text);
+});
+
+test('review creates one Owner question with a ready draft; selection resumes through verified delivery',async t=>{
+ const f=fixture(t),owner=[];f.env.DASORG_API_KEY='test-only';f.env.ORGANIZATION={fetch:async(_url,init)=>{owner.push(JSON.parse(init.body));return Response.json({ok:true,message_id:42});}};
+ f.env.DIANA_WAKE={idFromName:()=>1,get:()=>({fetch:async()=>Response.json({dispatched:false})})};
+ await cloud.readCloudConversation(f.env,f.event);
+ const outcome={status:'needs_review',reason:'business_context_needs_owner'};await cloud.completeCloudEvent(f.env,f.event,outcome);await cloud.completeCloudEvent(f.env,f.event,outcome);
+ assert.equal(owner.length,1);const plan=JSON.parse(f.state('diana_review_plan:'+f.event.event_id));assert.ok(plan.draft);assert.ok(plan.options['Отправить черновик']);
+ const q=JSON.parse(f.state('ig_hard:42'));assert.equal(q.review_event_id,f.event.event_id);assert.equal(q.options['Отправить черновик'][0],plan.draft);
+ const chosen=await answerHardQuestion(f.env,42,'Отправить черновик');assert.equal(chosen.handled,true);assert.ok(chosen.event_id);assert.equal(f.sends.length,0);
+ const action=JSON.parse(f.state('diana_action_pending:'+chosen.event_id));assert.equal(action.task,'owner_choice');
+ f.env.decision={...f.env.decision,reply:plan.draft,replies:[plan.draft]};const {draft}=await f.prepare(action);const sent=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(sent.status,'delivered');await cloud.completeCloudEvent(f.env,action,sent);
+ assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,plan.draft);assert.ok(JSON.parse(f.state('ig_hard:42')).answered_at);
+});
+test('ambiguous Owner question delivery is never sent twice and keeps a ready plan',async t=>{
+ const f=fixture(t);let tries=0;f.env.DASORG_API_KEY='test-only';f.env.ORGANIZATION={fetch:async()=>{tries++;throw Error('connection lost')}};
+ await cloud.completeCloudEvent(f.env,f.event,{status:'needs_review',reason:'business_context_needs_owner'});await cloud.completeCloudEvent(f.env,f.event,{status:'needs_review',reason:'business_context_needs_owner'});
+ assert.equal(tries,1);assert.equal(JSON.parse(f.state('diana_review_owner_intent:'+f.event.event_id)).status,'delivery_unknown');assert.ok(JSON.parse(f.state('diana_review_plan:'+f.event.event_id)).draft);
+});
+test('payment or delivery uncertainty offers no send action',async t=>{
+ const f=fixture(t);await cloud.completeCloudEvent(f.env,f.event,{status:'needs_review',reason:'payment_provider_unknown'});
+ const plan=JSON.parse(f.state('diana_review_plan:'+f.event.event_id));assert.equal(plan.next,'inspect_original_and_payment_receipts');assert.deepEqual(Object.values(plan.options),[null]);assert.equal(f.sends.length,0);
+});
+
+
+test('explicit order advances early stage to creation without implying a payment',async t=>{
+ for(const [stage,manual,expected] of [['replied',false,'creation'],['cart',false,'creation'],['posted',false,'posted'],['replied',true,'replied']]){
+  const f=fixture(t);f.db.prepare('UPDATE ugc_creators SET lifecycle_stage=? WHERE id=?').run(stage,'creator-id');if(manual)f.set('manual_stage:creator-id',{to:'replied',at:1});f.originals[0].message='Заказала 👍🏼';
+  const source=await cloud.readCloudConversation(f.env,f.event);assert.equal(source.status,'ready');assert.equal(f.db.prepare("SELECT lifecycle_stage FROM ugc_creators WHERE id='creator-id'").get().lifecycle_stage,expected);
+  if(expected==='creation')assert.equal(JSON.parse(f.state('diana_creator_progress:'+f.event.event_id)).confirmation_kind,'ordered');
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);assert.equal(f.sends.length,0);
+ }
+});
+
+test('friendly follow-up after an acknowledged video gets a warm reply without a publication push',async t=>{
+ const f=fixture(t);f.originals=[{id:'friendly',from:{id:'person',username:'creator'},message:'Спасибо большое!',created_time:'2026-11-09T09:00:02Z'},{id:'prior-out',from:{id:'17841466350261166'},message:'Спасибо за видео!',created_time:'2026-11-09T09:00:01Z'}];
+ const event={...f.event,message_id:'friendly',event_id:'message:friendly',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);f.env.decision={...f.env.decision,reply:'Когда опубликуете?',replies:['Когда опубликуете?']};
+ const {draft}=await f.prepare(event);const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо! Очень приятно 😊');assert.doesNotMatch(f.sends[0].text,/публикац|опублик/iu);
+});
+test('shared links are thanked once and remain independently unverified',async t=>{
+ const f=fixture(t);f.originals[0].message='Опубликовала ещё и в TikTok https://www.tiktok.com/@creator/video/123456789';
+ const event={...f.event,recovery:true,recoveryKind:'text'};f.env.decision={...f.env.decision,escalate:true,reply:null,reason:'ссылка не проверена'};
+ const {draft}=await f.prepare(event);const pending=JSON.parse(f.state('diana_publication_pending:'+event.event_id));assert.equal(pending.verified,false);assert.equal(pending.links[0].platform,'tiktok');
+ const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что поделились ссылками!');
+ await cloud.completeCloudEvent(f.env,event,result);await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);assert.equal(JSON.parse(f.state('diana_publication_pending:'+event.event_id)).verified,false);
+});
+
+test('unsupported original is reopened by exact message ID; recovered image enters normal vision path',async t=>{
+ const f=fixture(t);f.originals[0].message='';f.originals[0].is_unsupported=true;f.env.restored={incoming:JSON.stringify([{mime_type:'image/jpeg',image_data:{url:'https://x.fbcdn.net/image'}}])};
+ const event={...f.event,recovery:true,recoveryKind:'unsupported'};const source=await cloud.readCloudConversation(f.env,event);const saved=JSON.parse(f.files.get(source.key));
+ assert.equal(saved.history[0].recovered_media,true);assert.equal(saved.history[0].unsupported,false);assert.match(saved.history[0].attachments_json,/image_data/);
+ const context=await cloud.prepareCloudDecision(f.env,source.key);assert.equal(context.status,'ready');assert.equal(f.state('diana_unreadable_media:incoming'),undefined);assert.equal(f.sends.length,0);
+});
+test('an empty Meta recovery remains unknown by exact ID but does not block later readable text',async t=>{
+ const f=fixture(t);f.originals=[{id:'clear',from:{id:'person',username:'creator'},message:'Забрала',created_time:'2026-11-09T09:00:02Z'},{id:'unknown',from:{id:'person',username:'creator'},message:'',is_unsupported:true,created_time:'2026-11-09T09:00:01Z'}];f.env.restored={unknown:'[]'};
+ const event={...f.event,message_id:'clear',event_id:'message:clear',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ f.env.decision={...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!']};const {draft}=await f.prepare(event);
+ assert.equal(JSON.parse(f.state('diana_unreadable_media:unknown')).reason,'meta_attachment_unavailable');const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что сообщили!');assert.doesNotMatch(f.sends[0].text,/пришлите|вложени/iu);
+});
+
+test('unavailable media waits three minutes without an answer or payment and keeps exact media IDs',async t=>{
+ const f=fixture(t);f.originals[0].message='';f.originals[0].is_unsupported=true;
+ const before=Date.now();const source=await cloud.readCloudConversation(f.env,f.event);const outcome=await cloud.prepareCloudDecision(f.env,source.key);
+ assert.equal(outcome.status,'media_wait');assert.ok(outcome.retry_at>=before+180000);assert.ok(outcome.retry_at<=Date.now()+180000);
+ const retry=JSON.parse(f.state('diana_media_retry:'+f.event.event_id));assert.deepEqual(retry.media_ids,['incoming']);assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);
+ await cloud.completeCloudEvent(f.env,f.event,outcome);assert.equal(JSON.parse(f.state('diana_cloud_event:'+f.event.event_id)).status,'media_wait');assert.ok(f.state('diana_round_alarm:chat'));
+});
+test('waiting media does not block other chats and resumes once due with a new stable workflow',async t=>{
+ const f=fixture(t),created=[];const now=Date.parse('2026-11-11T08:00:00+03:00');
+ f.set('diana_cloud_event:'+f.event.event_id,{status:'media_wait',retry_at:now+180000});
+ const fresh={...f.event,cid:'another',message_id:'new',event_id:'message:new',at:'2026-11-09T08:59:00Z'};f.set('diana_round_alarm:another',fresh);
+ f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return{status:'running'}}}}};
+ const first=await dispatchDianaCloud(f.env,undefined,now);assert.equal(first.dispatched,true);assert.equal(created[0].params.event_id,'message:new');
+ const id=created[0].id;await releaseDianaCloud(f.env,{kind:'direct',id});f.set('diana_cloud_finished:'+id,{kind:'direct',id});f.db.prepare("DELETE FROM crm_sync_state WHERE key='diana_round_alarm:another'").run();
+ const waiting=await dispatchDianaCloud(f.env,undefined,now+179999);assert.equal(waiting.reason,'media_retry_waiting');assert.equal(waiting.retry_at,now+180000);
+ const ready=await dispatchDianaCloud(f.env,undefined,now+180000);assert.equal(ready.dispatched,true);assert.equal(created[1].params.mediaRetried,true);assert.notEqual(created[1].id,id);
+});
+test('review recovery resumes its media retry after the same three-minute delay',async t=>{
+ const f=fixture(t),created=[];const now=Date.parse('2026-11-11T08:00:00+03:00');f.originals[0].message='';f.originals[0].is_unsupported=true;
+ f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'неизвестное вложение'});f.set('diana_video_recovery_result:'+f.event.event_id,{status:'media_wait',retry_at:now+180000,workflow_id:'direct-v1-'+'e'.repeat(64)});
+ f.env.DIANA_CLOUD={async create(x){created.push(x)}};
+ const waiting=await dispatchDianaCloud(f.env,undefined,now);assert.equal(waiting.reason,'media_retry_waiting');assert.equal(created.length,0);
+ const ready=await dispatchDianaCloud(f.env,undefined,now+180000);assert.equal(ready.dispatched,true);assert.equal(created[0].params.recoveryKind,'unsupported');assert.equal(created[0].params.mediaRetried,true);
+});
+
+test('seller missing on basket prompts once; author seller name continues without proof request',async t=>{
+ const f=fixture(t);t.after(()=>delete globalThis.__imageFixture);f.originals[0].message='Вот корзина';f.originals[0].attachments={data:[{mime_type:'image/jpeg',image_data:{url:'https://x.fbcdn.net/image'}}]};
+ f.env.screenshots={images:[{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'fixture'}],unreadable:0,currentUnavailable:false,omitted:0};
+ globalThis.__imageFixture={status:'unknown',checks:[{kind:'basket',product:'yes',amount:'yes',seller:'unknown',unresolved_required:['seller'],observed:{price:'453',currency:'RUB'},label:'Скриншот из входящего сообщения 2026-11-09T09:00:00.000Z, вложение 1.'}]};
+ const first=await f.prepare();const sent=await cloud.deliverCloudDecision(f.env,first.draft.key);assert.equal(sent.status,'delivered');assert.equal(f.sends[0].text,'Подскажите, пожалуйста, название продавца товара.');await cloud.completeCloudEvent(f.env,f.event,sent);
+ f.originals.unshift({id:'seller-answer',from:{id:'person',username:'creator'},message:'Das Experten',created_time:'2026-11-09T09:02:00Z'});const event={...f.event,message_id:'seller-answer',event_id:'message:seller-answer',at:'2026-11-09T09:02:00.000Z'};f.set('diana_round_alarm:chat',event);
+ f.env.decision={...f.env.decision,reply:'Спасибо, продолжаем.',replies:['Спасибо, продолжаем.']};const second=await f.prepare(event);
+ assert.match(f.env.inferences.at(-1).messages[0].content,/creator has supplied the seller name/i);const result=await cloud.deliverCloudDecision(f.env,second.draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[1].text,'Спасибо, продолжаем.');
+ assert.doesNotMatch(f.sends[1].text,/скрин|доказ|продавц/iu);
+});
+
+test('ordinary uncertainty gets one safe continuation before Owner escalation, retaining real response evidence',async t=>{
+ const f=fixture(t);f.originals[0].message='Хорошо, спасибо!';f.env.decisions=[{...f.env.decision,reply:null,replies:null,escalate:true,reason:'неизвестная деталь'}, {...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!'],escalate:false,reason:'понятная часть'}];
+ const {draft}=await f.prepare();assert.equal(f.env.inferences.length,2);const sent=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(sent.status,'delivered');await cloud.completeCloudEvent(f.env,f.event,sent);
+ const evidence=JSON.parse(f.files.get(JSON.parse(f.state('diana_learning_observation:'+f.event.event_id)).evidenceKey));assert.equal(evidence.learning_uncertainty,'неизвестная деталь');assert.equal(evidence.sent[0].text,'Спасибо, что сообщили!');assert.equal(f.state('diana_review_owner_intent:'+f.event.event_id),undefined);
+});
+test('a mandatory Owner decision is never bypassed by the ordinary uncertainty retry',async t=>{
+ const f=fixture(t);f.originals[0].message='Хочу вернуть товар';f.env.decision={...f.env.decision,reply:'Конечно',replies:['Конечно'],escalate:false};
+ const {draft}=await f.prepare();assert.equal(f.env.inferences.length,1);const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'needs_review');assert.equal(f.sends.length,0);
+});
+
+test('unknown payout outcome preserves claim and can answer an independent question without asserting payment',async t=>{
+ const f=fixture(t);f.originals[0].message='Реквизиты указала. Когда можно снимать?';const event={...f.event,recovery:true,recoveryKind:'text'};const {draft}=await f.prepare(event);
+ const pending=await cloud.prepareUncertainPayoutReply(f.env,draft.key,'payout-existing');assert.equal(pending.status,'reply');assert.equal(JSON.parse(f.state('diana_payout_reconciliation:'+event.event_id)).reason,'provider_outcome_unknown');
+ const sent=await cloud.deliverCloudDecision(f.env,pending.key);assert.equal(sent.status,'delivered');assert.equal(f.sends[0].text,'Спасибо за сообщение! Мы уточним информацию.');assert.doesNotMatch(f.sends[0].text,/перевели|оплатили|получили деньги/iu);
+ await cloud.completeCloudEvent(f.env,event,sent);const observation=JSON.parse(f.state('diana_learning_observation:'+event.event_id));const evidence=JSON.parse(f.files.get(observation.evidenceKey));assert.equal(evidence.decision_reason,'payment_outcome_unknown');assert.equal(evidence.sent[0].text,f.sends[0].text);assert.equal(f.env.executedPayout,undefined);
 });

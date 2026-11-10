@@ -95,7 +95,7 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
    let observedAmount=existing?.amount_minor>=5000?existing.amount_minor:1;
    // Never replace an Owner-entered amount. Unconfirmed/new payouts get source recognition first.
    if(target||!existing||existing.amount_minor<5000){
-    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now});
+    try{const review=await reviewPayoutCart(env,c.id,messages,{budget:recognitionBudget,policy,now,handle});
       if(target&&(review.status!=='confirmed'||!review.amount_minor))throw Error('current_cart_not_confirmed');
       if(review.status==='confirmed'&&review.amount_minor){
         if(target&&existing?.amount_minor>=5000&&existing.amount_minor!==review.amount_minor)throw Error('existing_amount_differs_from_current_cart');

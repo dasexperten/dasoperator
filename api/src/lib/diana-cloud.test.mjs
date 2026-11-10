@@ -397,6 +397,14 @@ test('ordinary recovery probes at most one candidate and rotates past non-video 
 test('a stalled Meta recovery probe releases the scan within the shared four-second deadline',async t=>{
  const f=fixture(t);f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Проверить'});
  t.mock.method(globalThis,'fetch',async(_url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true})));
- const started=Date.now();const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));
- assert.equal(result.dispatched,false);assert.ok(Date.now()-started<6000);assert.equal(f.state('diana_video_recovery_result:'+f.event.event_id),undefined);
+ const started=Date.now();let watchdog;
+ try{
+  // AbortSignal.timeout() is unref'ed in Node 20/22; this referenced
+  // watchdog keeps the event loop alive and fails if the real deadline breaks.
+  const result=await Promise.race([
+   dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00')),
+   new Promise((_,reject)=>{watchdog=setTimeout(()=>reject(Error('recovery probe exceeded six seconds')),6000);}),
+  ]);
+  assert.equal(result.dispatched,false);assert.ok(Date.now()-started<6000);assert.equal(f.state('diana_video_recovery_result:'+f.event.event_id),undefined);
+ }finally{clearTimeout(watchdog);}
 });

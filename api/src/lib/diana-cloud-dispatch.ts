@@ -7,9 +7,10 @@ import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud, recoverDianaC
 // needs_review into the narrow video recovery path. Network failures are not
 // evidence that a message is safe to replay.
 async function latestOriginalIsVideo(env:Env,event:any):Promise<boolean>{
+ const signal=AbortSignal.timeout(4000);
  try{
   const token=(env as any).META_IG_MESSAGING_TOKEN;if(!token||!event.cid||!event.message_id||event.event_id!=='message:'+event.message_id)return false;
-  const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0/'+path,{headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('meta_unavailable');return await r.json() as any;};
+  const graph=async(path:string,key:string)=>{const r=await fetch('https://graph.facebook.com/v21.0/'+path,{headers:{Authorization:'Bearer '+key},signal});if(!r.ok)throw Error('meta_unavailable');return await r.json() as any;};
   const page=await graph('1697038263872226?fields=access_token',token);if(!page.access_token)return false;
   const original=await graph(encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,attachments{mime_type,file_url,image_data,video_data}}',String(page.access_token));
   const message=original.messages?.data?.[0];
@@ -34,7 +35,7 @@ async function markMissingRecovery(env:Env,id:string,now:number,minAge:number){
 
 // One durable workflow at a time, across metadata scans and connected machines.
 // The Durable Object serializes dispatch; instance identity makes creation replay-safe.
-export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Date.now()) {
+export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Date.now(), recoveryOnly=false) {
   if(!dianaWorkWindow(now).direct)return {dispatched:false,reason:'outside_direct_hours'};
   const claim=await env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();
   if(claim&&Number(claim.updated_at)>Date.now()-180_000)return {dispatched:false,reason:'diana_machine_finishing'};
@@ -64,13 +65,21 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   const ownerChoice=(e:any)=>e.task==='owner_choice'&&e.question_id&&String(e.event_id).startsWith('action:');
   const waiting=(await pendingDianaMessages(env)).filter(e=>e.message_id&&(financial(e)||ownerChoice(e)||String(e.queue_key).startsWith('diana_round_alarm:')&&e.event_id==='message:'+e.message_id))
     .sort((a,b)=>Number(b.event_id===priorityEventId)-Number(a.event_id===priorityEventId)||Number(!!financial(b))-Number(!!financial(a))||Date.parse(b.at)-Date.parse(a.at));
+  const recoveryCandidates:any[]=[];
   for(const event of waiting){
+    if(recoveryOnly&&event.event_id!==priorityEventId)continue;
     const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first<{value:string}>();
     let deferred=false,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryPrevious='',recoveryId='';
     if(known){try{const prior=JSON.parse(known.value);deferred=prior?.status==='deferred';
       recoveryCandidate=String(event.queue_key).startsWith('diana_round_alarm:')&&prior?.status==='needs_review';
     }catch{}}
-    if(recoveryCandidate)videoRecovery=await latestOriginalIsVideo(env,event);
+    if(recoveryCandidate&&!recoveryOnly){
+      // Priority dispatch is on the scanner's critical path. Do not probe old
+      // review cases there, and always offer fresh events before recovery.
+      if(!priorityEventId)recoveryCandidates.push(event);
+      continue;
+    }
+    if(recoveryCandidate&&recoveryOnly)videoRecovery=await latestOriginalIsVideo(env,event);
     if(videoRecovery){
       // Only one dedicated attempt; never delete or rewrite the old receipt.
       let previous=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_video_recovery_result:'+event.event_id).first<{value:string}>();
@@ -131,6 +140,15 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       }
     }
     return {dispatched:true,executor:'cloudflare_workflow',workflow_id:id,event_ids:[event.event_id]};
+  }
+  if(!priorityEventId&&!recoveryOnly&&recoveryCandidates.length){
+    // One bounded probe per ordinary dispatch, rotating through all candidates.
+    const cursorKey='diana_video_recovery_probe_cursor';
+    const cursor=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(cursorKey).first<{value:string}>();
+    const previous=recoveryCandidates.findIndex(e=>e.event_id===cursor?.value);
+    const chosen=recoveryCandidates[(previous+1)%recoveryCandidates.length];
+    await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(cursorKey,chosen.event_id,Date.now()).run();
+    return dispatchDianaCloud(env,chosen.event_id,now,true);
   }
   return {dispatched:false,reason:waiting.length?'cloud_events_await_review':'queue_empty',pending:waiting.length};
 }

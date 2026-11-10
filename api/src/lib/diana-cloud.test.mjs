@@ -379,3 +379,24 @@ test('recovery interrupted before active marker can retry only same proven-missi
  f.env.DIANA_CLOUD={async create(x){ids.push(x.id)},async get(){return{async status(){throw Error('workflow not found')}}}};
  const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));assert.equal(result.dispatched,true);assert.deepEqual(ids,[id]);
 });
+
+test('priority scan never probes old review cases and dispatches new work first',async t=>{
+ const f=fixture(t),created=[];f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нужно посмотреть видео'});
+ const now=Date.parse('2026-11-11T08:00:00+03:00');let result=await dispatchDianaCloud(f.env,f.event.event_id,now);
+ assert.equal(result.dispatched,false);assert.equal(f.graphReads.length,0);
+ const fresh={...f.event,cid:'new-chat',message_id:'new',event_id:'message:new',at:'2026-11-09T08:59:00Z'};f.set('diana_round_alarm:new-chat',fresh);
+ f.env.DIANA_CLOUD={async create(x){created.push(x)}};result=await dispatchDianaCloud(f.env,undefined,now);
+ assert.equal(result.dispatched,true);assert.equal(created[0].params.event_id,'message:new');assert.equal(f.graphReads.length,0);
+});
+test('ordinary recovery probes at most one candidate and rotates past non-video cases',async t=>{
+ const f=fixture(t);f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Проверить'});
+ const other={...f.event,cid:'second',message_id:'second-id',event_id:'message:second-id',at:'2026-11-09T08:59:00Z'};f.set('diana_round_alarm:second',other);f.set('diana_cloud_event:'+other.event_id,{status:'needs_review',reason:'Проверить'});
+ const seen=[];t.mock.method(globalThis,'fetch',async url=>{const u=new URL(url);if(u.searchParams.get('fields')==='access_token')return Response.json({access_token:'page'});seen.push(u.pathname);return Response.json({messages:{data:[{id:u.pathname.endsWith('/chat')?'incoming':'second-id',from:{id:'person'},attachments:{data:[{image_data:{url:'https://x.fbcdn.net/i'}}]}}]}})});
+ const now=Date.parse('2026-11-11T08:00:00+03:00');await dispatchDianaCloud(f.env,undefined,now);assert.equal(seen.length,1);await dispatchDianaCloud(f.env,undefined,now+1000);assert.equal(seen.length,2);assert.notEqual(seen[0],seen[1]);
+});
+test('a stalled Meta recovery probe releases the scan within the shared four-second deadline',async t=>{
+ const f=fixture(t);f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Проверить'});
+ t.mock.method(globalThis,'fetch',async(_url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true})));
+ const started=Date.now();const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));
+ assert.equal(result.dispatched,false);assert.ok(Date.now()-started<6000);assert.equal(f.state('diana_video_recovery_result:'+f.event.event_id),undefined);
+});

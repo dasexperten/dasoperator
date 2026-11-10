@@ -90,6 +90,16 @@ route.post('/alarm/ack', async (c) => {
 // Persist each verified placement while remaining yellow until the task is done.
 // Exact caption/provenance plan is immutable for one execution claim. It is
 // evidence before provider intent, never proof that an external post exists.
+route.get('/reel-jobs/:id/caption-plan', async (c) => {
+  const id=c.req.param('id');
+  const job=await c.env.DB.prepare('SELECT claim_id FROM ugc_reel_jobs WHERE content_id=?').bind(id).first<{claim_id:string|null}>();
+  if(!job) return c.json({ok:false,error:'reel_job_not_found'},404);
+  const claim=c.req.query('claim_id')??job.claim_id;
+  if(!claim||claim.length>128) return c.json({ok:false,error:'claim_id_required'},422);
+  const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-caption-plan:${id}:${claim}`).first<{value:string}>();
+  if(!saved) return c.json({ok:false,error:'caption_plan_not_found'},404);
+  return c.json({ok:true,content_id:id,claim_id:claim,caption_plan_saved:true,plan:JSON.parse(saved.value)});
+});
 route.post('/reel-jobs/:id/caption-plan', async (c) => {
   const id=c.req.param('id');
   const body=await c.req.json().catch(()=>null) as {claim_id?:string;plan?:any}|null;

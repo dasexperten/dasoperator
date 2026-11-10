@@ -233,6 +233,8 @@ test('caption plan is claim-bound immutable evidence, not a publication proof or
  const get=()=>sqlite.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?').get(id);
  const item={caption:'Verified brand Product. Author credit. #Context',hashtags:['Context'],native_topic_applied:false,selection_evidence:'Exact-source product and observed context check',product_keyword_provenance:{verified_products:[{brand:'Verified brand',canonical_name:'Product'}],keyword_status:'missing_pool',selected_keyword_phrases:[],keyword_pool_id:null}};
  const plan={content_id:id,policy_id:'reviewed-caption-policy',platforms:{facebook:item}},body={claim_id:claim,plan};
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',undefined,false)).status,401);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan')).status,404);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body,false)).status,401);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,claim_id:'other'})).status,409);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:{...plan,content_id:'other'}})).status,422);
@@ -240,12 +242,16 @@ test('caption plan is claim-bound immutable evidence, not a publication proof or
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,200);
  assert.equal((await(await request('/reel-jobs/'+id+'/caption-plan',body)).json()).caption_plan_saved,true);
  const saved=sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-caption-plan:'+id+':'+claim).value;
+ const readback=await(await request('/reel-jobs/'+id+'/caption-plan')).json();
+ assert.equal(readback.claim_id,claim);assert.equal(readback.caption_plan_saved,true);assert.deepEqual(readback.plan,plan);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan?claim_id=other')).status,404);
  assert.deepEqual(JSON.parse(saved),plan);assert.equal(get().status,'working');assert.equal(get().publications,'[]');
  const revised={...plan,platforms:{facebook:{...item,caption:'Changed after immutable intent'}}};
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:revised})).status,409);
  assert.equal(sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-caption-plan:'+id+':'+claim).value,saved);
  sqlite.prepare("UPDATE ugc_reel_jobs SET status='queued' WHERE content_id=?").run(id);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,409);
+ assert.deepEqual((await(await request('/reel-jobs/'+id+'/caption-plan?claim_id='+claim)).json()).plan,plan);
 });
 
 test('Owner caption-only fallback saves an unresolved product without inventing a pool; author and original text are mandatory',async()=>{

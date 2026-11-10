@@ -59,9 +59,7 @@ export const STEPS: Record<string, Step> = {
   // No message body, generation, image interpretation, reply or model client in ERP Direct.
   'erp-ugc-direct': async (env) => {
     const { detectDianaMessages } = await import('./lib/diana-alarm');
-    const { startDailyVideoReminders } = await import('./lib/diana-video-reminder-schedule');
-    const batch = await startDailyVideoReminders(env).catch((error) => ({error: ugcStepError('video reminder batch', error)}));
-    return JSON.stringify({ ...(await detectDianaMessages(env)), video_reminder_batch: batch });
+    return JSON.stringify(await detectDianaMessages(env));
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
   'erp-ugc-payouts': async (env) => {

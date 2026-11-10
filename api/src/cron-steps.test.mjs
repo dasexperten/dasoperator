@@ -49,11 +49,11 @@ async function failsOnPayoutClock(t, worker, overrides, pattern) {
 }
 test('Direct only detects metadata; it never reads bodies, calls a reply model or changes adaptive cadence', async t => {
   const f = fixture(t, { detect: { detected: 3, dispatched: true } });
-  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true, video_reminder_batch: {due:false} });
-  assert.deepEqual(f.calls, ['video_batch', 'detect']); assert.equal(f.state, null);
+  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true });
+  assert.deepEqual(f.calls, ['detect']); assert.equal(f.state, null);
   const g = fixture(t, { detect: new Error('metadata unavailable') });
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
-  assert.deepEqual(g.calls, ['video_batch', 'detect']);
+  assert.deepEqual(g.calls, ['detect']);
 });
 test('payout timer reconciles existing payments without independently searching creator chats', async t => {
   const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);

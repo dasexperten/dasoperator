@@ -16,25 +16,9 @@ function ugcStepError(step: string, error: unknown): string {
 }
 
 async function ruTrack(env: Env): Promise<string> {
-  if (!env.RU_ADMIN_TOKEN) return 'skipped: RU_ADMIN_TOKEN not set';
-  // Our own .ru storefront talks to Ozon and sends the one "Д" letter (lock on its side).
-  const res = await fetch('https://dasexperten.ru/api/order/track.php', {
-    method: 'POST',
-    headers: { 'X-Sync-Token': env.RU_ADMIN_TOKEN, 'Content-Type': 'application/json' },
-    body: '{}',
-  });
-  const j = (await res.json().catch(() => null)) as { checked?: number; results?: Array<{ mail_shipped?: boolean | null }> } | null;
-  const mails = (j?.results ?? []).filter((r) => r.mail_shipped === true).length;
-  const now = Date.now();
-  const sql = `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`;
-  await env.DB.batch([
-    env.DB.prepare(sql).bind('ru_track:last_try_at', String(now), now),
-    env.DB.prepare(sql).bind('ru_track:last_status', res.ok ? `ok checked=${j?.checked ?? '?'} mails=${mails}` : `http_${res.status}`, now),
-    ...(res.ok ? [env.DB.prepare(sql).bind('ru_track:last_ok_at', String(now), now)] : []),
-  ]);
-  if (!res.ok) throw new Error(`track.php http_${res.status}`);
-  return `checked=${j?.checked ?? '?'} mails=${mails}`;
+  // @ts-expect-error plain JS module
+  const { runRuTrack } = await import('./lib/ru-track.mjs');
+  return runRuTrack(env);
 }
 
 // Dasha's storefront jobs (moved 2026-09-18) run on the ERP's own .ru admin token and

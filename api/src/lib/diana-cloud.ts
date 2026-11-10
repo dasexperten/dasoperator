@@ -145,9 +145,9 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   if(event.recovery){
     const original=history.find(m=>m.id===event.message_id&&m.direction==='in');
     if(!original)return {status:'needs_review',reason:'video_recovery_original_missing'};
-    const previous=plans.some((p:any)=>Date.parse(p.incomingAt)===Date.parse(original.created_at)&&
-      (['ambiguous','complete','browser'].includes(p.status)||(p.items??[]).some((i:any)=>['sent','sending'].includes(i.status))));
-    if(previous)return {status:'needs_review',reason:'video_recovery_previous_delivery_exists_or_unknown'};
+    // Even a pending plan may later be resumed by another worker. Never
+    // create a competing recovery plan for the same incoming message.
+    if(plans.some((p:any)=>Date.parse(p.incomingAt)===Date.parse(original.created_at)))return {status:'needs_review',reason:'video_recovery_previous_delivery_exists_or_unknown'};
   }
   const ownerDecision = await stateRead(env,'ig_owner_decision:'+event.cid);
   let ownerChoice:any=null;
@@ -246,14 +246,14 @@ export async function draftCloudDecision(env: Env, key: string) {
   if(prepared.videoCheck&&!prepared.verifiedVideo&&!decision.escalate&&!decision.payoutRequisitesDetected&&!source.event.task){
     decision.reply='Спасибо за видео!';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
   }
-  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo});
+  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
 export async function deliverCloudDecision(env: Env, key: string, now:()=>number=Date.now) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
-  if(source.event.recovery)return {status:'needs_review',reason:'video_recovery_delivery_disabled'};
+  if(source.event.recovery&&(!draft.videoThanks||decision.reply!=='Спасибо за видео!'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto))return {status:'needs_review',reason:'video_recovery_only_verified_thanks_allowed'};
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
   if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {status:'deferred',reason:'outside_direct_hours'};
   const existingNotice=source.event.task&&source.event.task!=='round'&&source.event.task!=='owner_choice'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
@@ -282,7 +282,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
   // A payment action has its own immutable outbox; it must never reuse the plan
   // already delivered for the incoming message which originally supplied details.
   const result=await deliverIgReply(env,{conversationId:source.event.cid,incomingAt:source.at,handle:source.handle,...(actionId?{actionId}:{}),
-    parts:decision.parts??[decision.reply],cards},async (boundEnv,handle,text,opts)=>{
+    parts:decision.parts??[decision.reply],cards,...(source.event.recovery?{exactPlan:true}:{})},async (boundEnv,handle,text,opts)=>{
       await modeCheck(env);
       if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {ok:false,delivery:'not_sent',error:'outside_direct_hours'};
       if(source.event.task==='owner_choice'){
@@ -360,7 +360,6 @@ export async function executeCloudPayout(env: Env, payoutId:string, event:DianaC
 
 /** Completion requires Meta original readback for every send receipt and ERP readback. */
 export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome: any) {
-  if(event.recovery){await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now(),recovery:true});return outcome;}
   if (event.dryRun) {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now(),dry_run:true});return outcome;}
   if(outcome.status==='deferred') {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome;}
   if (outcome.status==='superseded') { await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome; }

@@ -40,10 +40,7 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
               if(String((error as Error)?.message??error).includes('payout_execution_outside_direct_hours')&&await defer('payout-cutoff'))return {status:'deferred'};
               throw error;
             }
-            outcome=input.recovery?{status:'payout_submitted',reason:'verified_video_payout_submitted'}:{status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
-          }else if(input.recovery){
-            // Recovery never sends a message or consumes the original alarm.
-            outcome={status:'needs_review',reason:'video_recovery_no_payment_or_delivery',draftKey:draft.key};
+            outcome={status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
           }else{
             if(await defer('before-delivery'))return {status:'deferred'};
             for(let attempt=0;attempt<3;attempt++){

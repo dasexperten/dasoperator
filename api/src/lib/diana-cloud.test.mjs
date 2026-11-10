@@ -300,12 +300,20 @@ test('recovery completion never acknowledges or changes original delivery receip
  assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.state('diana_message_done:chat'),undefined);assert.equal(f.sends.length,0);
  assert.notEqual(await cloud.artifactPrefix(event),await cloud.artifactPrefix(f.event));
 });
-test('recovery never sends even if delivery is accidentally invoked',async t=>{
- const f=fixture(t),event={...f.event,recovery:true};const {draft}=await f.prepare(event);
- assert.equal((await cloud.deliverCloudDecision(f.env,draft.key)).reason,'video_recovery_delivery_disabled');assert.equal(f.sends.length,0);
+test('recovery only delivers a verified gratitude once through the original durable plan',async t=>{
+ const f=fixture(t),event={...f.event,recovery:true};f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};
+ globalThis.__videoFixture={checks:[{product:'yes',observed:{product_name:'TERMO'},requisites:{},unresolved_required:[]}]};
+ const old={status:'needs_review',reason:'Нужно посмотреть видео'};f.set('diana_cloud_event:'+event.event_id,old);
+ const {draft}=await f.prepare(event);const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,'Спасибо за видео!');
+ await cloud.completeCloudEvent(f.env,event,result);await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);assert.equal(f.state('diana_message_done:chat'),'incoming');
+ assert.deepEqual(JSON.parse(f.state('diana_cloud_event:'+event.event_id)),old);assert.equal(f.state('diana_round_alarm:chat'),undefined);
+});
+test('recovery never delivers an unverified model reply',async t=>{
+ const f=fixture(t),event={...f.event,recovery:true};const {draft}=await f.prepare(event);const result=await cloud.deliverCloudDecision(f.env,draft.key);
+ assert.equal(result.reason,'video_recovery_only_verified_thanks_allowed');assert.equal(f.sends.length,0);
 });
 test('recovery stops if existing delivery for that original was sent or uncertain',async t=>{
- for(const status of ['sent','sending']){
+ for(const status of ['sent','sending','pending']){
   const f=fixture(t),event={...f.event,recovery:true};f.set('ig_reply_delivery:test',{conversationId:'chat',incomingAt:event.at,status:'pending',items:[{status}]});
   const result=await cloud.readCloudConversation(f.env,event);assert.equal(result.reason,'video_recovery_previous_delivery_exists_or_unknown');assert.equal(f.sends.length,0);
  }
@@ -333,4 +341,41 @@ test('free-text needs_review is not replayed when original is missing, replaced,
   const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));
   assert.equal(result.dispatched,false);assert.equal(created.length,0);assert.equal(f.state('diana_video_recovery_result:'+f.event.event_id),undefined);
  }
+});
+
+test('a competing older plan created after recovery read cannot be sent by recovery',async t=>{
+ const f=fixture(t),event={...f.event,recovery:true};f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};
+ globalThis.__videoFixture={checks:[{product:'yes',observed:{product_name:'TERMO'},requisites:{},unresolved_required:[]}]};
+ const {draft}=await f.prepare(event);const key='ig_reply_delivery:chat:'+event.at;
+ f.set(key,{version:1,conversationId:'chat',incomingAt:event.at,handle:'creator',status:'pending',items:[{status:'pending',text:'Старое несвязанное сообщение'}]});
+ const outcome=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(outcome.reason,'recovery_existing_plan_differs');assert.equal(f.sends.length,0);
+});
+
+test('failed recovery creation retries only positively missing instance with the same ID',async t=>{
+ const f=fixture(t),ids=[];f.originals[0].attachments={data:[{video_data:{url:'https://x.fbcdn.net/v'}}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нужно посмотреть'});
+ let fail=true;f.env.DIANA_CLOUD={async create(x){ids.push(x.id);if(fail){fail=false;throw Error('create failure');}},async get(){return{async status(){throw Error('workflow not found')}}}};
+ const now=Date.parse('2026-11-11T08:00:00+03:00');const first=await dispatchDianaCloud(f.env,undefined,now);assert.equal(first.reason,'video_recovery_create_missing_retry_same_id');
+ assert.equal(JSON.parse(f.state('diana_video_recovery_result:'+f.event.event_id)).status,'create_missing');
+ assert.equal((await dispatchDianaCloud(f.env,undefined,now+1000)).dispatched,true);assert.equal(ids.length,2);assert.equal(ids[0],ids[1]);
+});
+test('unknown recovery creation outcome preserves the lock and is not replayed',async t=>{
+ const f=fixture(t),ids=[];f.originals[0].attachments={data:[{video_data:{url:'https://x.fbcdn.net/v'}}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нужно посмотреть'});
+ f.env.DIANA_CLOUD={async create(x){ids.push(x.id);throw Error('create timeout')},async get(){return{async status(){throw Error('network unavailable')}}}};
+ const now=Date.parse('2026-11-11T08:00:00+03:00');await assert.rejects(dispatchDianaCloud(f.env,undefined,now),/create timeout/);
+ assert.equal(JSON.parse(f.state('diana_video_recovery_result:'+f.event.event_id)).status,'queued');assert.ok(await readDianaCloudLock(f.env));assert.equal(ids.length,1);
+});
+test('interrupted recovery create is retried with same ID only after grace and explicit absence',async t=>{
+ const f=fixture(t),ids=[];f.originals[0].attachments={data:[{video_data:{url:'https://x.fbcdn.net/v'}}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нужно посмотреть'});
+ const id='direct-v1-'+'a'.repeat(64);f.set('diana_video_recovery_result:'+f.event.event_id,{status:'queued',workflow_id:id,event_id:f.event.event_id,recovery:true});
+ f.set('diana_cloud_active',id);await reserveDianaCloud(f.env,{kind:'direct',id});f.db.prepare('UPDATE crm_sync_state SET updated_at=? WHERE key=?').run(Date.now()-181000,'diana_video_recovery_result:'+f.event.event_id);
+ f.env.DIANA_CLOUD={async create(x){ids.push(x.id)},async get(){return{async status(){throw Error('workflow not found')}}}};
+ const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));assert.equal(result.dispatched,true);assert.deepEqual(ids,[id]);
+});
+
+test('recovery interrupted before active marker can retry only same proven-missing ID',async t=>{
+ const f=fixture(t),ids=[];f.originals[0].attachments={data:[{video_data:{url:'https://x.fbcdn.net/v'}}]};f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'Нужно посмотреть'});
+ const id='direct-v1-'+'b'.repeat(64);f.set('diana_video_recovery_result:'+f.event.event_id,{status:'queued',workflow_id:id,event_id:f.event.event_id,recovery:true});
+ await reserveDianaCloud(f.env,{kind:'direct',id});f.db.prepare('UPDATE crm_sync_state SET updated_at=? WHERE key=?').run(Date.now()-181000,'diana_video_recovery_result:'+f.event.event_id);
+ f.env.DIANA_CLOUD={async create(x){ids.push(x.id)},async get(){return{async status(){throw Error('workflow not found')}}}};
+ const result=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'));assert.equal(result.dispatched,true);assert.deepEqual(ids,[id]);
 });

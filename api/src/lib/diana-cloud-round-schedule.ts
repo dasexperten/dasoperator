@@ -1,5 +1,5 @@
 import type {Env} from '../types';
-import {reserveDianaCloud,releaseDianaCloud} from './diana-cloud-lock';
+import {reserveDianaCloud,releaseDianaCloud,recoverDianaCloudLock} from './diana-cloud-lock';
 
 // Cloudflare timestamps are UTC; Moscow is UTC+3. A slot has one stable id,
 // including retries after an ambiguous create response.
@@ -24,7 +24,10 @@ export async function scheduleDianaRound(env:Env, at:number) {
   async function busy(reason:string){
     return {scheduled:false,reason,id:slot.id,queued:true};
   }
-  if(!await reserveDianaCloud(env,owner))return busy('diana_busy');
+  if(!await reserveDianaCloud(env,owner)){
+    const recovery=await recoverDianaCloudLock(env);
+    if(!recovery.released||!await reserveDianaCloud(env,owner))return {...await busy('diana_busy'),recovery:recovery.reason};
+  }
   // A legacy M1 execution cannot join the new lock, so defer while its claim
   // is fresh, without deleting that claim or starting a simultaneous round.
   const machine=await env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();

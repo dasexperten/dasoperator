@@ -160,6 +160,14 @@ test('dispatcher creates exactly one durable event, waits on its real status and
  instances.set(creates[0].id,'complete');f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
  assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'cloud_events_await_review');assert.equal(creates.length,1);
 });
+test('a terminal instance without a verified event receipt is not reported as dispatched or replayed',async t=>{
+ const f=fixture(t),instances=new Map(),created=[];
+ f.env.DIANA_CLOUD={async create(x){created.push(x);instances.set(x.id,'running')},async get(id){return{async status(){return{status:instances.get(id)}}}}};
+ const now=Date.parse('2026-11-11T08:00:00+03:00');await dispatchDianaCloud(f.env,undefined,now);instances.set(created[0].id,'terminated');
+ const result=await dispatchDianaCloud(f.env,undefined,now+1000);assert.equal(result.dispatched,false);assert.equal(created.length,1);
+ assert.equal(JSON.parse(f.state('diana_cloud_event:'+f.event.event_id)).reason,'terminal_workflow_without_verified_receipt');
+ assert.ok(f.state('diana_round_alarm:chat'));
+});
 test('outside Moscow Direct hours the event remains queued and no workflow starts',async t=>{
  const f=fixture(t),creates=[];
  f.env.DIANA_CLOUD={async create(v){creates.push(v)}};

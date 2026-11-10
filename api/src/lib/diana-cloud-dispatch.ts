@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 import { pendingDianaMessages } from './diana-alarm';
 import { dianaWorkWindow } from './diana-work-window.mjs';
-import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud } from './diana-cloud-lock';
+import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud, recoverDianaCloudLock } from './diana-cloud-lock';
 
 // One durable workflow at a time, across metadata scans and connected machines.
 // The Durable Object serializes dispatch; instance identity makes creation replay-safe.
@@ -21,6 +21,8 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       if(!['complete','errored','terminated'].includes(status.status))return {dispatched:false,reason:'diana_cloud_working',workflow_id:active.value};
       // Only a positively terminal workflow permits recovery after an abrupt
       // runtime failure. Never evict a live or unidentifiable owner by age.
+      await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
+        .bind('diana_cloud_recovery:direct:'+active.value,JSON.stringify({owner:{kind:'direct',id:active.value},reason:'terminal_workflow_observed',status:status.status,checked_at:Date.now()}),Date.now()).run();
       await releaseDianaCloud(env,{kind:'direct',id:active.value});
     } catch(error) {
       // Only a positively identified missing instance permits replay of create.
@@ -39,9 +41,19 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     const identity=deferred?`${event.event_id}:resume:${dianaWorkWindow(now).date}`:event.event_id;
     const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity)))].map(x=>x.toString(16).padStart(2,'0')).join('');
     const id='direct-v1-'+hash;
+    const previous=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_recovery:direct:'+id).first<{value:string}>();
+    let terminal=false;try{terminal=JSON.parse(previous?.value??'null')?.reason==='terminal_workflow_observed';}catch{}
+    if(terminal){
+      await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
+        .bind('diana_cloud_event:'+event.event_id,JSON.stringify({status:'needs_review',reason:'terminal_workflow_without_verified_receipt',workflow_id:id}),Date.now()).run();
+      continue;
+    }
     if(!await reserveDianaCloud(env,{kind:'direct',id})){
-      const owner=await readDianaCloudLock(env);
-      return {dispatched:false,reason:'diana_cloud_locked',owner};
+      const recovery=await recoverDianaCloudLock(env);
+      if(!recovery.released||!await reserveDianaCloud(env,{kind:'direct',id})){
+        const owner=await readDianaCloudLock(env);
+        return {dispatched:false,reason:'diana_cloud_locked',owner,recovery:recovery.reason};
+      }
     }
     // Write the exact instance ID before creation. A lost create acknowledgement
     // is recovered by get(id); never mint a second instance for the same event.

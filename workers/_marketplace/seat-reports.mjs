@@ -94,16 +94,18 @@ export async function runWbNews(env, daysBack = 1, cell = { hour: 4 }) {
   }
   const selected = review?.decisions?.filter(x => x.status === "new_knowledge") || [];
   const relevant = review?.decisions?.filter(x => x.status === "new_knowledge" || x.status === "relevant_known") || [];
-  const line = error || `Новости WB: прочитано ${review.reviewed}, важных ${relevant.length}, новых знаний ${selected.length} · DeepSeek`;
+  const consultations = Array.isArray(review?.consultations) ? review.consultations : [];
+  const line = error || `Новости WB: прочитано ${review.reviewed}, важных ${relevant.length}, новых знаний ${selected.length}, консультаций ${consultations.length} · DeepSeek`;
   const findings = relevant.map(x => `${x.title}: ${x.summary}`).join("\n\n") || "Важных новых сообщений нет.";
+  const expertNotes = consultations.map(x => `${x.name} — ${x.title}: ${x.analysis}${x.next_action ? ` Следующий шаг: ${x.next_action}` : ""}${x.task_id ? ` (задача ${x.task_id})` : ""}`).join("\n\n");
   const feed = wbNewsDetail(n);
-  const fullDetail = `${findings}\n\nЛента WB:\n${feed}`;
+  const fullDetail = `${findings}${expertNotes ? `\n\nКонсультации:\n${expertNotes}` : ""}\n\nЛента WB:\n${feed}`;
   const detail = error ? feed : fullDetail.length <= 2900 ? fullDetail :
-    `${findings.slice(0, 2700)}\n\nПолная лента не поместилась в отметку; Арина рассмотрела все ${n.total} новостей.`;
+    `${(expertNotes ? `Консультации:\n${expertNotes}\n\n` : "").concat(findings).slice(0, 2700)}\n\nЧасть подробностей не поместилась в отметку; Арина рассмотрела все ${n.total} новостей.`;
   const mark = await markHour(env, {
     slug: "arina-volkova", hour: cell.hour, mail: {},
-    tasks: !error && relevant.length ? { actions: relevant.length, kinds: ["новости площадки"] } : {},
-    error: error || undefined, line, detail, finding: relevant.length > 0,
+    tasks: !error && (relevant.length || consultations.length) ? { actions: relevant.length + consultations.length, kinds: ["новости площадки"] } : {},
+    error: error || undefined, line, detail, finding: relevant.length + consultations.length > 0,
   }).catch(e => ({ ok: false, error: String(e?.message || e) }));
   if (!mark.ok && !error) error = `Отметка не сохранена: ${mark.error}`;
   return { ...n, ok: !error, error, review, line, detail, mark };

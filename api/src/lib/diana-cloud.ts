@@ -232,7 +232,11 @@ export async function prepareCloudDecision(env: Env, key: string) {
 
     }
   }
-  if(unreadable.length&&!source.event.dryRun&&!source.event.mediaRetried){
+  const newestCurrent=current.at(-1);
+  // A later independently readable text must not wait for an older attachment.
+  // Only an unreadable newest message with no text gets the three-minute retry.
+  const newestNeedsMediaRetry=!!newestCurrent&&newestCurrent.direction==='in'&&newestCurrent.unsupported&&!String(newestCurrent.text??'').trim();
+  if(unreadable.length&&newestNeedsMediaRetry&&!source.event.dryRun&&!source.event.mediaRetried){
     // Defer this conversation only. The workflow returns and releases the
     // shared lock; a later workflow re-fetches the exact Meta originals.
     const retryKey='diana_media_retry:'+source.event.event_id;
@@ -267,7 +271,7 @@ export async function prepareCloudDecision(env: Env, key: string) {
   const latestCurrent=current.at(-1);
   // Only a later explicit, readable text may be addressed independently.
   // An inaccessible newest message is left pending, with any text signal saved.
-  if(unreadable.length&&!partialReceiptReply&&(!latestCurrent||latestCurrent.unsupported||latestCurrent.direction!=='in'||(!String(latestCurrent.text??'').trim()&&!latestCurrent.recovered_media)))return {status:'needs_review',reason:'meta_attachment_unavailable'};
+  if(unreadable.length&&!partialReceiptReply&&(!latestCurrent||latestCurrent.direction!=='in'||(!String(latestCurrent.text??'').trim()&&!latestCurrent.recovered_media)))return {status:'needs_review',reason:'meta_attachment_unavailable'};
   let videos:any[]=[];
   try { videos=currentVideos(current); } catch { return {status:'needs_review',reason:'video_metadata_or_url_unavailable'}; }
   if(source.event.recoveryKind==='text'&&!source.event.dryRun){
@@ -385,14 +389,14 @@ export async function draftCloudDecision(env: Env, key: string) {
   if(prepared.videoCheck&&!prepared.verifiedVideo&&!decision.escalate&&!decision.payoutRequisitesDetected&&!source.event.task){
     decision.reply='Спасибо за видео!';decision.parts=[decision.reply];decision.sendCards=false;decision.sendOzonPhoto=false;decision.agreed=false;decision.refused=false;
   }
-  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,contextKey:key,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,unreadableMedia:prepared.unreadableMedia,partialReceiptReply:prepared.partialReceiptReply,reconciliationPending:prepared.reconciliationPending,senderQuestion:prepared.senderQuestion,sellerQuestion:prepared.sellerQuestion,restoredMedia:source.history.some((m:any)=>m.id===source.event.message_id&&m.recovered_media),friendlyAfterVideo:prepared.friendlyAfterVideo,publicationNotice:prepared.publicationNotice,textRecovery:source.event.recoveryKind==='text',videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
+  const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,contextKey:key,decision,receipt:result.receipt,verifiedVideo:prepared.verifiedVideo,unreadableMedia:prepared.unreadableMedia,partialReceiptReply:prepared.partialReceiptReply,reconciliationPending:prepared.reconciliationPending,senderQuestion:prepared.senderQuestion,sellerQuestion:prepared.sellerQuestion,restoredMedia:source.history.some((m:any)=>m.id===source.event.message_id&&m.recovered_media),friendlyAfterVideo:prepared.friendlyAfterVideo,publicationNotice:prepared.publicationNotice,textRecovery:source.event.recoveryKind==='text'||source.event.recoveryKind==='unsupported'&&!!String(source.history.find((m:any)=>m.id===source.event.message_id)?.text??'').trim(),videoThanks:!!prepared.videoCheck&&!prepared.verifiedVideo});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
 export async function deliverCloudDecision(env: Env, key: string, now:()=>number=Date.now) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
-  if(source.event.recovery&&source.event.recoveryKind==='text'){
+  if(source.event.recovery&&(source.event.recoveryKind==='text'||source.event.recoveryKind==='unsupported'&&draft.textRecovery)){
     if(!draft.textRecovery||decision.sendCards||decision.sendOzonPhoto||decision.agreed||decision.refused)return {status:'needs_review',reason:'text_recovery_requires_separate_review'};
   }else if(source.event.recovery&&source.event.recoveryKind==='unsupported'&&draft.partialReceiptReply){
     if(decision.reply!=='Спасибо! Передали реквизиты в обработку.'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto)return {status:'needs_review',reason:'partial_receipt_reply_not_verified'};

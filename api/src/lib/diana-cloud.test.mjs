@@ -124,7 +124,7 @@ test('cutoff defers without acknowledging and next day resumes only the unsent p
  assert.equal(f.state('diana_round_alarm:chat'),undefined);
 });
 test('unsupported or unreadable current attachment cannot produce an invented answer',async t=>{
- const f=fixture(t);f.originals[0].is_unsupported=true;let source=await cloud.readCloudConversation(f.env,f.event);
+ const f=fixture(t);f.originals[0].message='';f.originals[0].is_unsupported=true;let source=await cloud.readCloudConversation(f.env,f.event);
  assert.equal((await cloud.prepareCloudDecision(f.env,source.key)).status,'media_wait');assert.equal(f.env.inferences.length,0);
  delete f.originals[0].is_unsupported;f.env.unavailable=true;source=await cloud.readCloudConversation(f.env,f.event);
  await assert.rejects(cloud.prepareCloudDecision(f.env,source.key),/current_image_unavailable/);assert.equal(f.sends.length,0);
@@ -451,9 +451,9 @@ test('a later clear text can be answered once while the earlier inaccessible med
  const f=fixture(t);f.originals=[{id:'clear',from:{id:'person',username:'creator'},message:'Забрала',created_time:'2026-11-09T09:00:02Z'},
  {id:'unknown',from:{id:'person',username:'creator'},message:'',is_unsupported:true,created_time:'2026-11-09T09:00:01Z'}];
  f.db.prepare("UPDATE ugc_creators SET lifecycle_stage='paid' WHERE id='creator-id'").run();
- const event={...f.event,message_id:'clear',event_id:'message:clear',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ const event={...f.event,message_id:'clear',event_id:'message:clear',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text'};f.set('diana_round_alarm:chat',event);
  const old={status:'needs_review',reason:'Не удалось прочитать вложение'};f.set('diana_cloud_event:'+event.event_id,old);f.env.decision={...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!']};
- const {draft}=await f.prepare(event);assert.match(f.env.inferences[0].messages[0].content,/earlier incoming attachment is inaccessible/);
+ const {draft}=await f.prepare(event);assert.match(f.env.inferences[0].messages[0].content,/earlier incoming attachment is inaccessible/);assert.equal(f.state('diana_media_retry:'+event.event_id),undefined);
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'partial');const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');await cloud.completeCloudEvent(f.env,event,out);
  assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,'Спасибо, что сообщили!');assert.equal(f.db.prepare("SELECT lifecycle_stage FROM ugc_creators WHERE id='creator-id'").get().lifecycle_stage,'creation');assert.ok(f.state('diana_creator_progress:'+event.event_id));assert.ok(f.state('diana_unreadable_media:unknown'));
  const observation=JSON.parse(f.state('diana_learning_observation:'+event.event_id));const evidence=JSON.parse(f.files.get(observation.evidenceKey));assert.equal(observation.status,'pending_owner_review');assert.equal(evidence.sent[0].text,'Спасибо, что сообщили!');assert.ok(evidence.unreadable_message_ids.includes('unknown'));assert.equal(evidence.sent[0].message_id,'out-1');assert.ok(f.state('diana_text_recovery_unresolved:'+event.event_id));assert.deepEqual(JSON.parse(f.state('diana_cloud_event:'+event.event_id)),old);
@@ -512,7 +512,7 @@ test('explicit receipt advances early stage without fabricating payout, while ma
 test('order message with failed payout and earlier payment claim produces reconciliation without asserting money was received',async t=>{
  const f=fixture(t);f.originals=[{id:'order',from:{id:'person',username:'creator'},message:'Заказала 👍🏼',created_time:'2026-11-09T09:00:02Z'},{id:'prior-out',from:{id:'17841466350261166'},message:'Наконец-то получилось оплатить',created_time:'2026-11-09T09:00:01Z'}];
  f.db.prepare("INSERT INTO ugc_payouts(id,creator_id,status,amount_minor) VALUES('p1','creator-id','failed',45300)").run();
- const event={...f.event,message_id:'order',event_id:'message:order',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text',mediaRetried:true};f.set('diana_round_alarm:chat',event);
+ const event={...f.event,message_id:'order',event_id:'message:order',at:'2026-11-09T09:00:02.000Z',recovery:true,recoveryKind:'text'};f.set('diana_round_alarm:chat',event);
  const {draft}=await f.prepare(event);const conflict=JSON.parse(f.state('diana_payout_reconciliation:'+event.event_id));assert.equal(conflict.reason,'provider_failed_prior_outgoing_payment_claim');assert.equal(conflict.prior_outgoing_message_id,'prior-out');
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'not_applicable');const result=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(result.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что сообщили! Когда получите товар, напишите, пожалуйста.');
  assert.doesNotMatch(f.sends[0].text,/перевод|оплатили|деньги/);assert.equal(f.env.executedPayout,undefined);assert.equal(f.env.payoutHandoffs,undefined);
@@ -636,4 +636,11 @@ test('unknown payout outcome preserves claim and can answer an independent quest
  const pending=await cloud.prepareUncertainPayoutReply(f.env,draft.key,'payout-existing');assert.equal(pending.status,'reply');assert.equal(JSON.parse(f.state('diana_payout_reconciliation:'+event.event_id)).reason,'provider_outcome_unknown');
  const sent=await cloud.deliverCloudDecision(f.env,pending.key);assert.equal(sent.status,'delivered');assert.equal(f.sends[0].text,'Спасибо за сообщение! Мы уточним информацию.');assert.doesNotMatch(f.sends[0].text,/перевели|оплатили|получили деньги/iu);
  await cloud.completeCloudEvent(f.env,event,sent);const observation=JSON.parse(f.state('diana_learning_observation:'+event.event_id));const evidence=JSON.parse(f.files.get(observation.evidenceKey));assert.equal(evidence.decision_reason,'payment_outcome_unknown');assert.equal(evidence.sent[0].text,f.sends[0].text);assert.equal(f.env.executedPayout,undefined);
+});
+
+test('readable text on the same unsupported message is answered without the media wait',async t=>{
+ const f=fixture(t);f.originals[0].message='Спасибо, поняла!';f.originals[0].is_unsupported=true;
+ const event={...f.event,recovery:true,recoveryKind:'unsupported'};f.env.decision={...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!']};
+ const {draft}=await f.prepare(event);assert.equal(f.state('diana_media_retry:'+event.event_id),undefined);assert.ok(f.state('diana_unreadable_media:incoming'));
+ const sent=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(sent.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что сообщили!');
 });

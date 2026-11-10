@@ -1,3 +1,4 @@
+const PREPARE_DIAGNOSTICS=new Set(['payout_original_media_unresolved','payout_amount_unconfirmed','payout_requisites_unconfirmed','payout_original_changed','payout_cycle_already_processed','payout_existing_amount_conflict','payout_intake_incomplete']);
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
 export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,saveProof,acknowledge}) {
@@ -15,8 +16,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
         throw Error('direct_payout_receipt_invalid');
       return {status:'prepared',reason:'payout_awaiting_owner',payout_id:handoff.payout_id,amount_minor:handoff.amount_minor};
     }
-    if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields'};
-    return {status:'pending',reason:'payout_verification_pending'};
+    const diagnostic=event.preparePayoutOnly===true&&PREPARE_DIAGNOSTICS.has(handoff?.reason)?{prepare_diagnostic:handoff.reason}:{};
+    if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields',...diagnostic};
+    return {status:'pending',reason:'payout_verification_pending',...diagnostic};
   }
   if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{})};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});

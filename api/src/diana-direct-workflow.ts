@@ -41,12 +41,13 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
   const dryRun=signals.every(x=>x.dryRun===true);
   if(!dryRun&&signals.some(x=>x.dryRun))throw Error('direct_mixed_preview');
   const prepareOwner={kind:'direct' as const,id:event.instanceId};
-  if(prepareOnly&&!dryRun&&!await reservePrepareExecution(this.env,prepareOwner,{reserve:reserveDianaCloud,read:readDianaCloudLock}))throw Error('direct_prepare_concurrency_blocked');
+  if(prepareOnly&&!dryRun&&!await step.do('reserve-prepare-lock',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>reservePrepareExecution(this.env,prepareOwner,{reserve:reserveDianaCloud,read:readDianaCloudLock})))throw Error('direct_prepare_concurrency_blocked');
   try{
    return await step.do('read-decide-and-verify',{retries:{limit:0,delay:'10 seconds'},timeout:'30 minutes'},async()=>{
     const processOne=async(signal:DianaDirectSignal)=>{
     const stateKey=prepareOnly?'diana_direct_payout_prepare:'+signal.event_id+':'+event.instanceId:'diana_direct_event:'+signal.event_id;
     try{
+     if(prepareOnly&&!dryRun){const held=await readDianaCloudLock(this.env);if(held?.kind!=='direct'||held.id!==event.instanceId)throw Error('direct_prepare_lock_lost');}
      if(isPayoutNotice(signal)&&(this.env as any).DIANA_DIRECT_NOTICES_ENABLED!=='true')return {status:'pending',reason:'notice_admission_disabled'};
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
      const notice=isPayoutNotice(signal);

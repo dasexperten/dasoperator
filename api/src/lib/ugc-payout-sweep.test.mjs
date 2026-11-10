@@ -20,6 +20,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ugc-payout-store.ts', impor
       export const applyKonsolPayment=async(row)=>{globalThis.__sweep.applied.push(row.id);return {changed:false,status:'sent'}};
       export const bloggerFailedText=()=> 'failed notice', bloggerPaidText=()=> 'paid notice';
       export const executePayout=async()=>{throw Error('unexpected payment')};
+      export const executeManuallyApprovedPayout=async()=>{throw Error('unexpected payment')};
       export const matchRegistryPayment=()=>({reason:'no match'}), REGISTRY_LINK_IDS=['legacy'];
       export const sendIgDirect=(_e,handle)=>globalThis.__sweep.send(handle);
       export const queueConfirmedPayoutNotice=async(_e,id)=>{const f=globalThis.__sweep;f.queued.push(id);const r=f.noticeResults[id];if(r instanceof Error)throw r;if(r?.ok===false)return r;f.claims.delete(id);f.released.push(id);return{ok:true,queued:true}};
@@ -124,3 +125,4 @@ test('video reminders are queued only from five full days after the most recent 
   await overdueVideoReminders(env,Date.parse('2026-11-10T00:00:00.000Z'));
   assert.deepEqual(captured.sort(),['b','c']); db.close();
 });
+

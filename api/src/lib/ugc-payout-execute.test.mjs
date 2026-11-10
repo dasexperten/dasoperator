@@ -377,3 +377,17 @@ test('manual payout rejects changed bank or recipient before atomic claim',async
   assert.equal((await executePayout('p1',f.deps)).ok,false);assert.equal(f.calls.payments.length,0);assert.equal(f.calls.contractors.length,0);
  }
 });
+
+test('manual capability originates only from authenticated ERP execute route, never workflow or request JSON',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const route=await readFile(new URL('../routes/ugc.ts',import.meta.url),'utf8');
+ const start=route.indexOf("ugc.post('/payouts/:id/execute'");
+ assert.ok(start>=0);const handler=route.slice(start,route.indexOf('\n});',start));
+ assert.match(handler,/requireAccess\(c, true\)/);assert.match(handler,/access\.role !== 'admin'/);
+ assert.match(handler,/executeManuallyApprovedUgcPayout\(c\.env, c\.req\.param\('id'\), access\)/);
+ assert.doesNotMatch(handler,/req\.json|body\.|manualApproval/);
+ for(const path of ['../diana-cloud-workflow.ts','./diana-cloud.ts']){
+  const source=await readFile(new URL(path,import.meta.url),'utf8');
+  assert.doesNotMatch(source,/executeManuallyApproved/);
+ }
+});

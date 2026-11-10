@@ -257,3 +257,27 @@ test('one pre-assignment execution recovery preserves provider identity and cann
  assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
  assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'dieter_tiktok_transport:%:prior-execution:%'").get().n,1);
 });
+
+test('explicit repaired pre-provider execution can use the last bounded attempt but never replay a provider intent',async t=>{
+ const f=transportFixture(t),first=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
+ const key='dieter_tiktok_transport:'+first.transport_id;
+ f.env.DIETER_CLOUD.get=async()=>({async status(){return {status:'errored'};}});
+ const second=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run(key+':execution:'+second.workflow_id+':started',JSON.stringify({workflow_id:second.workflow_id}));
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run(key+':result','{"tiktok_status":"blocked"}');
+ f.env.DIETER_CLOUD.get=async()=>({async status(){return {status:'complete'};}});
+ assert.equal((await scheduleDieterTikTokTransport(f.env,f.args,'repair-one')).workflow_id,second.workflow_id);
+ const third=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one',true);assert.equal(third.workflow_id,first.workflow_id+'-recovery-2');
+ assert.equal((await scheduleDieterTikTokTransport(f.env,f.args,'repair-one',true)).workflow_id,third.workflow_id);
+ assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
+});
+test('accepted API provider states wait in Workflows instead of launching another model',async t=>{
+ const f=transportFixture(t),modes=[];
+ f.db.prepare("UPDATE ugc_reel_jobs SET status='working',claim_id='exact-claim',attempts=2 WHERE content_id='one'").run();
+ f.db.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_execution_hold:one'").run();
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('ugc-tiktok-business:one:'+f.args.sourceSha256,'{"state":"accepted","identity":{"claimId":"exact-claim"}}');return Response.json({text:'Known API completion pending'});};
+ const proof={platform:'tiktok',url:'https://tiktok.com/@dasbroadcast/video/1234567890',account:'dasbroadcast',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'Verified API fixture'};
+ const step={...f.step,async sleep(){f.db.prepare("UPDATE ugc_reel_jobs SET status='published',publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));}};
+ const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim'},instanceId:'normal-cloud-flow'},step);
+ assert.equal(result.publication_verified,true,JSON.stringify({result,modes}));assert.deepEqual(modes,['work']);
+});

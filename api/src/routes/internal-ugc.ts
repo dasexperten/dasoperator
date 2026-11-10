@@ -7,9 +7,11 @@ import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } fro
 import type { Env } from '../types';
 import { answerHardQuestion } from '../lib/ugc-hard-question';
 import instagramOperationRoutes from './internal-ugc-instagram';
-import {scheduleDieterTikTokTransport} from '../dieter-tiktok-workflow';
+import {scheduleDieterTikTokTransport,awaitsDieterApiCompletion} from '../dieter-tiktok-workflow';
+import {runDieterTikTokApi} from '../lib/dieter-tiktok';
 
 const route = new Hono<{ Bindings: Env }>();
+const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 
 route.post('/hard-answer', async (c) => {
   c.header('Cache-Control', 'no-store');
@@ -104,17 +106,34 @@ route.get('/reel-jobs/:id/caption-plan', async (c) => {
 route.post('/reel-jobs/:id/tiktok/start', async (c) => {
  const body=await c.req.json().catch(()=>null);
  if(!body)return c.json({ok:false,error:'tiktok_source_required'},422);
- const sha=String(body.source_sha256??'');
  try{
-  const result=await scheduleDieterTikTokTransport(c.env,{contentId:c.req.param('id'),claimId:body.claim_id,sourceSha256:sha,sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${sha}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id},body.continuation_id);
+  const result=await scheduleDieterTikTokTransport(c.env,tiktokSource(c.req.param('id'),body),body.continuation_id,body.after_code_repair===true);
   return c.json({ok:true,...result},202);
  }catch(error){const message=String((error as Error).message);return c.json({ok:false,error:/^dieter_tiktok_[a-z_]+$/.test(message)?message:'dieter_tiktok_schedule_failed'},409);}
+});
+route.post('/reel-jobs/:id/tiktok/preflight',async(c)=>{
+ const body=await c.req.json().catch(()=>null);if(!body)return c.json({ok:false,error:'tiktok_source_required'},422);
+ if(await c.env.DB.prepare("SELECT key FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked') LIMIT 1").first())return c.json({ok:false,error:'dieter_tiktok_runtime_incident_stop'},409);
+ const result=await runDieterTikTokApi(c.env,tiktokSource(c.req.param('id'),body),'preflight');
+ return c.json({ok:result.status==='preflight_ready',model_calls:0,provider_publish_calls:0,...result},result.status==='preflight_ready'?200:409);
+});
+route.post('/reel-jobs/:id/rutube/pending',async(c)=>{
+ const id=c.req.param('id'),body=await c.req.json().catch(()=>null);
+ if(!body?.claim_id||!/^[a-f0-9]{32}$/.test(body.video_id??'')||!/^[a-f0-9]{64}$/.test(body.source_sha256??'')||!Number.isFinite(body.duration_seconds)||body.duration_seconds<=0)return c.json({ok:false,error:'exact_rutube_pending_identity_required'},422);
+ const job=await c.env.DB.prepare("SELECT claim_id FROM ugc_reel_jobs WHERE content_id=? AND status='working'").bind(id).first<{claim_id:string}>();
+ if(job?.claim_id!==body.claim_id)return c.json({ok:false,error:'working_claim_required'},409);
+ const key=`ugc-rutube-pending:${id}:${body.claim_id}`,value=JSON.stringify({video_id:body.video_id,source_sha256:body.source_sha256,duration_seconds:body.duration_seconds});
+ await c.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,value,Date.now()).run();
+ const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<{value:string}>();
+ return saved?.value===value?c.json({ok:true,provider_id_saved:true}):c.json({ok:false,error:'rutube_pending_identity_immutable'},409);
 });
 route.get('/reel-jobs/:id/tiktok/status',async(c)=>{
  const sha=c.req.query('source_sha256')??'';if(!/^[a-f0-9]{64}$/.test(sha))return c.json({ok:false,error:'source_sha256_required'},422);
  const row=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-tiktok-business:${c.req.param('id')}:${sha}`).first<{value:string}>();
  if(!row)return c.json({ok:true,status:'not_started'});
- const ledger=JSON.parse(row.value);return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,proof:ledger.proof??null});
+ const ledger=JSON.parse(row.value),job=await c.env.DB.prepare('SELECT status,publications FROM ugc_reel_jobs WHERE content_id=?').bind(c.req.param('id')).first<{status:string;publications:string}>();
+ const erpSaved=Boolean(ledger.proof&&JSON.parse(job?.publications??'[]').some((p:any)=>p.platform==='tiktok'&&p.url===ledger.proof.url&&p.verified===true));
+ return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,proof:ledger.proof??null,erp_saved:erpSaved,job_status:job?.status??null});
 });
 route.post('/reel-jobs/:id/caption-plan', async (c) => {
   const id=c.req.param('id');
@@ -234,6 +253,7 @@ route.post('/reel-jobs/:id/block', async (c) => {
   const body = await c.req.json().catch(() => null) as { claim_id?: string; error?: string; failed_attempts?: number } | null;
   const error = String(body?.error ?? '').trim().slice(0, 1000);
   if (!body?.claim_id || !error || body.failed_attempts !== 3) return c.json({ ok: false, error: 'claim_reason_and_three_failed_attempts_required' }, 422);
+  if(await awaitsDieterApiCompletion(c.env,id,body.claim_id))return c.json({ok:true,status:'working',api_completion_pending:true});
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='queued',attempts=MAX(attempts,3),claim_id=NULL,consumer_id=NULL,acknowledged_at=NULL,last_error=?,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`)
     .bind(error, new Date().toISOString(), id, body.claim_id).run();
   return c.json({ ok: Boolean(result.meta.changes), status: 'queued', blocked: true, automatic_retry: false }, result.meta.changes ? 200 : 409);
@@ -243,6 +263,7 @@ route.post('/reel-jobs/:id/release', async (c) => {
   const body = await c.req.json().catch(() => null) as { claim_id?: string; error?: string } | null;
   const error = String(body?.error ?? '').trim().slice(0, 1000);
   if (!body?.claim_id || !error) return c.json({ ok: false, error: 'claim_and_reason_required' }, 422);
+  if(await awaitsDieterApiCompletion(c.env,id,body.claim_id))return c.json({ok:true,status:'working',api_completion_pending:true});
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL,last_error=?,updated_at=? WHERE content_id=? AND status='working' AND claim_id=?`).bind(error, new Date().toISOString(), id, body.claim_id).run();
   return c.json({ ok: Boolean(result.meta.changes), status: 'queued' }, result.meta.changes ? 200 : 409);
 });

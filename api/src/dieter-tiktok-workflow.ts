@@ -3,6 +3,7 @@ import type {WorkflowStep} from 'cloudflare:workers';
 import type {TikTokSource} from './lib/dieter-tiktok';
 import {runDieterTikTokApi} from './lib/dieter-tiktok';
 import {reelPublicationProof,reelScope} from './lib/ugc-reel-jobs.mjs';
+import {reconcileDieterRutubeStatus} from './lib/dieter-rutube-status';
 
 export type TikTokTransportEvent={content_id:string;claim_id:string;transport:'tiktok';transport_id:string};
 const definitionKey=(id:string)=>'dieter_tiktok_transport:'+id;
@@ -21,7 +22,7 @@ async function authorizedJob(env:Env,args:TikTokSource,continuationId?:string){
  if(job.status!=='queued'||job.attempts!==3||!c?.owner_authorized||!c?.runtime_accepted||!c?.side_effect_assessment_accepted||c.content_id!==args.contentId||c.claim_id!==args.claimId||c.next_work_ordinal!==3||c.remaining_work_after!==0||start?.workflow_id!==c.workflow_id||prior?.work_runtime_completed!==true)throw Error('dieter_tiktok_original_continuation_required');
  return job;
 }
-export async function scheduleDieterTikTokTransport(env:Env,args:TikTokSource,continuationId?:string){
+export async function scheduleDieterTikTokTransport(env:Env,args:TikTokSource,continuationId?:string,afterCodeRepair=false){
  if(await stopped(env))throw Error('dieter_tiktok_runtime_incident_stop');
  await authorizedJob(env,args,continuationId);
  const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(args.contentId+'\n'+args.claimId+'\n'+args.sourceSha256)))].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,32);
@@ -35,9 +36,15 @@ export async function scheduleDieterTikTokTransport(env:Env,args:TikTokSource,co
  // a provider request. After a code repair, allow one bounded execution
  // recovery, while the immutable source/provider operation stays the same.
  let previousStatus:any;try{previousStatus=await(await env.DIETER_CLOUD.get(workflowId)).status();}catch{}
- if(previousStatus?.status==='errored'&&!workflowId.endsWith('-recovery-1')&&!await read(env,key+':started')&&!await read(env,`ugc-tiktok-business:${args.contentId}:${args.sourceSha256}`)){
-  const next={...definition,workflow_id:workflowId+'-recovery-1'};
-  await putOnce(env,key+':prior-execution:'+workflowId,{definition,status:'errored_before_assignment',provider_intents:0});
+ const ledger=await read(env,`ugc-tiktok-business:${args.contentId}:${args.sourceSha256}`);
+ const started=await read(env,key+':started')||await read(env,key+':execution:'+workflowId+':started');
+ const result=await read(env,key+':result');
+ const executionNumber=workflowId.endsWith('-recovery-2')?3:workflowId.endsWith('-recovery-1')?2:1;
+ const beforeAssignment=previousStatus?.status==='errored'&&!started;
+ const repairedBeforeProvider=afterCodeRepair&&(previousStatus?.status==='errored'||previousStatus?.status==='complete'&&result?.tiktok_status==='blocked');
+ if(!ledger&&executionNumber<3&&(beforeAssignment&&executionNumber===1||repairedBeforeProvider)){
+  const next={...definition,workflow_id:'dieter-tiktok-'+hash+'-recovery-'+executionNumber};
+  await putOnce(env,key+':prior-execution:'+workflowId,{definition,status:'terminal_before_provider_intent',provider_intents:0,after_code_repair:afterCodeRepair});
   await env.DB.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=? AND value=?').bind(JSON.stringify(next),Date.now(),key,JSON.stringify(definition)).run();
   definition=await read(env,key);workflowId=definition.workflow_id;
  }
@@ -65,14 +72,14 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
   const d=await read(env,definitionKey(input.transport_id));
   if(!d||d.provider!=='tiktok'||d.model_calls!==0||d.workflow_id!==workflowId||d.args.contentId!==input.content_id||d.args.claimId!==input.claim_id)throw Error('dieter_tiktok_transport_mismatch');
   if(await stopped(env))throw Error('dieter_tiktok_runtime_incident_stop');
-  await authorizedJob(env,d.args,d.continuation_id??undefined);
-  const lease=definitionKey(input.transport_id)+':started',value=JSON.stringify({workflow_id:workflowId,model_calls:0,at:new Date().toISOString()});
+  const job=await authorizedJob(env,d.args,d.continuation_id??undefined);
+  const lease=definitionKey(input.transport_id)+':execution:'+workflowId+':started',value=JSON.stringify({workflow_id:workflowId,model_calls:0,at:new Date().toISOString()});
   await env.DB.batch([
    env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND (status='queued' OR (status='working' AND claim_id=?))) AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working' AND content_id<>?) AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked')) ON CONFLICT(key) DO NOTHING`).bind(lease,value,Date.now(),input.content_id,input.claim_id,input.content_id),
    env.DB.prepare(`UPDATE ugc_reel_jobs SET status='working',claim_id=?,consumer_id='cloudflare-dieter-v1',acknowledged_at=COALESCE(acknowledged_at,?),updated_at=? WHERE content_id=? AND status='queued' AND attempts=3 AND EXISTS(SELECT 1 FROM crm_sync_state WHERE key=? AND json_extract(value,'$.workflow_id')=?) AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working')`).bind(input.claim_id,new Date().toISOString(),new Date().toISOString(),input.content_id,lease,workflowId),
   ]);
   if((await read(env,lease))?.workflow_id!==workflowId)throw Error('dieter_tiktok_transport_lease_conflict');
-  return d;
+  return {...d,requires_rutube:reelScope(job).active.includes('rutube')};
  });
  // This is one first provider action, never another native/LLM work call.
  let result=await step.do('tiktok-publish-once',{retries:{limit:0,delay:'1 second'},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
@@ -80,8 +87,31 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
   await step.sleep('tiktok-processing-wait-'+index,index===0?'30 seconds':'2 minutes');
   result=await step.do('tiktok-readback-'+index,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>runDieterTikTokApi(env,definition.args,'reconcile'));
  }
+ let rutube:any;
+ if(result.status==='verified'&&definition.requires_rutube&&definition.continuation_id){
+  rutube=await step.do('rutube-known-id-readback',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>reconcileDieterRutubeStatus(env,{contentId:input.content_id,claimId:input.claim_id}));
+  for(let index=0;rutube.status==='pending'&&index<2;index++){
+   await step.sleep('rutube-moderation-wait-'+index,index===0?'2 minutes':'5 minutes');
+   rutube=await step.do('rutube-known-id-readback-'+index,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>reconcileDieterRutubeStatus(env,{contentId:input.content_id,claimId:input.claim_id}));
+  }
+ }
  const completion=result.status==='verified'?await step.do('verify-seven-saved-platforms',()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id)):{publication_verified:false};
- const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),model_calls:0,workflow_id:workflowId};
- await putOnce(env,definitionKey(input.transport_id)+':result',receipt);
+ const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),...(rutube?{rutube_status:rutube.status}:{}),model_calls:0,workflow_id:workflowId};
+ await putOnce(env,definitionKey(input.transport_id)+':execution:'+workflowId+':result',receipt);
+ const current=await read(env,definitionKey(input.transport_id));
+ if(current?.workflow_id===workflowId)await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(definitionKey(input.transport_id)+':result',JSON.stringify(receipt),Date.now()).run();
  return receipt;
+}
+export async function awaitsDieterApiCompletion(env:Env,contentId:string,claimId:string){
+ const row=await env.DB.prepare('SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?').bind(contentId).first<any>();
+ if(row?.status!=='working'||row.claim_id!==claimId)return false;
+ const proofs=reelPublicationProof(JSON.parse(row.publications??'[]'),row.content_url);
+ const missing=reelScope(row).active.filter((p:string)=>!proofs?.some(x=>x.platform===p));
+ if(!missing.length||missing.some((p:string)=>!['rutube','tiktok'].includes(p)))return false;
+ if(missing.includes('rutube')&&!await read(env,`ugc-rutube-pending:${contentId}:${claimId}`))return false;
+ if(missing.includes('tiktok')){
+  const ledger=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE ? AND json_extract(value,'$.identity.claimId')=? LIMIT 1").bind(`ugc-tiktok-business:${contentId}:%`,claimId).first<{value:string}>();
+  if(!ledger||!['accepted','verified'].includes(JSON.parse(ledger.value).state))return false;
+ }
+ return true;
 }

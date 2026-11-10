@@ -3,7 +3,8 @@ import type {Env} from './types';
 import {reelAssignment} from './lib/ugc-reel-store';
 import {reelScope,reelPublicationProof} from './lib/ugc-reel-jobs.mjs';
 import {diterWindow,START_INTERVAL_MS} from './lib/ugc-reel-store';
-import {runDieterTikTokTransport,type TikTokTransportEvent} from './dieter-tiktok-workflow';
+import {runDieterTikTokTransport,awaitsDieterApiCompletion,finalizeDieterApiPublication,type TikTokTransportEvent} from './dieter-tiktok-workflow';
+import {reconcileDieterRutubeStatus} from './lib/dieter-rutube-status';
 
 const CONSUMER='cloudflare-dieter-v1';
 type Event={content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string};
@@ -154,9 +155,24 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
    return continuation?{...job,continuation,task:job.task+'\nCONTROLLED CONTINUATION: this is the third and final work call for this original content, after verified runtime repair and independent seven-platform inventory review. Keep the existing claim, raw attempts and clocks. Recheck each destination inventory and any known pending IDs immediately BEFORE its first provider intent; reuse existing verified posts. A match or uncertain response permits reconciliation only on that destination, while independently safe destinations continue. Save each provider ID and ERP proof immediately. Never repeat an ambiguous upload. No fourth work call. The source remains the archived full original. Create/read back the current exact-claim caption plan before publication, including exact source credit in the Facebook description.'}:job;
   });
   const executionKey=input.continuation_id?input.claim_id+':continuation:'+input.continuation_id:input.claim_id;
-  for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
+  work:for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
    const before=await step.do('read-result-'+attempt,()=>dieterOutcome(this.env,input));
    if(before.verified||before.status!=='working')break;
+   if(attempt>0&&await awaitsDieterApiCompletion(this.env,input.content_id,input.claim_id)){
+    // Known provider IDs are being finalized by API-only Workflows. Release
+    // the model/container and wait for saved public proof, not another LLM.
+    for(let wait=0;wait<3;wait++){
+     if(wait>0)await step.sleep('api-completion-wait-'+wait,'2 minutes');
+     await step.do('api-known-provider-reconcile-'+wait,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},async()=>{
+      if(await getRecord(this.env,`ugc-rutube-pending:${input.content_id}:${input.claim_id}`))await reconcileDieterRutubeStatus(this.env,{contentId:input.content_id,claimId:input.claim_id});
+      return finalizeDieterApiPublication(this.env,input.content_id,input.claim_id);
+     });
+     const after=await step.do('api-completion-result-'+wait,()=>dieterOutcome(this.env,input));
+     if(after.verified||after.status!=='working')break work;
+    }
+    const pending={status:'awaiting_api_completion',publication_verified:false,content_id:input.content_id,claim_id:input.claim_id,model_calls_after_work:0,executor:'cloudflare_workflow'};
+    await putRecord(this.env,'dieter_cloud_api_pending:'+executionKey,pending);return pending;
+   }
    const action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'18 minutes'},async()=>{
     const actionMode=attempt===0?'work':'reconcile';
     const requestId=input.continuation_id?'dieter-continuation-'+input.continuation_id+'-'+attempt:'dieter-'+input.claim_id+'-'+attempt;

@@ -27,7 +27,7 @@ export async function reconcileDieterRutubeStatus(env:Env,args:Args,options:Opti
   const caption=plan?.platforms?.rutube?.caption;
   if(plan?.content_id!==args.contentId||typeof caption!=='string'||!caption.trim())return {status:'blocked',code:'rutube_saved_caption_plan_required',videoId};
   const read=async(path:string)=>{
-   try{const r=await fetcher(`https://rutube.ru/api/${path}/${videoId}/`,{method:'GET',headers:{Accept:'application/json','User-Agent':'Mozilla/5.0'},redirect:'error'});if(!r.ok)return null;return await r.json();}catch{return null;}
+   try{const r=await fetcher(`https://rutube.ru/api/${path}/${videoId}/`,{method:'GET',headers:{Accept:'application/json','User-Agent':'Mozilla/5.0'},redirect:'manual'});if(!r.ok)return null;return await r.json();}catch{return null;}
   };
   const video:any=await read('video');
   if(!video)return {status:'pending',code:'rutube_public_record_not_ready',videoId};

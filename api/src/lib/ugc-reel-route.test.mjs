@@ -310,3 +310,19 @@ test('TikTok transport endpoints require the existing service credential and rej
  assert.equal((await request('/reel-jobs/reel1/tiktok/start',{claim_id:'test',source_sha256:'invalid'})).status,409);
  assert.equal((await request('/reel-jobs/reel1/tiktok/status?source_sha256=invalid')).status,422);
 });
+
+test('known accepted API publications retain their claim while processing instead of being blocked or released',async()=>{
+ const id='known-api-pending',claim='known-api-claim',stamp=new Date().toISOString();
+ sqlite.prepare('INSERT INTO ugc_content VALUES(?,?,?,?)').run(id,'profile','https://instagram.com/reel/KNOWNAPI/','video');
+ sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id,required_destinations,attempts)VALUES(?,?,?,?,?,?,?,?)").run(id,'owner',stamp,stamp,'working',claim,'["rutube","tiktok"]',1);
+ sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('ugc-tiktok-business:'+id+':'+'a'.repeat(64),JSON.stringify({state:'accepted',identity:{claimId:claim}}));
+ const body={claim_id:claim,video_id:'0123456789abcdef0123456789abcdef',source_sha256:'a'.repeat(64),duration_seconds:13};
+ assert.equal((await request('/reel-jobs/'+id+'/rutube/pending',body,false)).status,401);
+ assert.equal((await request('/reel-jobs/'+id+'/rutube/pending',body)).status,200);
+ assert.equal((await request('/reel-jobs/'+id+'/rutube/pending',body)).status,200);
+ assert.equal((await request('/reel-jobs/'+id+'/rutube/pending',{...body,video_id:'1123456789abcdef0123456789abcdef'})).status,409);
+ for(const action of ['release','block']){
+  const response=await(await request('/reel-jobs/'+id+'/'+action,{claim_id:claim,error:'Known providers still processing',failed_attempts:3})).json();assert.equal(response.status,'working');assert.equal(response.api_completion_pending,true);
+ }
+ const row=sqlite.prepare('SELECT status,claim_id,attempts FROM ugc_reel_jobs WHERE content_id=?').get(id);assert.equal(row.status,'working');assert.equal(row.claim_id,claim);assert.equal(row.attempts,1);
+});

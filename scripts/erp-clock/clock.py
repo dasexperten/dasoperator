@@ -155,6 +155,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--schedules", type=Path, default=Path(__file__).with_name("schedules.json"))
     args = parser.parse_args()
     secret = os.environ.get("ERP_RUN_SECRET", "")
     if not args.dry_run and not secret:
@@ -168,7 +169,7 @@ def main():
         stopped = threading.Event()
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: stopped.set())
-        schedules = json.loads(Path(__file__).with_name("schedules.json").read_text())
+        schedules = json.loads(args.schedules.read_text())
         with ThreadPoolExecutor(max_workers=len(schedules)) as pool:
             clock = Clock(pool.submit, post_slot, secret, args.dry_run, schedules)
             while not stopped.is_set():

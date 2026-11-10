@@ -30,7 +30,7 @@
   "erp-site-stock": { "crons": ["10 */3 * * *"] },
   "erp-skladbot-sync": { "crons": ["30 */6 * * *"] },
   "erp-social-queue": { "crons": ["40 4,7,10,13,16,19 * * *"], "execution": "local" },
-  "erp-ugc-direct": { "crons": ["*/3 2-21 * * *"] },
+  "erp-ugc-direct": { "crons": ["*/3 5-19 * * *", "0-27/3 20 * * *"] },
   "erp-ugc-postlink": { "crons": ["0 0 * * *"], "execution": "local" },
   "erp-ugc-payouts": { "crons": ["*/10 * * * *"] },
   "erp-wb-news": { "crons": ["5 4 * * *", "5 12 * * *"], "execution": "local" },

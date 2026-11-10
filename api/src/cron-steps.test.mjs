@@ -71,4 +71,3 @@ test('removed timer jobs have no executable ERP step', () => {
   assert.equal(STEPS['erp-promo-refill'], undefined);
   assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
 });
-

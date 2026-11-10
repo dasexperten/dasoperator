@@ -5,6 +5,7 @@ import {finishDianaCloud} from './lib/diana-cloud-lock';
 import {roundCandidates} from './lib/diana-cloud-round-cohort';
 import {reviewRoundCollab} from './lib/diana-round-collab';
 import {reviewRoundPublications} from './lib/diana-round-publications';
+import {reviewManualStage} from './lib/diana-round-manual';
 
 type RoundInput={id:string;scheduled_at:number};
 const READ={retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'30 minutes' as const};
@@ -17,13 +18,14 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
       let reviewed=0,exceptions=0;
       for(let i=0;i<cohort.length;i++) {
         const person=cohort[i]!, key=`diana_round_receipt:${run.id}:${person.id}`;
-        let result:any;
+        let result:any,sourceKey:string|null=null;
         if(!person.cid||!person.message_id||!person.message_at)result={status:'needs_review',reason:'original_conversation_identity_unavailable'};
         else {
           const input:DianaCloudEvent={cid:person.cid,message_id:person.message_id,event_id:`round:${run.id}:${person.id}`,
             creator_id:person.id,handle:person.normalized_handle,at:person.message_at,task:'round',round_slot:run.id};
           try {
             const source=await step.do(`round-${i}-read`,READ,()=>readCloudConversation(this.env,input));
+            if(source.status==='ready'&&source.key)sourceKey=source.key;
             result=source;
             if(source.status==='ready'&&source.key){
               const context=await step.do(`round-${i}-context`,READ,()=>prepareCloudDecision(this.env,source.key!));result=context;
@@ -50,11 +52,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
         }
         result.coauthor=collab;
         result.publication=publication;
-        const manual=await this.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('manual_stage:'+person.id).first<{value:string}>();
-        if(manual){
-          try {const value=JSON.parse(manual.value);if(!value.reviewed_at)result.manual_stage='not_reviewed';}
-          catch {result.manual_stage='invalid_record';}
-        }
+        result.manual_stage=await step.do(`round-${i}-manual-stage`,READ,()=>reviewManualStage(this.env,person.id,sourceKey));
         if(result.status==='reviewed')reviewed++;else exceptions++;
         await step.do(`round-${i}-receipt`,READ,async()=>{
           const receipt={slot:run.id,creator_id:person.id,stage_before:person.lifecycle_stage,...result,checked_at:new Date().toISOString()};

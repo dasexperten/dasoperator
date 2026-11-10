@@ -358,8 +358,12 @@ new_sqlite_classes = ["DianaWake"]
 binding = "SEAT_DIETER_VFX"
 service = "dieter-vfx"
 
-# Dieter execution binding is added only after its isolated backend exists.
-# Missing binding fails explicitly before any job claim or publication.
+# Dedicated Dieter-only runtime. No retired Diana Direct capability.
+[[services]]
+binding = "DIETER_SUBSCRIPTION"
+service = "diter-upload-runner"
+entrypoint = "DieterExecutionService"
+
 [[durable_objects.bindings]]
 name = "DIETER_WAKE"
 class_name = "DieterWake"

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {mock} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {createRequire} from 'node:module';
@@ -6,6 +6,8 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+// Make delivery tests independent of the hour at which CI runs.
+mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-10T09:00:00Z')});
 const {build}=createRequire(import.meta.url)('esbuild');
 const dir=mkdtempSync(join(tmpdir(),'diana-cloud-test-'));
 const outfile=join(dir,'cloud.mjs');

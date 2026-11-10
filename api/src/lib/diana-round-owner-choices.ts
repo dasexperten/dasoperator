@@ -22,19 +22,24 @@ export async function collectOwnerChoices(env:Env,roundId:string){
   const response=await fetch(SOURCE,{signal:AbortSignal.timeout(20_000)});
   const payload=await response.json() as any;
   if(!response.ok||payload.ok!==true||!Array.isArray(payload.items))throw Error('owner_choices_source_unavailable');
-  const choices=payload.items.filter((x:any)=>x.agent_slug==='diana-helios'&&x.kind==='callback_query'&&x.reply_to_message_id&&Number.isSafeInteger(Number(x.update_id)));
+  const choices=payload.items.filter((x:any)=>x.agent_slug==='diana-helios'&&x.kind==='callback_query');
   let unresolved=0;
   for(const x of choices){
+   const questionId=x.reply_to_message_id??x.message_id;
+   // Raw callback records use message_id for the original question. An
+   // incomplete record must stay visible rather than disappear from the count.
+   if(!questionId||x.update_id==null||!Number.isSafeInteger(Number(x.update_id))){unresolved++;continue;}
    const key='diana_owner_choice:'+String(x.update_id);
    const item:any={status:'needs_review',reason:'original_question_and_action_not_verified',round_id:roundId,update_id:Number(x.update_id),
-     reply_to_message_id:String(x.reply_to_message_id),choice:String(x.text??'').slice(0,500),source_at:x.created_at??null};
-   const question=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('ig_hard:'+String(x.reply_to_message_id)).first<{value:string}>();
+     reply_to_message_id:String(questionId),choice:String(x.text??'').slice(0,500),source_at:x.created_at??null};
+   const question=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('ig_hard:'+String(questionId)).first<{value:string}>();
    const match=String(x.text??'').match(/^opt:\d+:(.+)$/s);
-   if(question&&match){
+   if(Number(x.handled)!==1)item.reason='owner_callback_not_authenticated_or_handled';
+   else if(question&&match){
     let q:any;try{q=JSON.parse(question.value);}catch{}
     const selected=match[1].trim();
     if(q?.options&&Object.prototype.hasOwnProperty.call(q.options,selected)&&(!q.choice||q.choice===selected)){
-      const action=await answerHardQuestion(env,Number(x.reply_to_message_id),selected);
+      const action=await answerHardQuestion(env,Number(questionId),selected);
       if(action.event_id){item.status='queued';item.reason='awaiting_verified_delivery';item.event_id=action.event_id;}
       else if(q.answered_at&&q.options[selected]===null){item.status='verified';item.reason='owner_chose_to_write_personally';}
       else if(q.answered_at&&typeof q.delivery_key==='string'){

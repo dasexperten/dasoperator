@@ -73,11 +73,14 @@ export class DianaWake {
     return{active:!!row&&Date.now()-Number(row.updated_at)<180_000,updated_at:row?.updated_at??null};
   }
   private async dispatch(priorityEventId?:string,justReturned:string[]=[]){
-    const mode=await this.env.DB.prepare("SELECT (SELECT value FROM crm_sync_state WHERE key='diana_execution_mode') value,(SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode') cloud").first<{value:string;cloud:string}>();
+    const mode=await this.env.DB.prepare("SELECT (SELECT value FROM crm_sync_state WHERE key='diana_execution_mode') value,(SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode') cloud,(SELECT value FROM crm_sync_state WHERE key='diana_machine_dispatch') machine").first<{value:string;cloud:string;machine:string}>();
     if(mode?.cloud==='enabled'){
       const result=this.cloudQueue.then(()=>dispatchDianaCloud(this.env,priorityEventId));
       this.cloudQueue=result.catch(()=>undefined);return result;
     }
+    // Owner 2026-11-11: Direct is cloud-only; preserve alarms while the
+    // replacement Workflow is unavailable, never fall back to a computer.
+    if(mode?.machine==='disabled')return {dispatched:false,reason:'cloud_direct_unavailable'};
     const directOnly=mode?.value==='direct_only_primary';
     const peers=this.state.getWebSockets().filter(ws=>(!directOnly||(ws.deserializeAttachment() as Peer).role==='primary')&&ws.readyState===1&&Date.now()-((ws.deserializeAttachment() as Peer).seen??Date.now())<180_000)
       .sort((a,b)=>RANK.indexOf((a.deserializeAttachment() as Peer).role)-RANK.indexOf((b.deserializeAttachment() as Peer).role));

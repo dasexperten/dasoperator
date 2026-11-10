@@ -16,6 +16,7 @@ const stubs={
  'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async()=>({checks:[],status:'yes'});`,
  'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
  'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
+ 'ugc-payout-intake':`export const prepareCreatorPayout=async(env,input)=>{env.partialIntake=input;return {registered:false,missing_fields:['bank','phone','first_name']}};`,
  'ugc-payout-store':`export const executeUgcPayout=async(env,id)=>{env.executedPayout=id;return {ok:true}};`
 };
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile,
@@ -80,6 +81,7 @@ test('partial payment details create a durable signal without a transfer',async 
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'partial');
  const signal=JSON.parse(f.state('diana_payout_signal:message:incoming'));
  assert.equal(signal.status,'incomplete');assert.equal(signal.message_id,'incoming');
+ assert.equal(f.env.partialIntake.cycle_message_id,'incoming');
  assert.equal(f.env.payoutHandoffs,undefined);assert.equal(f.env.executedPayout,undefined);
 });
 test('preview exercises the same chain with zero sends and no live ACK',async t=>{

@@ -14,7 +14,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
       const cohort=await step.do('snapshot-round-cohort',READ,()=>roundCandidates(this.env));
       let reviewed=0,exceptions=0;
       for(let i=0;i<cohort.length;i++) {
-        const person=cohort[i], key=`diana_round_receipt:${run.id}:${person.id}`;
+        const person=cohort[i]!, key=`diana_round_receipt:${run.id}:${person.id}`;
         let result:any;
         if(!person.cid||!person.message_id||!person.message_at)result={status:'needs_review',reason:'original_conversation_identity_unavailable'};
         else {

@@ -14,6 +14,7 @@ import { acknowledgeDianaEvent } from './diana-alarm';
 import { mapKonsolStatus } from './ugc-payouts.mjs';
 import { recordPayoutNotice } from './ugc-payout-notice';
 import { ingestCreatorPayouts } from './ugc-payout-source';
+import { prepareCreatorPayout } from './ugc-payout-intake';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
   task?:'payout_paid_notice'|'payout_failed_notice'|'round';payout_id?:string;round_slot?:string;creator_id?:string };
@@ -160,9 +161,9 @@ export async function draftCloudDecision(env: Env, key: string) {
   if (!parsed || typeof parsed.escalate!=='boolean' || typeof parsed.reason!=='string' || !(parsed.reply===null || typeof parsed.reply==='string')
     || !(parsed.replies===null || Array.isArray(parsed.replies)&&parsed.replies.every((p:unknown)=>typeof p==='string'))) throw Error('diana_cloud_invalid_decision');
   const incoming=source.history.filter((m:any)=>m.direction==='in');
-  const decision=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
+  const guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
     lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!source.ownerDecision});
-  decision.payoutRequisitesDetected=parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''));
+  const decision={...guarded,payoutRequisitesDetected:parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
   const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
@@ -218,10 +219,14 @@ export async function handoffCloudPayout(env: Env, key: string) {
   if (source.event.dryRun || source.event.task || draft.decision.refused || draft.decision.escalate)
     return {status:'not_applicable'};
   if(!r && draft.decision.payoutRequisitesDetected){
-    // This event contains no personal or bank values: the original remains in
-    // the protected archive. It is a durable partial handoff, not a payout.
+    // The payout intake validates and records the original without creating an
+    // executable row. Values not independently verified are left incomplete.
+    const pending=await prepareCreatorPayout(env,{verified:true,handle:source.handle,conversation_id:source.event.cid,
+      cycle_message_id:source.event.message_id,source_message_ids:[source.event.message_id],amount_minor:1,
+      phone:'',first_name:null,fps_bank_member_id:'',bank_ref:''});
+    if(pending.registered!==false)throw Error('partial_payout_intake_must_not_register');
     await stateWrite(env,'diana_payout_signal:'+source.event.event_id,{status:'incomplete',conversation_id:source.event.cid,
-      message_id:source.event.message_id,event_id:source.event.event_id,missing:'verified_complete_requisites_or_cart',at:Date.now()});
+      message_id:source.event.message_id,event_id:source.event.event_id,missing_fields:pending.missing_fields,at:Date.now()});
     return {status:'partial'};
   }
   if(!r)return {status:'not_applicable'};

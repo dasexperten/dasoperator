@@ -1,6 +1,27 @@
 import type {Env} from '../types';
 import {answerHardQuestion} from './ugc-hard-question';
 const SOURCE='https://organizacia.dasexperten.workers.dev/api/telegram-bot/raw-updates?limit=100';
+async function graph(path:string,key:string){const r=await fetch('https://graph.facebook.com/v21.0'+path,{headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(20_000)});const data=await r.json() as any;if(!r.ok||data.error)throw Error('owner_receipt_original_unavailable');return data;}
+const brandIds=['1697038263872226','17841466350261166'];
+async function observeOldChoice(env:Env,q:any){
+ const token=(env as any).META_IG_MESSAGING_TOKEN,when=Date.parse(String(q.decision_at??''));
+ if(!token||!q.cid||!Number.isFinite(when))return {reason:'prior_choice_original_unavailable'};
+ try {
+  const page=await graph('/1697038263872226?fields=access_token',token);if(!page.access_token)throw Error('no_page_token');
+  let after='',more=true,complete=false;const outgoing:string[]=[];
+  for(let i=0;i<30&&more;i++){
+   const body=await graph('/'+encodeURIComponent(String(q.cid))+'/messages?fields=id,from,created_time&limit=100'+(after?'&after='+encodeURIComponent(after):''),page.access_token);
+   if(!Array.isArray(body.data))throw Error('messages_missing');
+   for(const m of body.data){const at=Date.parse(String(m.created_time??''));if(!Number.isFinite(at))throw Error('message_time_missing');if(at>=when&&brandIds.includes(String(m.from?.id))&&m.id)outgoing.push(String(m.id));}
+   const oldest=body.data.length?Math.min(...body.data.map((m:any)=>Date.parse(m.created_time))):Infinity;
+   if(!body.paging?.next||oldest<when){complete=true;break;}
+   const cursor=String(body.paging?.cursors?.after??'');if(!cursor||cursor===after)throw Error('pagination_unavailable');after=cursor;more=true;
+  }
+  if(!complete)return {reason:'prior_choice_original_pagination_incomplete'};
+  // An outgoing message alone cannot prove it is the selected response.
+  return {reason:'prior_choice_delivery_unknown',original_outgoing_count:outgoing.length,original_checked_at:new Date().toISOString()};
+ }catch{return {reason:'prior_choice_original_unavailable'};}
+}
 async function verifyOriginalDelivery(env:Env,q:any,plan:any){
  const token=(env as any).META_IG_MESSAGING_TOKEN;if(!token||plan.conversationId!==q.cid)return false;
  try {
@@ -8,7 +29,7 @@ async function verifyOriginalDelivery(env:Env,q:any,plan:any){
   const page=await graph('/1697038263872226?fields=access_token',token);if(!page.access_token)return false;
   for(const item of plan.items){
    const original=await graph('/'+encodeURIComponent(String(item.messageId))+'?fields=id,from,created_time',page.access_token);
-   if(String(original.id)!==String(item.messageId)||!['1697038263872226','17841466350261166'].includes(String(original.from?.id)))return false;
+   if(String(original.id)!==String(item.messageId)||!brandIds.includes(String(original.from?.id)))return false;
    const archived=await env.DB.prepare("SELECT id FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2 AND direction='out'").bind(String(item.messageId),q.cid).first();
    if(!archived)return false;
   }
@@ -39,8 +60,20 @@ export async function collectOwnerChoices(env:Env,roundId:string){
     let q:any;try{q=JSON.parse(question.value);}catch{}
     const selected=match[1].trim();
     if(q?.options&&Object.prototype.hasOwnProperty.call(q.options,selected)&&(!q.choice||q.choice===selected)){
-      const action=await answerHardQuestion(env,Number(questionId),selected);
-      if(action.event_id){item.status='queued';item.reason='awaiting_verified_delivery';item.event_id=action.event_id;}
+      // An old recorded selection can have been acted on by the legacy
+      // executor without its modern receipt. Inspect original evidence, but
+      // never queue it again unless its exact event is still durably pending.
+      let priorUnknown=false;
+      if(q.decision_at&&!q.answered_at){
+        const identity=`owner:${Number(questionId)}:${selected}`;
+        const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity)))].map(v=>v.toString(16).padStart(2,'0')).join('');
+        const event='action:'+hash;
+        const pending=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_action_pending:'+event).first();
+        if(!pending){Object.assign(item,await observeOldChoice(env,q));priorUnknown=true;}
+      }
+      const action=priorUnknown?null:await answerHardQuestion(env,Number(questionId),selected);
+      if(priorUnknown){} // remains needs_review; no external action or replay
+      else if(action?.event_id){item.status='queued';item.reason='awaiting_verified_delivery';item.event_id=action.event_id;}
       else if(q.answered_at&&q.options[selected]===null){item.status='verified';item.reason='owner_chose_to_write_personally';}
       else if(q.answered_at&&typeof q.delivery_key==='string'){
         const receipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(q.delivery_key).first<{value:string}>();

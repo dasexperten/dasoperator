@@ -29,3 +29,11 @@ test('an unhandled or incomplete Diana callback is not executed or silently igno
  const out=await collectOwnerChoices(f.env,'run');assert.equal(out.count,2);assert.equal(out.unresolved,2);
  const item=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_owner_choice:3').value);assert.equal(item.reason,'owner_callback_not_authenticated_or_handled');
 });
+test('old selected choice without a pending event is not replayed even when the original has a later outgoing message',async t=>{
+ const f=fixture(t),q={cid:'chat',handle:'alice',options:{'Ответить':['Хорошо']},choice:'Ответить',decision_at:'2026-11-09T10:00:00Z'};
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ig_hard:22',JSON.stringify(q),1);f.env.META_IG_MESSAGING_TOKEN='test';let posts=0;
+ t.mock.method(globalThis,'fetch',async(url,options)=>{if(options?.method==='POST')posts++;if(String(url).includes('organizacia'))return Response.json({ok:true,items:[{agent_slug:'diana-helios',kind:'callback_query',message_id:22,handled:1,update_id:1,text:'opt:1:Ответить'}]});if(String(url).includes('access_token'))return Response.json({access_token:'page'});return Response.json({data:[{id:'original-out',from:{id:'17841466350261166'},created_time:'2026-11-09T10:01:00Z'}]});});
+ const a=await collectOwnerChoices(f.env,'run');await collectOwnerChoices(f.env,'run');assert.equal(a.unresolved,1);assert.equal(posts,0);
+ const saved=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_owner_choice:1').value);assert.equal(saved.reason,'prior_choice_delivery_unknown');assert.equal(saved.original_outgoing_count,1);
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").get().n,0);
+});

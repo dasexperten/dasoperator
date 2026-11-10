@@ -205,6 +205,26 @@ function transportFixture(t){
  f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify(proofs));
  return {...f,proofs,args:{contentId:'one',claimId:'exact-claim',sourceSha256:sha,sourceAssetUrl:'https://org.dasexperten.com/assets/ugc/'+sha+'/original.mp4',sourceDurationSeconds:13,sourceAuthor:'actual_author',sourceUrl:'https://instagram.com/reel/SOURCE/',sourceDriveId:'original-drive-file'}};
 }
+test('verified retry resumes only missing TikTok without another native call or changing attempts',async t=>{
+ const f=transportFixture(t),put=(key,value)=>f.db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,0)').run(key,JSON.stringify(value));
+ const permit={owner_authorized:true,provider:'tiktok',model_calls:0,args:f.args};
+ put('dieter_tiktok_resume:one:exact-claim',permit);
+ put('dieter_cloud_assignment:exact-claim',{content_id:'one',claim_id:'exact-claim',verified_retry:{source_drive_id:f.args.sourceDriveId,source_sha256:f.args.sourceSha256,final_work_ordinal:3,first_send_destinations:['tiktok']}});
+ put('dieter_cloud_attempt:exact-claim:0:outcome',{outcome:'completed'});
+ await assert.rejects(scheduleDieterTikTokTransport(f.env,{...f.args,sourceDurationSeconds:14}),/original_continuation_required/);
+ put('ugc-tiktok-business:one:other',{state:'publish_requested'});
+ await assert.rejects(scheduleDieterTikTokTransport(f.env,f.args),/original_continuation_required/);
+ f.db.prepare("DELETE FROM crm_sync_state WHERE key='ugc-tiktok-business:one:other'").run();
+ f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify(f.proofs.slice(0,5)));
+ await assert.rejects(scheduleDieterTikTokTransport(f.env,f.args),/original_continuation_required/);
+ f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify(f.proofs));
+ const scheduled=await scheduleDieterTikTokTransport(f.env,f.args);
+ const proof={platform:'tiktok',url:'https://tiktok.com/@dasbroadcast/video/1234567890',account:'dasbroadcast',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'API fixture'};
+ const step={async do(name,options,callback){if(name==='tiktok-publish-once'){f.db.prepare("UPDATE ugc_reel_jobs SET publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));return {status:'verified',proof};}return (typeof options==='function'?options:callback)();}};
+ const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim',transport:'tiktok',transport_id:scheduled.transport_id},instanceId:scheduled.workflow_id},step);
+ assert.equal(result.upload_completed,true);assert.equal(result.model_calls,0);
+ assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,3);
+});
 test('TikTok-only API Workflow finishes seven platforms without a native call, counter reset or replacing the six earlier proofs',async t=>{
  const f=transportFixture(t);let nativeCalls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{nativeCalls++;throw Error('native forbidden');};
  const scheduled=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');

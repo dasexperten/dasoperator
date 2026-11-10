@@ -13,11 +13,37 @@ async function read(env:Env,key:string){const row=await env.DB.prepare('SELECT v
 async function stopped(env:Env){return Boolean(await env.DB.prepare("SELECT key FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked') LIMIT 1").first());}
 async function putOnce(env:Env,key:string,value:unknown){return env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify(value),Date.now()).run();}
 function validArgs(a:TikTokSource){return typeof a.contentId==='string'&&typeof a.claimId==='string'&&/^[a-f0-9]{64}$/.test(a.sourceSha256)&&a.sourceAssetUrl===`https://org.dasexperten.com/assets/ugc/${a.sourceSha256}/original.mp4`&&Number.isFinite(a.sourceDurationSeconds)&&a.sourceDurationSeconds>0&&typeof a.sourceAuthor==='string'&&a.sourceAuthor.length>0&&typeof a.sourceDriveId==='string'&&a.sourceDriveId.length>0;}
+// A narrowly authorised recovery of the original run, never another native work call.
+async function verifiedTikTokOnlyResume(env:Env,args:TikTokSource,job:any){
+ const permit=await read(env,`dieter_tiktok_resume:${args.contentId}:${args.claimId}`);
+ if(job.status!=='queued'||job.claim_id||job.attempts!==3||permit?.owner_authorized!==true||permit?.provider!=='tiktok'||permit?.model_calls!==0||JSON.stringify(permit.args)!==JSON.stringify(args))return false;
+ const assignment=await read(env,'dieter_cloud_assignment:'+args.claimId),retry=assignment?.verified_retry;
+ const outcome=await read(env,`dieter_cloud_attempt:${args.claimId}:0:outcome`);
+ if(assignment?.content_id!==args.contentId||assignment?.claim_id!==args.claimId||retry?.source_drive_id!==args.sourceDriveId||retry?.source_sha256!==args.sourceSha256||retry?.final_work_ordinal!==3||!retry?.first_send_destinations?.includes('tiktok')||outcome?.outcome!=='completed')return false;
+ const ledgerPrefix=`ugc-tiktok-business:${args.contentId}:`;
+ if(await env.DB.prepare('SELECT key FROM crm_sync_state WHERE substr(key,1,length(?))=? LIMIT 1').bind(ledgerPrefix,ledgerPrefix).first())return false;
+ const proofs=reelPublicationProof(JSON.parse(job.publications??'[]'),job.content_url)??[];
+ if(proofs.some((p:any)=>p.platform==='tiktok')||await read(env,`ugc-upload-accepted:${args.contentId}:${args.claimId}:tiktok`))return false;
+ const required=reelScope(job).active;
+ if(!required.includes('tiktok'))return false;
+ for(const platform of required.filter((p:string)=>p!=='tiktok')){
+  if(proofs.some((p:any)=>p.platform===platform))continue;
+  if(platform==='rutube'){
+   const v=await read(env,`ugc-rutube-pending:${args.contentId}:${args.claimId}`);
+   if(!/^[a-f0-9]{32}$/.test(v?.video_id??'')||v.source_sha256!==args.sourceSha256)return false;
+  }else{
+   const v=await read(env,`ugc-upload-accepted:${args.contentId}:${args.claimId}:${platform}`);
+   if(v?.provider_accepted!==true||v.claim_id!==args.claimId||v.content_id!==args.contentId||v.platform!==platform||typeof v.provider_id!=='string'||!v.provider_id.trim()||v.source_sha256!==args.sourceSha256)return false;
+  }
+ }
+ return true;
+}
 async function authorizedJob(env:Env,args:TikTokSource,continuationId?:string){
  if(!validArgs(args))throw Error('dieter_tiktok_invalid_source');
  const job=await env.DB.prepare('SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?').bind(args.contentId).first<any>();
  if(!job||!reelScope(job).active.includes('tiktok')||job.content_url!==args.sourceUrl)throw Error('dieter_tiktok_assignment_mismatch');
  if(job.status==='working'&&job.claim_id===args.claimId)return job;
+ if(!continuationId&&await verifiedTikTokOnlyResume(env,args,job))return job;
  const c=continuationId?await read(env,'dieter_cloud_continuation:'+continuationId):null;
  const start=continuationId?await read(env,'dieter_cloud_continuation:'+continuationId+':started'):null;
  const prior=continuationId?await read(env,'dieter_cloud_result:'+args.claimId+':continuation:'+continuationId):null;

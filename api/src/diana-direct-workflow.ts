@@ -16,6 +16,8 @@ import {deliverDirectReply} from './lib/diana-direct-deliver.mjs';
 import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
+// @ts-expect-error plain JS module
+import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
 export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number};
 
@@ -38,11 +40,11 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectSigna
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });
-     if(!signal.dryRun){const retry=['original_attachment_unavailable','original_image_unreadable'].includes(result.reason);const saved={...result,attempt:signal.attempt??1,...(retry?{retry_at:Date.now()+180000}:{})};await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
+     if(!signal.dryRun){const saved=directOutcomeState(result,signal.attempt??1);await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
      return result;
     }catch{
      // Never persist exceptions: upstream errors can contain private content.
-     const result={status:'pending',reason:'direct_execution_failed',attempt:signal.attempt??1,retry_at:Date.now()+180000};
+     const result=directOutcomeState({status:'pending',reason:'direct_execution_failed'},signal.attempt??1);
      if(!signal.dryRun)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(result),Date.now()).run();
      return result;
     }

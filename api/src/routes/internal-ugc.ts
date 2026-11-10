@@ -63,7 +63,7 @@ route.get('/diana-review-pressure', async c => {
   const now=Date.now();
   const rows=await c.env.DB.prepare(`SELECT COALESCE(json_extract(value,'$.review_owner'),'unassigned') AS owner,
     COUNT(*) AS count, MIN(COALESCE(json_extract(value,'$.review_since_ms'),updated_at)) AS oldest_ms
-    FROM crm_sync_state WHERE key LIKE 'diana_cloud_event:%' AND json_valid(value)
+    FROM crm_sync_state WHERE (key LIKE 'diana_cloud_event:%' OR key LIKE 'diana_direct_event:%') AND json_valid(value)
     AND json_extract(value,'$.status')='needs_review' GROUP BY owner`).all<{owner:string;count:number;oldest_ms:number}>();
   return c.json({ok:true,as_of_ms:now,groups:(rows.results??[]).map(row=>({...row,oldest_age_ms:Math.max(0,now-Number(row.oldest_ms))}))});
 });

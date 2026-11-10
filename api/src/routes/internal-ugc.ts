@@ -20,14 +20,16 @@ route.post('/direct-subscription-check', async c => {
   let diff=expected.length ^ given.length;
   for(let i=0;i<Math.min(expected.length,given.length);i++)diff|=expected.charCodeAt(i)^given.charCodeAt(i);
   if(!expected||diff)return c.json({ok:false,error:'unauthorized'},401);
+  let stage='setup';
   try {
     const {directThink}=await import('../lib/diana-direct-think.mjs');
     const pixel='iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAfElEQVR4nNXOQREAMAjAsK7+PTMRPLhGQd7QJnESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ESJ3ES53Vg6wNShQF/fRSLfgAAAABJRU5ErkJggg==';
-    const image=await directThink(c.env,'image')([{role:'user',content:'Name the single color of the image in English using one word.',images:[{mediaType:'image/png',data:pixel}]}],{model:'gpt-6-luna'});
+    stage='image';const image=await directThink(c.env,'image')([{role:'user',content:'Name the single color of the image in English using one word.',images:[{mediaType:'image/png',data:pixel}]}],{model:'gpt-6-luna'});
+    stage='reply';
     const out=await directThink(c.env,'reply')([{role:'user',content:'Reply with the single word OK.'}],{model:'gpt-6.1-terra'});
     const imageOk=/\bred\b/i.test(image.text);
     return c.json({ok:imageOk&&out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6.1-terra',image_verified:imageOk});
-  } catch { return c.json({ok:false,error:'subscription_check_failed'},503); }
+  } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
 });
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 

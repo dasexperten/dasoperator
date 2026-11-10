@@ -121,8 +121,8 @@ async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: stri
   return queueConfirmedPayoutNotice(env,String(row.id),_kind);
 }
 
-export async function executeUgcPayout(env: Env, id: string, preClaim?:()=>Promise<boolean>) {
-  const out = await executePayout(id, {...deps(env),preClaim});
+export async function executeUgcPayout(env: Env, id: string, preClaim?:()=>Promise<boolean>,beforeSend?:()=>Promise<boolean>) {
+  const out = await executePayout(id, {...deps(env),preClaim,beforeSend});
   // Owner 2026-10-20: a click stopped for lack of own RUB tells him the shortfall for the whole queue at once.
   if (!out.ok && out.code === 'own_rub_low') await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
   // A successful payment may leave the rest of the queue uncovered.

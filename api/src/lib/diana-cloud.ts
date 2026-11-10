@@ -15,6 +15,7 @@ import { mapKonsolStatus } from './ugc-payouts.mjs';
 import { recordPayoutNotice } from './ugc-payout-notice';
 import { ingestCreatorPayouts } from './ugc-payout-source';
 import { prepareCreatorPayout } from './ugc-payout-intake';
+import {dianaWorkWindow} from './diana-work-window.mjs';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
   task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
@@ -86,9 +87,21 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   }
   const newest = originals[0];
   if (!newest?.id || !newest.from?.id) throw Error('diana_original_identity_missing');
-  if (!event.task && String(newest.id) !== event.message_id) return {status:'superseded'};
-  if (!event.task && [BRAND,PAGE].includes(String(newest.from.id))) return {status:'superseded'};
-  const sender=event.task==='round'?originals.find(m=>m.from?.id&&![BRAND,PAGE].includes(String(m.from.id))):event.task?originals.find(m=>String(m.id)===event.message_id):newest;
+  let sender=event.task==='round'?originals.find(m=>m.from?.id&&![BRAND,PAGE].includes(String(m.from.id))):event.task?originals.find(m=>String(m.id)===event.message_id):newest;
+  if(!event.task&&(String(newest.id)!==event.message_id||[BRAND,PAGE].includes(String(newest.from.id)))){
+    // A prior part may already have been sent just before the cutoff. Resume
+    // only if the newest original is exactly one of this immutable plan's
+    // confirmed sent parts and no later incoming exists.
+    const state=await stateRead(env,cloudEventKey(event));
+    const original=originals.find(m=>String(m.id)===event.message_id);
+    const latestIncoming=originals.find(m=>m.from?.id&&![BRAND,PAGE].includes(String(m.from.id)));
+    const rows=(await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%' AND json_valid(value) AND json_extract(value,'$.conversationId')=?1")
+      .bind(event.cid).all<{value:string}>()).results??[];
+    const matches=rows.some(row=>{try{const p=JSON.parse(row.value);return original&&Date.parse(p.incomingAt)===Date.parse(original.created_time)&&
+      (p.items??[]).some((i:any)=>i.status==='sent'&&String(i.messageId)===String(newest.id));}catch{return false;}});
+    if(state?.status!=='deferred'||!original||String(latestIncoming?.id)!==event.message_id||!matches)return {status:'superseded'};
+    sender=original;
+  }
   if(!sender?.from?.id || [BRAND,PAGE].includes(String(sender.from.id)))throw Error('diana_original_sender_missing');
   const handle = String(sender.from.username ?? event.handle ?? '').toLowerCase().replace(/^@/,'');
   if (!/^[a-z0-9_.]{1,30}$/.test(handle)) throw Error('diana_creator_handle_missing');
@@ -163,6 +176,9 @@ export async function prepareCloudDecision(env: Env, key: string) {
 export async function draftCloudDecision(env: Env, key: string) {
   const prepared = await get(env,key), source = await get(env,prepared.sourceKey);
   await modeCheck(env,source.event);
+  const previous=await stateRead(env,cloudEventKey(source.event));
+  const oldDraft=(await artifactPrefix(source.event))+'decision.json';
+  if(previous?.status==='deferred'&&await env.DOCS.head(oldDraft))return {key:oldDraft,status:'resume'};
   const result = await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
   let parsed;
   try { parsed=JSON.parse(result.text); } catch { throw Error('diana_cloud_invalid_decision'); }
@@ -176,10 +192,11 @@ export async function draftCloudDecision(env: Env, key: string) {
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
 
-export async function deliverCloudDecision(env: Env, key: string) {
+export async function deliverCloudDecision(env: Env, key: string, now:()=>number=Date.now) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
+  if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {status:'deferred',reason:'outside_direct_hours'};
   const existingNotice=source.event.task&&source.event.task!=='round'&&source.event.task!=='owner_choice'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
   if(existingNotice?.notice_status==='delivered'){
     if(!existingNotice.notice_message_id)throw Error('cloud_existing_notice_receipt_missing');
@@ -208,6 +225,7 @@ export async function deliverCloudDecision(env: Env, key: string) {
   const result=await deliverIgReply(env,{conversationId:source.event.cid,incomingAt:source.at,handle:source.handle,...(actionId?{actionId}:{}),
     parts:decision.parts??[decision.reply],cards},async (boundEnv,handle,text,opts)=>{
       await modeCheck(env);
+      if(source.event.task!=='round'&&!dianaWorkWindow(now()).direct)return {ok:false,delivery:'not_sent',error:'outside_direct_hours'};
       if(source.event.task==='owner_choice'){
         const current=await stateRead(env,'ig_hard:'+source.event.question_id);
         if(!current||current.answered_at||current.choice!==source.ownerChoice?.choice||current.decision_at!==source.ownerChoice?.decision_at)
@@ -225,6 +243,7 @@ export async function deliverCloudDecision(env: Env, key: string) {
       // Automated model replies never use the HUMAN_AGENT exception.
       return sendIgDirect(boundEnv,handle,text,{...(opts.imageUrl?{imageUrl:opts.imageUrl}:{})});
     });
+  if(result.status==='pending'&&result.error==='outside_direct_hours')return {status:'deferred',reason:'outside_direct_hours',deliveryKey};
   if (result.status!=='complete') return {status:'needs_review',reason:result.error??result.status,deliveryKey,
     retryable:result.status==='pending'&&/rate limit|too many requests/i.test(result.error??'')};
   return {status:'delivered',deliveryKey};
@@ -262,7 +281,7 @@ export async function executeCloudPayout(env: Env, payoutId:string, event:DianaC
     const live=await cloudGraph('/'+encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,created_time}',await pageToken(env));
     const latest=live.messages?.data?.[0];
     return !!latest && !!recipient && String(latest.id)===event.message_id && String(latest.from?.id)===recipient && ![BRAND,PAGE].includes(recipient);
-  });
+  },async()=>dianaWorkWindow(Date.now()).direct);
   if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
   // Re-read the provider immediately after saving its payment ID. A callback
   // that arrived before that ID was saved could not have matched the row.
@@ -274,6 +293,7 @@ export async function executeCloudPayout(env: Env, payoutId:string, event:DianaC
 /** Completion requires Meta original readback for every send receipt and ERP readback. */
 export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome: any) {
   if (event.dryRun) {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now(),dry_run:true});return outcome;}
+  if(outcome.status==='deferred') {await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome;}
   if (outcome.status==='superseded') { await stateWrite(env,cloudEventKey(event),{...outcome,event_id:event.event_id,at:Date.now()});return outcome; }
   if (!['delivered','no_reply'].includes(outcome.status)) {
     await stateWrite(env,'ig_reply_escalated:'+event.cid,{at:event.at,handle:event.handle,status:'needs_review',kind:'technical',reason:outcome.reason??'cloud_execution_review'});

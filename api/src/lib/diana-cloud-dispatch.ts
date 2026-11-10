@@ -6,9 +6,7 @@ import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud } from './dian
 // One durable workflow at a time, across metadata scans and connected machines.
 // The Durable Object serializes dispatch; instance identity makes creation replay-safe.
 export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Date.now()) {
-  // Keep events durable outside the working window; detection or payment
-  // confirmation must not start a new Direct execution overnight.
-  if (!dianaWorkWindow(now).direct) return {dispatched:false,reason:'outside_direct_hours'};
+  if(!dianaWorkWindow(now).direct)return {dispatched:false,reason:'outside_direct_hours'};
   const claim=await env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();
   if(claim&&Number(claim.updated_at)>Date.now()-180_000)return {dispatched:false,reason:'diana_machine_finishing'};
   const active=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_cloud_active'").first<{value:string}>();
@@ -35,9 +33,11 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   const waiting=(await pendingDianaMessages(env)).filter(e=>e.message_id&&(financial(e)||ownerChoice(e)||String(e.queue_key).startsWith('diana_round_alarm:')&&e.event_id==='message:'+e.message_id))
     .sort((a,b)=>Number(b.event_id===priorityEventId)-Number(a.event_id===priorityEventId)||Number(!!financial(b))-Number(!!financial(a))||Date.parse(b.at)-Date.parse(a.at));
   for(const event of waiting){
-    const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first();
-    if(known)continue; // incomplete/failed events stay visible; no infinite automatic restart
-    const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+    const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first<{value:string}>();
+    let deferred=false;if(known){try{deferred=JSON.parse(known.value)?.status==='deferred';}catch{}}
+    if(known&&!deferred)continue; // errors/unknowns never replay automatically
+    const identity=deferred?`${event.event_id}:resume:${dianaWorkWindow(now).date}`:event.event_id;
+    const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity)))].map(x=>x.toString(16).padStart(2,'0')).join('');
     const id='direct-v1-'+hash;
     if(!await reserveDianaCloud(env,{kind:'direct',id})){
       const owner=await readDianaCloudLock(env);

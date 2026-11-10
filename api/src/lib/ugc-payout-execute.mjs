@@ -147,6 +147,7 @@ export async function executePayout(id, deps) {
   }
 
   if (deps.preClaim && !(await deps.preClaim())) return result(409, { ok:false, code:'source_changed', message:'Conversation changed before payout; review the new original message' });
+  if (deps.beforeSend && !(await deps.beforeSend())) return result(409, { ok:false, code:'outside_direct_hours', message:'Payout deferred until Direct opens' });
   const claimed = await store.claim(row.id, deps.claimToken, new Date(now).toISOString(), {row,requisites});
   if (!claimed) {
     const again = await store.getPayout(row.id);
@@ -163,6 +164,11 @@ export async function executePayout(id, deps) {
     return result(502, { ok: false, code: 'konsol_contractor', message: contractor.error });
   }
   await store.setContractor(row.id, contractor.id);
+
+  if (deps.beforeSend && !(await deps.beforeSend())) {
+    await store.release(row.id, 'Payout deferred until Direct opens');
+    return result(409, { ok:false, code:'outside_direct_hours', message:'Payout deferred until Direct opens' });
+  }
 
   const rub = amount / 100;
   const payment = await konsol.createPayment({

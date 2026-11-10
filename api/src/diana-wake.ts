@@ -1,6 +1,7 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
 import { dispatchDianaCloud } from './lib/diana-cloud-dispatch';
+import {scheduleDianaRound} from './lib/diana-cloud-round-schedule';
 
 // Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 50 identifiers
 // (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
@@ -56,6 +57,8 @@ export class DianaWake {
     const attempts=Number(await this.state.storage.get('cloud_release_attempts')??0)+1;
     let retry=false;
     try {
+      const round=await scheduleDianaRound(this.env,Date.now());
+      if(round.scheduled)return;
       const result=await this.dispatch();
       retry=['diana_cloud_working','diana_cloud_locked','diana_machine_finishing'].includes(String((result as any)?.reason??''));
     } catch { retry=true; }

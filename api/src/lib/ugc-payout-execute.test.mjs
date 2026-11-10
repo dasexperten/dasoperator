@@ -61,6 +61,12 @@ test('a newer source or changed amount before claim cannot send a payout', async
   changed.deps.preClaim=async()=>{changed.db.get('p1').amount_minor=45400;return true};
   assert.equal((await executePayout('p1',changed.deps)).ok,false);assert.equal(changed.calls.payments.length,0);
 });
+test('a payout that reaches closing time before provider submission is deferred without sending',async()=>{
+ const w=world({rows:[{id:'p1',amount_minor:45300}]});let checks=0;
+ w.deps.beforeSend=async()=>++checks===1;
+ assert.equal((await executePayout('p1',w.deps)).code,'outside_direct_hours');
+ assert.equal(w.calls.payments.length,0);assert.equal(w.db.get('p1').execute_claim,null);
+});
 
 test('own RUB is balance minus the 1 905 000 ₽ overdraft, never the overdraft figure', () => {
   assert.deepEqual(ownRubMinor({ collection: [{ balance: '1936615.38' }] }), { ok: true, own_minor: 3161538 });

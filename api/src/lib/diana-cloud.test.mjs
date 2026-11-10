@@ -107,6 +107,16 @@ test('ambiguous Meta outcome stays open and is never automatically sent again',a
  const a=await cloud.deliverCloudDecision(f.env,draft.key);await cloud.completeCloudEvent(f.env,f.event,a);await cloud.deliverCloudDecision(f.env,draft.key);
  assert.equal(f.sends.length,1);assert.equal(f.state('diana_message_done:chat'),undefined);assert.ok(f.state('diana_round_alarm:chat'));
 });
+test('cutoff defers without acknowledging and next day resumes only the unsent part',async t=>{
+ const f=fixture(t);f.env.decision.reply='Первое';f.env.decision.replies=['Первое','Второе'];
+ const {draft}=await f.prepare();const before=Date.parse('2026-11-10T23:29:59+03:00'),after=Date.parse('2026-11-10T23:30:00+03:00');let n=0;
+ const first=await cloud.deliverCloudDecision(f.env,draft.key,()=>++n<=2?before:after);
+ assert.equal(first.status,'deferred');assert.equal(f.sends.length,1);await cloud.completeCloudEvent(f.env,f.event,first);
+ assert.ok(f.state('diana_round_alarm:chat'));assert.equal(JSON.parse(f.state('diana_cloud_event:'+f.event.event_id)).status,'deferred');
+ const resumed=await f.prepare();const final=await cloud.deliverCloudDecision(f.env,resumed.draft.key,()=>Date.parse('2026-11-11T08:00:00+03:00'));
+ assert.equal(final.status,'delivered');assert.equal(f.sends.length,2);await cloud.completeCloudEvent(f.env,f.event,final);
+ assert.equal(f.state('diana_round_alarm:chat'),undefined);
+});
 test('unsupported or unreadable current attachment cannot produce an invented answer',async t=>{
  const f=fixture(t);f.originals[0].is_unsupported=true;let source=await cloud.readCloudConversation(f.env,f.event);
  assert.equal((await cloud.prepareCloudDecision(f.env,source.key)).status,'needs_review');assert.equal(f.env.inferences.length,0);
@@ -158,6 +168,14 @@ test('outside Moscow Direct hours the event remains queued and no workflow start
  }
  assert.equal(creates.length,0);
  assert.ok(f.state('diana_round_alarm:chat'));
+});
+test('deferred event starts with a fresh stable workflow identity at 08:00, never at 07:59',async t=>{
+ const f=fixture(t),instances=new Map(),created=[];f.set('diana_cloud_event:'+f.event.event_id,{status:'deferred'});
+ f.env.DIANA_CLOUD={async create(x){created.push(x);instances.set(x.id,'running')},async get(id){return{async status(){if(!instances.has(id))throw Error('not found');return {status:instances.get(id)}}}}};
+ assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T07:59:59+03:00'))).reason,'outside_direct_hours');
+ assert.equal(created.length,0);assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:00+03:00'))).dispatched,true);
+ assert.equal(created.length,1);assert.equal(created[0].params.event_id,f.event.event_id);
+ assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:00:01+03:00'))).reason,'diana_cloud_working');assert.equal(created.length,1);
 });
 test('direct and round share an atomic owner lock; another owner cannot release it',async t=>{
  const f=fixture(t), round={kind:'round',id:'round-2026-11-10-night'}, direct={kind:'direct',id:'direct-other'};

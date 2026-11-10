@@ -25,10 +25,12 @@ test('round starts once for a slot and does not start while Direct owns the shar
  assert.equal((await scheduleDianaRound(f.env,at+60_000)).scheduled,true);assert.equal(f.created.length,1);
  assert.equal((await scheduleDianaRound(f.env,at+120_000)).reason,'already_started');assert.equal(f.created.length,1);
 });
-test('a round still blocked at the end of its window is recorded as missed',async t=>{
+test('a round still blocked at the end of its window remains queued and starts afterwards',async t=>{
  const f=fixture(t),at=Date.parse('2026-11-10T06:29:00+03:00');
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_execution_lock',JSON.stringify({kind:'direct',id:'one'}),1);
- const result=await scheduleDianaRound(f.env,at);assert.equal(result.recorded_missed,true);
+ const result=await scheduleDianaRound(f.env,at);assert.equal(result.queued,true);
  const row=f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_round_run:'+result.id);
- assert.equal(JSON.parse(row.value).status,'missed');assert.equal(JSON.parse(row.value).reason,'diana_busy');assert.equal(f.created.length,0);
+ assert.equal(JSON.parse(row.value).status,'waiting');assert.equal(f.created.length,0);
+ f.db.prepare('DELETE FROM crm_sync_state WHERE key=?').run('diana_cloud_execution_lock');
+ assert.equal((await scheduleDianaRound(f.env,at+120_000)).scheduled,true);assert.equal(f.created.length,1);
 });

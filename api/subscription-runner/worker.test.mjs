@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
 let source=await readFile(new URL('./worker.mjs',import.meta.url),'utf8');
-source=source.replace("import { Container } from '@cloudflare/containers';","class Container {constructor(ctx,env){this.ctx=ctx;this.env=env;} containerFetch(...args){return this.env.containerFetch(...args);} startAndWaitForPorts(...args){return this.env.startAndWaitForPorts(...args);}}").replace("import { WorkerEntrypoint } from 'cloudflare:workers';","class WorkerEntrypoint {}");
+source=source.replace("import { Container } from '@cloudflare/containers';","class Container {constructor(ctx,env){this.ctx=ctx;this.env=env;} containerFetch(...args){if(args[0]==='http://container/health'&&!this.env.startAndWaitForPorts)return new Response('ok');return this.env.containerFetch(...args);} startAndWaitForPorts(...args){return this.env.startAndWaitForPorts?.(...args);}}").replace("import { WorkerEntrypoint } from 'cloudflare:workers';","class WorkerEntrypoint {}");
 const {CodexRunner,default:handler}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 function setup(){const map=new Map();const ctx={storage:{get:async k=>map.get(k),put:async(k,v)=>map.set(k,v),delete:async k=>map.delete(k),list:async({prefix})=>new Map([...map].filter(([k])=>k.startsWith(prefix)))}};return {map,ctx};}
 test('public admin endpoint denies when key is absent, including Bearer undefined',async()=>{assert.equal((await handler.fetch(new Request('https://example/auth',{headers:{Authorization:'Bearer undefined'}}),{})).status,404);});
@@ -59,4 +59,30 @@ test('tool traces are archived privately and removed from public cached results'
  const result=await(await runner.infer({requestId:'dieter-claim-0',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}})).json();
  assert.equal(result.privateEvents,undefined);assert.equal(result.auth,undefined);assert.equal(artifacts.length,1);
  assert.ok(!JSON.stringify([...map]).includes('private upload receipts'));
+});
+
+for(const mode of ['work','reconcile'])test('Dieter '+mode+' checks current placement and health before durable intent',async()=>{
+ const {ctx,map}=setup(),order=[];
+ const env={AUTH_KEY:Buffer.alloc(32,5).toString('base64'),async startAndWaitForPorts(options){order.push('placement');assert.equal(options.cancellationOptions.instanceGetTimeoutMS,120000);},async containerFetch(request){
+  if(typeof request==='string'){order.push('health');assert.equal([...map.keys()].some(k=>k.startsWith('dieter-intent:')),false);return new Response('ok');}
+  order.push('inference');assert.equal([...map.keys()].some(k=>k.startsWith('dieter-intent:')),true);return Response.json({text:'done'});
+ }};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ assert.equal((await runner.infer({requestId:'placement-'+mode,operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode}})).status,200);
+ assert.deepEqual(order,['placement','health','inference']);
+});
+test('failed work health never sends inference or records a publication intent',async()=>{
+ const {ctx,map}=setup();let inference=0;
+ const env={AUTH_KEY:Buffer.alloc(32,2).toString('base64'),async startAndWaitForPorts(){},async containerFetch(request){if(typeof request==='string')return new Response('not ready',{status:503});inference++;}};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const response=await runner.infer({requestId:'failed-work-health',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}});
+ assert.equal(response.status,503);assert.equal(inference,0);assert.equal([...map.keys()].some(k=>k.startsWith('dieter-intent:')),false);
+});
+test('SDK text failures become closed diagnostics without exposing raw bodies or retrying work',async()=>{
+ const {ctx}=setup();let calls=0;
+ const env={AUTH_KEY:Buffer.alloc(32,1).toString('base64'),async containerFetch(){calls++;return new Response('There is no container instance fixture-secret',{status:500});}};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const body={requestId:'proxy-failure',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}};
+ const response=await runner.infer(body),result=await response.json();assert.deepEqual(result.diagnostic,{phase:'container_startup',code:'placement_unavailable'});assert.ok(!JSON.stringify(result).includes('fixture-secret'));
+ assert.equal((await runner.infer(body)).status,409);assert.equal(calls,1);
 });

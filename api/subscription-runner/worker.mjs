@@ -18,11 +18,13 @@ export class CodexRunner extends Container {
   const intentKey='dieter-intent:'+body.requestId;
   if(acted&&await this.ctx.storage.get(intentKey))return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
   let containerReady=false;
-  if(body.operation==='dieter_round'&&body.execution?.mode==='preflight'){
+  if(body.operation==='dieter_round'){
    // The SDK's implicit placement wait is only 8s. Actual rollouts have
    // returned "no container instance" while the replacement was provisioning.
    // Wait for placement/ports and a real HTTP health response before any model
-   // call or video claim. This does not replay an inference or upload.
+   // call. A preflight does not guarantee the next service call still has a
+   // placed instance. Apply this once before work/reconciliation too, before
+   // the durable intent; never replay an inference or upload.
    try{
     await this.startAndWaitForPorts({ports:8080,cancellationOptions:{instanceGetTimeoutMS:120000,portReadyTimeoutMS:120000}});
     const health=await this.containerFetch('http://container/health',{method:'GET'},8080);
@@ -42,7 +44,11 @@ export class CodexRunner extends Container {
   const t0=Date.now();const log=(outcome,extra={})=>console.log(JSON.stringify({diana_runner:true,op:body.operation,model:body.model,req:String(body.requestId).slice(0,24),run_ms:Date.now()-t0,outcome,...extra}));
   let response;try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);}catch(e){log('container_fetch_threw',{error:String(e?.message??e).slice(0,200)});throw e;}
   if(!response.ok){
-   let diagnostic;try{const d=(await response.json()).diagnostic;if(d&&['read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code))diagnostic={phase:d.phase,code:d.code};}catch{}
+   const raw=await response.text();let diagnostic;
+   try{const d=JSON.parse(raw).diagnostic;if(d&&['read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code))diagnostic={phase:d.phase,code:d.code};}catch{}
+   if(!diagnostic)diagnostic=/no container instance/i.test(raw)?{phase:'container_startup',code:'placement_unavailable'}:
+    /not listening|port.*not ready/i.test(raw)?{phase:'container_startup',code:'port_not_ready'}:
+    {phase:'container_proxy',code:response.status===409?'busy':'http_unavailable'};
    log('container_http_'+response.status,{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
   }
   const result=await response.json();

@@ -127,3 +127,9 @@ test('existing protected helper reuses review validation and one atomic REST bat
  assert.equal((await protectedContentReview(input,{token:'synthetic-test-credential',fetchImpl})).verdict,'published');
  assert.equal(calls.length,2);assert.equal(calls[1].batch.length,3);assert.equal(f.rows()[0].product_status,'queued');assert.equal(f.stage(),'posted');
 });
+
+test('background discovery queues unverified links without creating a Direct alarm',async()=>{
+ const f=fixture();f.message('alice');const result=await captureDmLinks(f.env,{signalAlarms:false});assert.equal(result.added,1);assert.equal(f.rows()[0].product_status,'queued');
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%'").get().n,0);
+ assert.equal((await captureDmLinks(f.env,{signalAlarms:false})).added,0);
+});

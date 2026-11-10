@@ -18,10 +18,10 @@ export function validateImageResult(value) {
 }
 export function escalationReasons(result) {
  if(['product','seller'].some(k=>result[k]==='no')&&!result.unresolved_required.some(k=>['holder_name','bank','phone','card','amount','contradictory_evidence'].includes(k))) return [];
- const reported=result.unresolved_required.filter(k=>!(k==='seller'&&result.kind==='basket')).map(k=>`required_${k}_unresolved`);
+ const reported=result.unresolved_required.map(k=>`required_${k}_unresolved`);
  if(result.kind==='other')return reported;
  if(result.kind==='unknown') return ['kind_unknown',...reported];
- return ['product','amount',...(result.kind==='basket'?[]:['seller'])].filter(k=>result[k]==='unknown').map(k=>`${k}_unknown/${result.kind}`).concat(reported);
+ return ['product','amount','seller'].filter(k=>result[k]==='unknown').map(k=>`${k}_unknown/${result.kind}`).concat(reported);
 }
 export function needsTerra(result) { return escalationReasons(result).length>0; }
 export async function checkSubscriptionImages({images,policy,task,infer}) {
@@ -50,7 +50,7 @@ export async function checkSubscriptionImages({images,policy,task,infer}) {
   checks.push({...result,label:image.label,attempts});
  }
  const summary=summarizeImageChecks(checks);
- const latest=checks.at(-1);const unresolved=(latest?.unresolved_required??[]).filter(k=>!(k==='seller'&&latest.kind==='basket'));
+ const latest=checks.at(-1);const unresolved=latest?.unresolved_required??[];
  if(summary.status==='yes'&&unresolved.length)return {...summary,status:'unknown',reasons:unresolved.map(k=>`required_${k}_unresolved`)};
  return summary;
 }

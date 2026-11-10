@@ -6,7 +6,7 @@ const READ_BATCH=50;
 export const REEL_CHECKED_KEY=(code:string)=>`diana_reel_checked:${code}`;
 const ALARM_KEY=(cid:string)=>`diana_round_alarm:${cid}`;
 
-export async function captureDmLinks(env:Env):Promise<{added:number}> {
+export async function captureDmLinks(env:Env,options:{signalAlarms?:boolean}={}):Promise<{added:number}> {
   const rows=(await env.DB.prepare(`SELECT conversation_id,lower(from_username) h,text,created_at FROM ugc_ig_messages
     WHERE direction='in' AND text LIKE '%://%' AND from_username IS NOT NULL ORDER BY created_at DESC LIMIT 400`)
     .all<{conversation_id:string;h:string;text:string;created_at:string}>()).results??[];
@@ -60,7 +60,7 @@ export async function captureDmLinks(env:Env):Promise<{added:number}> {
   }
   let added=0;
   for(let i=0;i<writes.length;i+=READ_BATCH){const results=await env.DB.batch(writes.slice(i,i+READ_BATCH));added+=results.reduce((n,r)=>n+Number(r.meta?.changes??0),0);}
-  for(const [cid,entry] of byChat){
+  if(options.signalAlarms!==false)for(const [cid,entry] of byChat){
     const prior=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(ALARM_KEY(cid)).first<{value:string}>();
     let value:Record<string,any>={};try{value=JSON.parse(prior?.value??'{}')??{};}catch{}
     const knownLinks=new Set<string>(Array.isArray(value.links)?value.links:[]),fresh=[...entry.urls].filter(u=>!knownLinks.has(u));

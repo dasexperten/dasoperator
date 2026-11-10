@@ -167,7 +167,7 @@ await build({entryPoints:[fileURLToPath(new URL('./ugc-cart-review.ts',import.me
  b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const imageUrls=json=>JSON.parse(json).map(a=>a.image_data.url);export const loadInstagramImage=async()=>({data:'original-image',mediaType:'image/png',size:14});export const refreshIgAttachments=async()=>null;export const subscriptionInfer=()=>async(messages,{model})=>{globalThis.__cartModels.push(model);return{text:JSON.stringify(globalThis.__cartResults.shift()),receipt:{transport:'codex-native',auth:'subscription',model}}};`}));
 }}]});
 const {reviewPayoutCart}=await import(pathToFileURL(join(reviewDir,'review.mjs')));rmSync(reviewDir,{recursive:true});
-const imageResult={kind:'basket',product:'yes',seller:'unknown',amount:'yes',seller_evidence:'absent',unresolved_required:[],what:'one selected TERMO',visible_text:'453 RUB',requisites:{holder_name:null,bank:null,phone:null,card:null,amount:null,currency:null},observed:{product_name:'Das Experten TERMO 39°',price:'453',currency:'RUB',payment_status:null,delivery_status:null,seller_name:null}};
+const imageResult={kind:'basket',product:'yes',seller:'yes',amount:'yes',seller_evidence:'explicit_shop',unresolved_required:[],what:'one selected TERMO',visible_text:'453 RUB',requisites:{holder_name:null,bank:null,phone:null,card:null,amount:null,currency:null},observed:{product_name:'Das Experten TERMO 39°',price:'453',currency:'RUB',payment_status:null,delivery_status:null,seller_name:'Fixture seller'}};
 function archivedCart(f){
  f.db.exec("UPDATE ugc_ig_messages SET attachments_json='[{\"image_data\":{\"url\":\"https://lookaside.fbsbx.com/original\"}}]' WHERE id='new-bank'");
  return f.db.prepare('SELECT *,NULL text FROM ugc_ig_messages').all();
@@ -223,4 +223,20 @@ test('reviewed checkout remains valid after identified seller-only images withou
   const r=await prepareCreatorPayout(f.env,{...facts,cart_review:{source_message_id:'new-bank',amount_minor:45300,source_kind:'checkout',evidence:'Original checkout shows selected Ozon Bank, one TERMO thumbnail and final 453 RUB; later image is seller-only.',reviewer:'mina-rutunya'}},now);assert.equal(r.amount_minor,45300);
   const saved=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_payout_intake:%'").get().value);assert.equal(saved.verified_cart.reviewer,'mina-rutunya');
  }finally{f.db.close()}
+});
+
+test('seller answer after our exact question is reread from originals; changed answer cannot authorize the cart',async()=>{
+ for(const changed of [false,true]){
+  const f=fixture();try{
+   f.db.exec('ALTER TABLE ugc_ig_messages ADD COLUMN text TEXT');
+   f.db.prepare('INSERT INTO ugc_ig_messages(id,conversation_id,direction,from_username,created_at,attachments_json,text) VALUES(?,?,?,?,?,?,?)').run('seller-q','chat','out','brand','2026-11-09T11:10:00Z',null,'Подскажите, пожалуйста, название продавца товара.');
+   f.db.prepare('INSERT INTO ugc_ig_messages(id,conversation_id,direction,from_username,created_at,attachments_json,text) VALUES(?,?,?,?,?,?,?)').run('seller-a','chat','in','alice','2026-11-09T11:20:00Z',null,changed?'Другой ответ':'Продавец: Das Experten');
+   const check={source_message_id:'new-bank',created_at:'2026-11-09T11:00:00Z',attachment_index:0,kind:'basket',product:'yes',seller:'unknown',seller_evidence:'creator_answer',amount:'yes',observed:{price:'453',currency:'RUB',seller_name:'Das Experten'},unresolved_required:[],seller_source:{question_id:'seller-q',answer_id:'seller-a',name:'Das Experten',normalized_name:'dasexperten',registry_match:false}};
+   const proof={version:1,conversation_id:'chat',latest_image_at:'2026-11-09T11:00:00Z',latest_incoming_at:'2026-11-09T11:20:00Z',status:'confirmed',amount_minor:45300,checks:[check],quote:null};
+   f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ugc_cart_review:chat',JSON.stringify(proof),now);
+   const result=await prepareCreatorPayout(f.env,{...facts,cart_review:undefined},now);
+   if(changed){assert.equal(result.registered,false);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);}
+   else assert.equal(result.amount_minor,45300);
+  }finally{f.db.close();}
+ }
 });

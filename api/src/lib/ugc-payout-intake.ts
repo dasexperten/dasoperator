@@ -3,6 +3,7 @@ import { konsolPhone, isFpsBankMemberId, maskPhoneWide } from './ugc-payouts.mjs
 import { confirmedCartAmount } from './ugc-cart-amount.mjs';
 import { decideCart } from './ugc-cart-decision.mjs';
 import { payoutStageStatement } from './ugc-payout-stage.mjs';
+import {normalizeSeller,SELLER_QUESTION} from './ugc-seller-followup.mjs';
 
 // Explicit reviewed intake and the narrow deterministic payout scanner share this save boundary.
 // Save the approval row, protected requisites and source receipt in one transaction.
@@ -81,7 +82,17 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       const decision=decideCart(proof.checks??[],proof.quote);
       if(proof.version===1&&proof.conversation_id===input.conversation_id&&sameTime(proof.latest_image_at,latestImage?.at)&&sameTime(proof.latest_incoming_at,latestIncoming?.at)&&decision.status==='confirmed'&&decision.amount_minor===proof.amount_minor){
         const source=await env.DB.prepare('SELECT direction,from_username,created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(decision.source_message_id,input.conversation_id).first<{direction:string;from_username:string;created_at:string}>();
-        if(source?.direction==='in'&&source.from_username?.toLowerCase()===handle){cartAmount=decision.amount_minor;structuredCart={receipt_key:'ugc_cart_review:'+input.conversation_id,authority:decision.authority,source_message_id:decision.source_message_id,amount_minor:decision.amount_minor};}
+        let sellerValid=true;
+        const selected=[...(proof.checks??[])].filter((c:any)=>c.kind==='basket').sort((a:any,b:any)=>Date.parse(a.created_at)-Date.parse(b.created_at)).at(-1);
+        if(selected?.seller_evidence==='creator_answer'){
+          const ref=selected.seller_source;
+          const q=ref?.question_id?await env.DB.prepare('SELECT direction,text,created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(ref.question_id,input.conversation_id).first<{direction:string;text:string;created_at:string}>():null;
+          const a=ref?.answer_id?await env.DB.prepare('SELECT direction,text,created_at,from_username FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(ref.answer_id,input.conversation_id).first<{direction:string;text:string;created_at:string;from_username:string}>():null;
+          const answer=String(a?.text??'').trim().replace(/^(?:продавец|магазин)\s*[:—-]\s*/iu,'');
+          sellerValid=!!q&&!!a&&q.direction==='out'&&q.text===SELLER_QUESTION&&a.direction==='in'&&a.from_username?.toLowerCase()===handle&&
+            Date.parse(q.created_at)>Date.parse(selected?.created_at??'')&&Date.parse(a.created_at)>Date.parse(q.created_at)&&!!ref.normalized_name&&normalizeSeller(answer)===ref.normalized_name;
+        }
+        if(source?.direction==='in'&&source.from_username?.toLowerCase()===handle&&sellerValid){cartAmount=decision.amount_minor;structuredCart={receipt_key:'ugc_cart_review:'+input.conversation_id,authority:decision.authority,source_message_id:decision.source_message_id,amount_minor:decision.amount_minor};}
       }
     }catch{} // Invalid/stale receipt remains unconfirmed, never a guessed number.
   }

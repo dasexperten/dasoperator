@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {rubMinor,incomingAmount,decideCart} from './ugc-cart-decision.mjs';
 const at='2026-11-09T10:00:00Z',later='2026-11-09T11:00:00Z';
-const cart={source_message_id:'cart',created_at:at,attachment_index:0,kind:'basket',product:'yes',seller:'unknown',amount:'yes',observed:{price:'453',currency:'RUB'},unresolved_required:[]};
+const cart={source_message_id:'cart',created_at:at,attachment_index:0,kind:'basket',product:'yes',seller:'yes',amount:'yes',observed:{price:'453',currency:'RUB'},unresolved_required:[]};
 const m=text=>({id:'quote',direction:'in',text,created_at:later});
 test('numeric price is structured RUB evidence, never digits from descriptions',()=>{
  assert.equal(rubMinor('453,50 ₽','₽'),45350);
@@ -23,4 +23,11 @@ test('later incoming explicit price is usable; incoming conflicting text stays p
 test('questions, alternatives, competing prices, arbitrary digits and outgoing claims never confirm an amount',()=>{
  for(const text of ['Можно 500 руб?','453 или 497руб','453₽ или 497₽','Цена 453 вместо 497','артикул 123453789','+79990000000'])assert.notEqual(decideCart([],incomingAmount([m(text)])).status,'confirmed',text);
  assert.equal(incomingAmount([{...m('453руб'),direction:'out'}]),null);
+});
+
+
+test('basket without a seller stays pending until an author answer is linked',()=>{
+ const missing={...cart,seller:'unknown'};assert.equal(decideCart([missing],null).reason,'seller_unconfirmed');
+ assert.equal(decideCart([missing],incomingAmount([m('453 руб')])).reason,'seller_unconfirmed');
+ const answered={...missing,seller_evidence:'creator_answer',seller_source:{answer_id:'seller-answer'}};assert.equal(decideCart([answered],null).amount_minor,45300);
 });

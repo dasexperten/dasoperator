@@ -4,7 +4,8 @@ import {refreshIgAttachments} from './ig-dm-watch';
 import {subscriptionInfer} from './diana-subscription.mjs';
 import {checkSubscriptionImages} from './diana-subscription-vision.mjs';
 import {decideCart,incomingAmount} from './ugc-cart-decision.mjs';
-export type CartMessage={id:string;direction:string;text?:string;created_at:string;attachments_json?:string|null};
+import {sellerAnswerForBasket} from './ugc-seller-followup.mjs';
+export type CartMessage={id:string;direction:string;text?:string;created_at:string;from_username?:string|null;attachments_json?:string|null};
 type Policy={sha:string;policy:any};
 const RECOGNITION_VERSION='ugc-cart-numeric-v2';
 async function digest(value:string){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');}
@@ -21,7 +22,7 @@ export async function payoutImagePolicy(env:Env):Promise<Policy>{
 }
 /** Only source images and structured subscription results enter the numeric decision.
  * Source/policy hashes deduplicate recognition. No sends, payment calls or profile context selection. */
-export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[],options:{readOnly?:boolean;budget?:{remaining:number};policy?:()=>Promise<Policy>;now?:number}={}){
+export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[],options:{readOnly?:boolean;budget?:{remaining:number};policy?:()=>Promise<Policy>;now?:number;handle?:string}={}){
  const now=options.now??Date.now(),quote=incomingAmount(messages);
  const imageMessages=messages.filter(m=>m.direction==='in'&&m.attachments_json&&m.attachments_json!=='[]'&&m.attachments_json!=='{}').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at));
  const latestImageAt=imageMessages[0]?.created_at??null;
@@ -56,6 +57,12 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
   if(checks.some(c=>c.source_message_id===m.id&&['basket','order','unknown'].includes(c.kind)))break;
  }
  if(!latestExplicit&&imageMessages.length>6&&!checks.some(c=>c.kind==='basket'))omitted=true;
+ for(const check of checks){
+  if(check.kind!=='basket'||check.seller==='yes'||check.seller==='no')continue;
+  policy??=await (options.policy?.()??payoutImagePolicy(env));
+  const answer=sellerAnswerForBasket(messages,check,policy.policy,options.handle);
+  if(answer){check.seller=answer.registry_match?'yes':'unknown';check.seller_evidence='creator_answer';check.observed={...check.observed,seller_name:answer.name};check.unresolved_required=(check.unresolved_required??[]).filter((v:string)=>v!=='seller');check.seller_source=answer;}
+ }
  let decision=decideCart(checks,quote);
  if(unavailable||omitted)decision={status:'pending',reason:unavailable?'image_source_unavailable':'recognition_budget_pending',amount_minor:null};
  const latestIncoming=messages.filter(m=>m.direction==='in').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0]?.created_at??null;

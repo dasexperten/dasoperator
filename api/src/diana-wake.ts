@@ -60,6 +60,9 @@ export class DianaWake {
       const round=await scheduleDianaRound(this.env,Date.now());
       if(round.scheduled)return;
       const result=await this.dispatch();
+      if((result as any)?.reason==='media_retry_waiting'&&Number.isFinite(Number((result as any)?.retry_at))){
+        await this.state.storage.delete('cloud_release_attempts');await this.state.storage.setAlarm(Math.max(Date.now()+1000,Number((result as any).retry_at)));return;
+      }
       retry=['diana_cloud_working','diana_cloud_locked','diana_machine_finishing'].includes(String((result as any)?.reason??''));
     } catch { retry=true; }
     if(retry&&attempts<3){await this.state.storage.put('cloud_release_attempts',attempts);await this.state.storage.setAlarm(Date.now()+2000);}

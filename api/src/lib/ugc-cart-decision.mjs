@@ -29,12 +29,13 @@ export function decideCart(checks,quote){
  for(const c of ordered){
   if(['other','product_photo'].includes(c.kind))continue;
   basket=c;blocked=true;
-  if(c.kind==='basket'&&c.product==='yes'&&c.amount==='yes'&&c.seller!=='no'&&!(c.unresolved_required??[]).some(v=>v!=='seller')){
+  if(c.kind==='basket'&&c.product==='yes'&&c.amount==='yes'&&(c.seller==='yes'||c.seller==='unknown'&&c.seller_evidence==='creator_answer'&&!!c.seller_source?.answer_id)&&!(c.unresolved_required??[]).length){
    const minor=rubMinor(c.observed?.price,c.observed?.currency??'');
    if(minor){basket={...c,amount_minor:minor};blocked=false;}
   }
  }
  const currentQuote=quote&&(!basket||Date.parse(quote.created_at)>=Date.parse(basket.created_at))?quote:null;
+ if(basket?.kind==='basket'&&basket.seller!=='yes'&&!(basket.seller==='unknown'&&basket.seller_evidence==='creator_answer'&&basket.seller_source?.answer_id))return {status:'pending',reason:'seller_unconfirmed',source_message_id:basket.source_message_id,amount_minor:null};
  if(currentQuote?.explicit&&currentQuote.amount_minor&&(!basket||Date.parse(currentQuote.created_at)>Date.parse(basket.created_at)))return{status:'confirmed',authority:'incoming_text',source_message_id:currentQuote.source_message_id,amount_minor:currentQuote.amount_minor};
  if(basket&&!blocked){
   if(currentQuote&&(currentQuote.amount_minor!==basket.amount_minor))return{status:'pending',reason:'amount_conflict',source_message_id:basket.source_message_id,amount_minor:null,quote:currentQuote};

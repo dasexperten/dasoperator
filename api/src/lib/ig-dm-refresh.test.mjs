@@ -19,3 +19,10 @@ test('ambiguous or absent messages do not attach another image to the blogger',a
  await run([m,{...m,id:'another'}],async(result,_urls,updates)=>{assert.equal(result,null);assert.equal(updates.length,0);});
  await run([{...m,from:{id:'another-person'}}],async(result,_urls,updates)=>{assert.equal(result,null);assert.equal(updates.length,0);});
 });
+
+test('refresh asks Meta for the exact message ID and accepts returned original attachment',async()=>{
+ const original=globalThis.fetch,urls=[],updates=[];const attachment={image_data:{url:'https://lookaside.fbsbx.com/fresh'}};
+ globalThis.fetch=async url=>{urls.push(String(url));if(String(url).includes('fields=access_token'))return Response.json({access_token:'fake-page'});return Response.json({attachments:{data:[attachment]}})};
+ const env={META_IG_MESSAGING_TOKEN:'fake',DB:{prepare(sql){let p;const st={bind(...v){p=v;return st},async first(){return{conversation_id:'conversation',created_at:'2026-10-17T01:00:00Z',from_id:'blogger'}},async run(){updates.push({sql,p});return{success:true}}};return st}}};
+ try{const result=await refreshIgAttachments(env,'exact-original');assert.deepEqual(JSON.parse(result),[attachment]);assert.ok(urls.some(u=>u.includes('/exact-original?fields=attachments')));assert.equal(updates[0].p[0],'exact-original');}finally{globalThis.fetch=original;}
+});

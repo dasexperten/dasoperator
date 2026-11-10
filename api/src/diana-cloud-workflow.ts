@@ -2,8 +2,9 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import type { Env } from './types';
 import { finishDianaCloud } from './lib/diana-cloud-lock';
 import {dianaWorkWindow} from './lib/diana-work-window.mjs';
+import {prepareReviewPlan} from './lib/diana-review-plan';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
-  stateRead, stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
+  stateRead, stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, prepareUncertainPayoutReply, type DianaCloudEvent } from './lib/diana-cloud';
 
 // Each read/model step has at most three attempts. Durable send intents are never
 // blindly retried by Workflows; only their separately persisted receipts allow resume.
@@ -12,12 +13,12 @@ import { readCloudConversation, prepareCloudDecision, draftCloudDecision, delive
 const READ = {retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'30 minutes' as const};
 export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> {
   async run(event:WorkflowEvent<DianaCloudEvent>,step:WorkflowStep) {
-    const input=event.payload;
+    const input=event.payload;let beforeExternalEffects=true;
     try {
       const defer=async(label:string)=>{
         if(input.dryRun||dianaWorkWindow(Date.now()).direct)return false;
         await step.do('defer-'+label,{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>
-          stateWrite(this.env,cloudEventKey(input),{status:'deferred',reason:'outside_direct_hours',event_id:input.event_id,workflow_id:event.instanceId,at:Date.now()}));
+          stateWrite(this.env,cloudEventKey(input),{status:'deferred',reason:'outside_direct_hours',event_id:input.event_id,workflow_id:event.instanceId,...(input.recovery?{recovery_attempt:input.recoveryAttempt??1}:{}),at:Date.now()}));
         return true;
       };
       if(await defer('before-read'))return {status:'deferred'};
@@ -34,15 +35,23 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
           const payout=await step.do('handoff-confirmed-requisites-to-payout',READ,()=>handoffCloudPayout(this.env,draft.key));
           if(payout.payout_id){
             if(await defer('before-payout-submission'))return {status:'deferred'};
+            let uncertain:any=null;
             try {
+              beforeExternalEffects=false;
               await step.do('submit-payout-once',{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>executeCloudPayout(this.env,payout.payout_id!,input,payout.recipient!));
             } catch(error) {
-              if(String((error as Error)?.message??error).includes('payout_execution_outside_direct_hours')&&await defer('payout-cutoff'))return {status:'deferred'};
-              throw error;
+              const detail=String((error as Error)?.message??error);
+              if(detail.includes('payout_execution_outside_direct_hours')&&await defer('payout-cutoff'))return {status:'deferred'};
+              if(!/^payout_execution_(?:execute_unclear|konsol_unclear)$/.test(detail))throw error;
+              uncertain=await step.do('preserve-uncertain-payout-and-answer',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>prepareUncertainPayoutReply(this.env,draft.key,payout.payout_id!));
             }
-            outcome={status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
+            if(uncertain?.key){
+              if(await defer('before-uncertain-reply'))return {status:'deferred'};
+              outcome=await step.do('deliver-independent-answer',{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>deliverCloudDecision(this.env,uncertain.key));
+            }else outcome=uncertain??{status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
           }else{
             if(await defer('before-delivery'))return {status:'deferred'};
+            beforeExternalEffects=false;
             for(let attempt=0;attempt<3;attempt++){
               if(attempt)await step.sleep('meta-rate-limit-wait-'+attempt,'3 minutes');
               outcome=await step.do('deliver-durable-plan-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>deliverCloudDecision(this.env,draft.key));
@@ -51,13 +60,15 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
           }
         }
       }
-      if(outcome?.status==='deferred')outcome={...outcome,workflow_id:event.instanceId};
+      if(['deferred','media_wait'].includes(outcome?.status))outcome={...outcome,workflow_id:event.instanceId,...(input.recovery?{recovery_attempt:input.recoveryAttempt??1}:{})};
       return await step.do('verify-meta-and-saved-result',READ,()=>completeCloudEvent(this.env,input,outcome));
     } catch (error) {
       const detail=String((error as Error)?.message??error);
-      const safeReason=/^payout_execution_[a-z0-9_]+$/.test(detail)?detail:'cloud_workflow_step_failed';
+      const technical=beforeExternalEffects&&/^(?:subscription_runner_http_(?:429|5\d\d)|diana_meta_read_http_(?:429|5\d\d)|diana_subscription_vision_pending|diana_context_unavailable: GitHub (?:429|5\d\d)|fetch failed|The operation was aborted)$/i.test(detail);
+      const safeReason=technical?'recovery_technical_retryable':/^payout_execution_[a-z0-9_]+$/.test(detail)?detail:'cloud_workflow_step_failed';
       await step.do('record-pending-failure',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>stateWrite(this.env,cloudEventKey(input),
-        {status:'failed',event_id:input.event_id,reason:safeReason,workflow_id:event.instanceId,at:Date.now()}));
+        {status:'failed',event_id:input.event_id,reason:safeReason,workflow_id:event.instanceId,...(input.recovery?{recovery_attempt:input.recoveryAttempt??1}:{}),at:Date.now()}));
+      if(!technical||!input.recovery||(input.recoveryAttempt??1)>=3)await step.do('prepare-owner-review',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>prepareReviewPlan(this.env,input,{reason:safeReason}));
       throw error;
     } finally {
       // Conditional release cannot remove another workflow's lock. Preview

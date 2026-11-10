@@ -112,7 +112,7 @@ route.post('/reel-jobs/:id/upload-complete',async(c)=>{
 route.post('/reel-jobs/:id/upload-accepted',async(c)=>{
  const id=c.req.param('id'),b=await c.req.json().catch(()=>null);
  if(!b?.claim_id||b.provider_accepted!==true||typeof b.provider_id!=='string'||!b.provider_id.trim()||b.provider_id.length>256||!/^[a-f0-9]{64}$/.test(b.source_sha256??''))return c.json({ok:false,error:'exact_provider_acceptance_required'},422);
- const j=await c.env.DB.prepare("SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=? AND claim_id=? AND status='working'").bind(id,b.claim_id).first<any>();
+ const j=await c.env.DB.prepare("SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=? AND claim_id=? AND status IN ('working','uploaded','published')").bind(id,b.claim_id).first<any>();
  if(!j||!reelScope(j).active.includes(b.platform))return c.json({ok:false,error:'exact_working_destination_required'},409);
  const key=`ugc-upload-accepted:${id}:${b.claim_id}:${b.platform}`,value=JSON.stringify({content_id:id,claim_id:b.claim_id,platform:b.platform,provider_id:b.provider_id,source_sha256:b.source_sha256,provider_accepted:true});
  await c.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,value,Date.now()).run();
@@ -151,7 +151,7 @@ route.get('/reel-jobs/:id/tiktok/status',async(c)=>{
  if(!row)return c.json({ok:true,status:'not_started'});
  const ledger=JSON.parse(row.value),job=await c.env.DB.prepare('SELECT status,publications FROM ugc_reel_jobs WHERE content_id=?').bind(c.req.param('id')).first<{status:string;publications:string}>();
  const erpSaved=Boolean(ledger.proof&&JSON.parse(job?.publications??'[]').some((p:any)=>p.platform==='tiktok'&&p.url===ledger.proof.url&&p.verified===true));
- return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,proof:ledger.proof??null,erp_saved:erpSaved,job_status:job?.status??null});
+ return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,upload_accepted:['accepted','verified'].includes(ledger.state)&&Boolean(ledger.shareId),upload_completed:['uploaded','published'].includes(job?.status??''),publication_verified:erpSaved,provider_status:ledger.state==='accepted'?'accepted_processing':ledger.state,proof:ledger.proof??null,erp_saved:erpSaved,job_status:job?.status??null});
 });
 route.post('/reel-jobs/:id/caption-plan', async (c) => {
   const id=c.req.param('id');

@@ -53,8 +53,10 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       }
       return await step.do('verify-meta-and-saved-result',READ,()=>completeCloudEvent(this.env,input,outcome));
     } catch (error) {
+      const detail=String((error as Error)?.message??error);
+      const safeReason=/^payout_execution_[a-z0-9_]+$/.test(detail)?detail:'cloud_workflow_step_failed';
       await step.do('record-pending-failure',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>stateWrite(this.env,cloudEventKey(input),
-        {status:'failed',event_id:input.event_id,reason:'cloud_workflow_step_failed',workflow_id:event.instanceId,at:Date.now()}));
+        {status:'failed',event_id:input.event_id,reason:safeReason,workflow_id:event.instanceId,at:Date.now()}));
       throw error;
     } finally {
       // Conditional release cannot remove another workflow's lock. Preview

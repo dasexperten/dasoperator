@@ -3,7 +3,7 @@ import type { Env } from './types';
 import { finishDianaCloud } from './lib/diana-cloud-lock';
 import {dianaWorkWindow} from './lib/diana-work-window.mjs';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
-  stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
+  stateRead, stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
 
 // Each read/model step has at most three attempts. Durable send intents are never
 // blindly retried by Workflows; only their separately persisted receipts allow resume.
@@ -17,7 +17,7 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       const defer=async(label:string)=>{
         if(input.dryRun||dianaWorkWindow(Date.now()).direct)return false;
         await step.do('defer-'+label,{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>
-          stateWrite(this.env,cloudEventKey(input),{status:'deferred',reason:'outside_direct_hours',event_id:input.event_id,at:Date.now()}));
+          stateWrite(this.env,cloudEventKey(input),{status:'deferred',reason:'outside_direct_hours',event_id:input.event_id,workflow_id:event.instanceId,at:Date.now()}));
         return true;
       };
       if(await defer('before-read'))return {status:'deferred'};
@@ -51,6 +51,7 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
           }
         }
       }
+      if(outcome?.status==='deferred')outcome={...outcome,workflow_id:event.instanceId};
       return await step.do('verify-meta-and-saved-result',READ,()=>completeCloudEvent(this.env,input,outcome));
     } catch (error) {
       const detail=String((error as Error)?.message??error);
@@ -63,6 +64,12 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       // instances do not take the production lock.
       if (!input.dryRun) await step.do('release-diana-cloud-lock', {retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},
         async()=>{
+          // An exception while recording failure must not leave a completed
+          // workflow with no event state. Such an event must never be mistaken
+          // for a fresh dispatch after the lock is released.
+          const key=cloudEventKey(input);
+          const previous=await stateRead(this.env,key);
+          if(!previous||(previous.status==='deferred'&&previous.workflow_id!==event.instanceId))await stateWrite(this.env,key,{status:'needs_review',reason:'workflow_finished_without_event_receipt',event_id:input.event_id,workflow_id:event.instanceId,at:Date.now()});
           await finishDianaCloud(this.env,{kind:'direct',id:event.instanceId});
           const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));
           const response=await wake.fetch('https://diana/cloud-released',{method:'POST'});

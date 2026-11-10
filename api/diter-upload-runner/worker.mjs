@@ -2,7 +2,7 @@ import { Container } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 const enc=new TextEncoder();
 export class DieterRunner extends Container {
- defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();
+ defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();readQueue=Promise.resolve();budgetQueue=Promise.resolve();
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
  async contract(){return {version:'dieter-tools-v1',operations:['dieter_round'],managed_login_present:Boolean(this.env.SUBSCRIPTION_DOOR_KEY)};}
  async runtimeCheck(){return this.serial(async()=>{
@@ -29,7 +29,7 @@ export class DieterRunner extends Container {
   const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
   return Response.json(result);
  }
- async readResult(requestId){return this.serial(async()=>{
+ async readResult(requestId){const result=this.readQueue.then(async()=>{
   if(typeof requestId!=='string'||!requestId||requestId.length>512)return Response.json({error:'invalid_request'},{status:400});
   const previous=await this.ctx.storage.get('result:'+requestId);if(previous)return Response.json(previous.result);
   const intent=await this.ctx.storage.get('dieter-intent:'+requestId)||await this.ctx.storage.get('runtime-probe-intent:'+requestId);
@@ -38,7 +38,7 @@ export class DieterRunner extends Container {
   let result;try{result=await response.json();}catch{return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'parse_request',code:'invalid_json'}},{status:503});}
   result.receipt={...result.receipt,container_health_verified:true};
   return this.finishResult(requestId,intent.fingerprint,result);
- });}
+ });this.readQueue=result.catch(()=>{});return result;}
  async runtimeProbe(requestId){return this.serial(async()=>{
   if(typeof requestId!=='string'||!/^runtime-probe:[A-Za-z0-9_-]{1,100}$/.test(requestId))return Response.json({error:'invalid_request'},{status:400});
   const prior=await this.ctx.storage.get('result:'+requestId);if(prior)return Response.json(prior.result);
@@ -54,8 +54,7 @@ export class DieterRunner extends Container {
   return this.finishResult(requestId,'fixed-runtime-probe-v1',result);
  });}
  async cachedContainerResult(requestId){
-  const budgetKey='result-read-budget:'+requestId;const used=await this.ctx.storage.get(budgetKey)||0;
-  if(used>=3)return null;await this.ctx.storage.put(budgetKey,used+1);
+  const reserve=this.budgetQueue.then(async()=>{const budgetKey='result-read-budget:'+requestId;const used=await this.ctx.storage.get(budgetKey)||0;if(used>=3)return false;await this.ctx.storage.put(budgetKey,used+1);return true;});this.budgetQueue=reserve.catch(()=>{});if(!await reserve)return null;
   try{const response=await this.containerFetch('http://container/result/'+encodeURIComponent(requestId),{method:'GET'},8080);return response.ok?response:null;}catch{return null;}
  }
  async infer(body){return this.serial(async()=>{

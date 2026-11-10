@@ -5,7 +5,7 @@ import {appendPublicationProofs,reelPublicationProof,reelScope} from './ugc-reel
 
 type Env={DB:any;GITHUB_TOKEN?:string;DIETER_PRIVATE_FILES?:string;ORG_ASSETS?:any};
 export type TikTokSource={contentId:string;claimId:string;sourceSha256:string;sourceAssetUrl:string;sourceDurationSeconds:number;sourceAuthor:string;sourceUrl:string;sourceDriveId:string};
-export type TikTokResult={status:'preflight_ready'|'pending'|'verified'|'uncertain'|'blocked'|'failed';code?:string;ledgerKey?:string;shareId?:string;proof?:any;account?:string;inventoryComplete?:boolean;inventoryCount?:number;sourceSha256Verified?:boolean;captionPlanVerified?:boolean;diagnostic?:{phase:string;error_class:string}};
+export type TikTokResult={status:'preflight_ready'|'accepted'|'pending'|'verified'|'uncertain'|'blocked'|'failed';code?:string;ledgerKey?:string;shareId?:string;proof?:any;account?:string;inventoryComplete?:boolean;inventoryCount?:number;sourceSha256Verified?:boolean;captionPlanVerified?:boolean;diagnostic?:{phase:string;error_class:string}};
 type Mode='preflight'|'publish'|'reconcile';
 type Options={fetchImpl?:typeof fetch;now?:()=>number};
 const APP='7706160588917342228',ACCOUNT='dasbroadcast',BASE='https://business-api.tiktok.com/open_api/v1.3/';
@@ -173,6 +173,7 @@ export async function runDieterTikTokApi(env:Env,args:TikTokSource,mode:Mode,opt
    stored={value:acceptedRaw};
   }
   if(mode==='preflight')return {status:'pending',code:'tiktok_existing_intent_reconcile_only',ledgerKey};
+  if(mode==='publish'&&ledger.state==='accepted')return {status:'accepted',ledgerKey,shareId:ledger.shareId};
   if(ledger.state==='verified'){phase='proof_save';await saveProof(env,args,ledger.proof);return {status:'verified',ledgerKey,proof:ledger.proof};}
   if(ledger.state!=='accepted'||!ledger.shareId)return {status:'uncertain',code:'tiktok_no_resend_without_saved_share_id',ledgerKey};
   phase='provider_status';

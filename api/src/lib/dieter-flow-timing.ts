@@ -23,6 +23,7 @@ export function dieterFlowTiming(row:any,continuation:any=null){
 export async function saveDieterFlowTiming(env:Env,contentId:string,claimId:string){
  const row=await env.DB.prepare('SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?').bind(contentId).first<any>();
  if(!row||row.claim_id!==claimId)return null;
+ if(row.status==='uploaded'){const receipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`dieter_upload_completion:${contentId}:${claimId}`).first<{value:string}>();if(!receipt)return null;const done=JSON.parse(receipt.value);return {...done,started_at:row.started_at,elapsed_ms:Math.max(0,Date.parse(done.completed_at)-Date.parse(row.started_at)),end_basis:'all_required_uploads_accepted',clean_run:null,benchmark_class:'upload_completion_requires_incident_review'};}
  const ordinal=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind('dieter_cloud_work_ordinal:'+contentId+':3').first<{value:string}>();
  let continuation:any=null;
  if(ordinal){

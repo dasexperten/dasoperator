@@ -1,3 +1,4 @@
+import {finishDieterUploads} from './lib/dieter-upload-completion';
 import type {Env} from './types';
 import type {WorkflowStep} from 'cloudflare:workers';
 import type {TikTokSource} from './lib/dieter-tiktok';
@@ -55,18 +56,7 @@ export async function scheduleDieterTikTokTransport(env:Env,args:TikTokSource,co
  return {workflow_id:workflowId,transport_id:hash,model_calls:0};
 }
 export async function finalizeDieterApiPublication(env:Env,contentId:string,claimId:string){
- const row=await env.DB.prepare('SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id=?').bind(contentId).first<any>();
- const proofs=row?reelPublicationProof(JSON.parse(row.publications??'[]'),row.content_url):null;
- const missing=row?reelScope(row).active.filter((p:string)=>!proofs?.some(x=>x.platform===p)):[];
- if(!row||missing.length||!proofs||proofs.some(p=>Date.parse(p.verified_at)<Date.parse(row.started_at)))return {publication_verified:false,missing};
- if(row.status==='published'){await saveDieterFlowTiming(env,contentId,claimId);return {publication_verified:true,missing:[],published_at:row.published_at};}
- if(row.status!=='working'||row.claim_id!==claimId)throw Error('dieter_tiktok_final_claim_changed');
- const now=new Date().toISOString();
- const result=await env.DB.prepare("UPDATE ugc_reel_jobs SET status='published',published_at=COALESCE(published_at,?),last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=?")
-  .bind(now,now,contentId,claimId,row.publications).run();
- if(!result.meta.changes)throw Error('dieter_tiktok_final_proof_conflict');
- await saveDieterFlowTiming(env,contentId,claimId);
- return {publication_verified:true,missing:[],published_at:now};
+ return finishDieterUploads(env,contentId,claimId);
 }
 export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEvent,workflowId:string,step:WorkflowStep){
  const definition=await step.do('read-api-transport-assignment',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},async()=>{
@@ -85,20 +75,8 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
  });
  // This is one first provider action, never another native/LLM work call.
  let result=await step.do('tiktok-publish-once',{retries:{limit:0,delay:'1 second'},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
- for(let index=0;result.status==='pending'&&index<2;index++){
-  await step.sleep('tiktok-processing-wait-'+index,index===0?'30 seconds':'2 minutes');
-  result=await step.do('tiktok-readback-'+index,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>runDieterTikTokApi(env,definition.args,'reconcile'));
- }
- let rutube:any;
- if(result.status==='verified'&&definition.requires_rutube&&definition.continuation_id){
-  rutube=await step.do('rutube-known-id-readback',{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>reconcileDieterRutubeStatus(env,{contentId:input.content_id,claimId:input.claim_id}));
-  for(let index=0;rutube.status==='pending'&&index<2;index++){
-   await step.sleep('rutube-moderation-wait-'+index,index===0?'2 minutes':'5 minutes');
-   rutube=await step.do('rutube-known-id-readback-'+index,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>reconcileDieterRutubeStatus(env,{contentId:input.content_id,claimId:input.claim_id}));
-  }
- }
- const completion=result.status==='verified'?await step.do('verify-seven-saved-platforms',()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id)):{publication_verified:false};
- const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),...(rutube?{rutube_status:rutube.status}:{}),model_calls:0,workflow_id:workflowId};
+ const completion=await step.do('complete-accepted-uploads',()=>finalizeDieterApiPublication(env,input.content_id,input.claim_id));
+ const receipt={...completion,tiktok_status:result.status,...('code' in result?{code:result.code}:{}),model_calls:0,workflow_id:workflowId};
  await putOnce(env,definitionKey(input.transport_id)+':execution:'+workflowId+':result',receipt);
  const current=await read(env,definitionKey(input.transport_id));
  if(current?.workflow_id===workflowId)await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(definitionKey(input.transport_id)+':result',JSON.stringify(receipt),Date.now()).run();

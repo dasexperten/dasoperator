@@ -1,3 +1,4 @@
+import {finishDieterUploads} from '../lib/dieter-upload-completion';
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
@@ -104,6 +105,21 @@ route.get('/reel-jobs/:id/caption-plan', async (c) => {
   if(!saved) return c.json({ok:false,error:'caption_plan_not_found'},404);
   return c.json({ok:true,content_id:id,claim_id:claim,caption_plan_saved:true,plan:JSON.parse(saved.value)});
 });
+route.post('/reel-jobs/:id/upload-complete',async(c)=>{
+ const b=await c.req.json().catch(()=>null);if(!b?.claim_id)return c.json({ok:false,error:'exact_claim_required'},422);
+ try{return c.json({ok:true,...await finishDieterUploads(c.env,c.req.param('id'),b.claim_id)});}catch{return c.json({ok:false,error:'upload_completion_not_confirmed'},409);}
+});
+route.post('/reel-jobs/:id/upload-accepted',async(c)=>{
+ const id=c.req.param('id'),b=await c.req.json().catch(()=>null);
+ if(!b?.claim_id||b.provider_accepted!==true||typeof b.provider_id!=='string'||!b.provider_id.trim()||b.provider_id.length>256||!/^[a-f0-9]{64}$/.test(b.source_sha256??''))return c.json({ok:false,error:'exact_provider_acceptance_required'},422);
+ const j=await c.env.DB.prepare("SELECT required_destinations FROM ugc_reel_jobs WHERE content_id=? AND claim_id=? AND status='working'").bind(id,b.claim_id).first<any>();
+ if(!j||!reelScope(j).active.includes(b.platform))return c.json({ok:false,error:'exact_working_destination_required'},409);
+ const key=`ugc-upload-accepted:${id}:${b.claim_id}:${b.platform}`,value=JSON.stringify({content_id:id,claim_id:b.claim_id,platform:b.platform,provider_id:b.provider_id,source_sha256:b.source_sha256,provider_accepted:true});
+ await c.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,value,Date.now()).run();
+ const r=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<{value:string}>();
+ if(r?.value!==value)return c.json({ok:false,error:'immutable_acceptance_conflict'},409);
+ return c.json({ok:true,provider_id_saved:true,...await finishDieterUploads(c.env,id,b.claim_id)});
+});
 route.post('/reel-jobs/:id/tiktok/start', async (c) => {
  const body=await c.req.json().catch(()=>null);
  if(!body)return c.json({ok:false,error:'tiktok_source_required'},422);
@@ -126,6 +142,7 @@ route.post('/reel-jobs/:id/rutube/pending',async(c)=>{
  const key=`ugc-rutube-pending:${id}:${body.claim_id}`,value=JSON.stringify({video_id:body.video_id,source_sha256:body.source_sha256,duration_seconds:body.duration_seconds});
  await c.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,value,Date.now()).run();
  const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<{value:string}>();
+ if(saved?.value===value)await finishDieterUploads(c.env,id,body.claim_id);
  return saved?.value===value?c.json({ok:true,provider_id_saved:true}):c.json({ok:false,error:'rutube_pending_identity_immutable'},409);
 });
 route.get('/reel-jobs/:id/tiktok/status',async(c)=>{

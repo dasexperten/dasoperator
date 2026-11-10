@@ -21,7 +21,7 @@ test('Threads and VK proofs accept concrete post/video links and reject lookalik
 test('task states exact Owner scope and real worker callbacks without a raw credential', () => {
   const text = reelTaskText({content_id:'id/1',content_url:'https://instagram.com/reel/ABC/',handle:'author',claim_id:'claim-exact',required_destinations:['instagram','threads','vk','youtube','tiktok']},'https://erp.test');
   assert.match(text,/РОВНО ОДИН/);
-  assert.match(text,/reel-jobs\/id%2F1\/complete/);
+  assert.match(text,/reel-jobs\/id%2F1\/upload-complete/);
   assert.match(text,/claim-exact/);
   assert.match(text,/Юридическую маркировку/);
   assert.match(text,/Марикой/);

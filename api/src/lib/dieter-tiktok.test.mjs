@@ -57,7 +57,7 @@ function fixture(t,options={}){
   }
   assert.fail('unexpected transport path');
  };
- return {db,env,fetchImpl,ledger,prior,stats:()=>({posts,statusReads,requests}),run:(mode='publish')=>runDieterTikTokApi(env,args,mode,{fetchImpl})};
+ return {db,env,fetchImpl,ledger,prior,stats:()=>({posts,statusReads,requests}),run:async(mode='publish')=>{const result=await runDieterTikTokApi(env,args,mode,{fetchImpl});return mode==='publish'&&result.status==='accepted'?runDieterTikTokApi(env,args,'reconcile',{fetchImpl}):result;}};
 }
 test('one exact Business POST, accepted ID persisted before readback, prior proofs preserved',async t=>{
  const f=fixture(t,{paged:true});const result=await f.run();assert.equal(result.status,'verified',JSON.stringify(result));assert.equal(f.stats().posts,1);assert.equal(f.ledger().state,'verified');
@@ -134,3 +134,5 @@ test('canonical source hosting uses exact Drive bytes and org/assets R2 mapping,
 test('global stop appearing at the final publish-request CAS prevents the provider POST',async t=>{
  const f=fixture(t,{stopBeforeRequestCAS:true});const result=await f.run();assert.equal(f.stats().posts,0);assert.equal(f.ledger().state,'reserved');assert.equal(result.status,'pending');
 });
+
+test('successful provider acceptance returns immediately without moderation read or invented public proof',async t=>{const f=fixture(t,{pending:true});const result=await runDieterTikTokApi(f.env,args,'publish',{fetchImpl:f.fetchImpl});assert.equal(result.status,'accepted');assert.equal(f.stats().posts,1);assert.equal(f.stats().statusReads,0);assert.equal(f.ledger().state,'accepted');assert.equal(f.ledger().shareId,'v_pub_url~fixture');assert.deepEqual(JSON.parse(f.db.prepare('SELECT publications FROM ugc_reel_jobs').get().publications),f.prior);});

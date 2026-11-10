@@ -13,8 +13,9 @@ function fixture(t){
  CREATE TABLE ugc_reel_jobs(content_id TEXT PRIMARY KEY,status TEXT,attempts INTEGER,requested_at TEXT,claim_id TEXT,consumer_id TEXT,started_at TEXT,acknowledged_at TEXT,last_error TEXT,updated_at TEXT);
  INSERT INTO ugc_reel_jobs(content_id,status,attempts,requested_at) VALUES('one','queued',0,'2026-11-09'),('two','queued',0,'2026-11-10');
  INSERT INTO crm_sync_state VALUES('dieter_cloud_mode','enabled',0);`);
- const env={DB:{prepare(sql){let args=[];const st={bind(...a){args=a;return st;},async first(){return db.prepare(sql).get(...args)??null;},async run(){return {meta:{changes:db.prepare(sql).run(...args).changes}};}};return st;}},
+ const env={DB:{prepare(sql){let args=[];const st={bind(...a){args=a;return st;},async first(){return db.prepare(sql).get(...args)??null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:db.prepare(sql).run(...args).changes}};}};return st;}},
  DIETER_SUBSCRIPTION:{async fetch(){return Response.json({text:JSON.stringify({ready:true,activation_ready:true,org_sha:'fixture',tools:{}})});}},DIETER_CLOUD:{async create(p){created.push(p);},async get(){return{async status(){if(missing)throw Error('not found');return{status:'running'};}};}}};
+ env.DB.batch=async xs=>{const results=[];for(const x of xs)results.push(await x.run());return results;};
  const created=[];let missing=false;const wake=new DieterWake({},env),now=Date.parse('2026-11-10T06:00:00Z');t.mock.method(Date,'now',()=>now);
  const request=()=>new Request('https://dieter.internal/dispatch',{method:'POST',body:JSON.stringify({now})});
  return {db,env,created,wake,request,missing(){missing=true;}};
@@ -273,15 +274,15 @@ test('explicit repaired pre-provider execution can use the last bounded attempt 
  assert.equal((await scheduleDieterTikTokTransport(f.env,f.args,'repair-one',true)).workflow_id,third.workflow_id);
  assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
 });
-test('accepted API provider states wait in Workflows instead of launching another model',async t=>{
+test('accepted API provider states finish upload immediately without another model or moderation wait',async t=>{
  const f=transportFixture(t),modes=[];
  f.db.prepare("UPDATE ugc_reel_jobs SET status='working',claim_id='exact-claim',attempts=2 WHERE content_id='one'").run();
  f.db.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_execution_hold:one'").run();
- f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('ugc-tiktok-business:one:'+f.args.sourceSha256,'{"state":"accepted","identity":{"claimId":"exact-claim"}}');return Response.json({text:'Known API completion pending'});};
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('ugc-tiktok-business:one:'+f.args.sourceSha256,JSON.stringify({state:'accepted',shareId:'provider-accepted-id',acceptedAt:Date.now(),identity:{claimId:'exact-claim',contentId:'one',sourceUrl:f.args.sourceUrl,sourceSha256:f.args.sourceSha256}}));return Response.json({text:'Known API completion pending'});};
  const proof={platform:'tiktok',url:'https://tiktok.com/@dasbroadcast/video/1234567890',account:'dasbroadcast',verified:true,verified_at:'2026-11-10T05:00:00Z',evidence:'Verified API fixture'};
  const step={...f.step,async sleep(){f.db.prepare("UPDATE ugc_reel_jobs SET status='published',publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));}};
  const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim'},instanceId:'normal-cloud-flow'},step);
- assert.equal(result.publication_verified,true,JSON.stringify({result,modes}));assert.deepEqual(modes,['work']);
+ assert.equal(result.upload_completed,true,JSON.stringify({result,modes}));assert.equal(result.publication_verified,false);assert.equal(result.status,'uploaded');assert.deepEqual(modes,['work']);
 });
 
 test('full-flow timing ends only after all saved publications and separates repair runs',async t=>{

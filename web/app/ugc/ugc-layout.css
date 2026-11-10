@@ -602,3 +602,5 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-reel-failure-dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .ugc-reel-failure-title { margin: 0 0 12px; font-weight: 800; }
 .ugc-reel-failure-dialog button { margin-top: 16px; padding: 8px 16px; border: 1px solid currentColor; border-radius: var(--radius-sm); }
+
+.ugc-pub[data-reel-status="uploaded"] .ugc-pub-link { outline-color: var(--status-success); }

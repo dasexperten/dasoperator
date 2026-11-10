@@ -1,3 +1,4 @@
+import {finishDieterUploads} from './lib/dieter-upload-completion';
 import {WorkflowEntrypoint,type WorkflowEvent,type WorkflowStep} from 'cloudflare:workers';
 import type {Env} from './types';
 import {reelAssignment} from './lib/ugc-reel-store';
@@ -143,10 +144,10 @@ export class DieterWake {
 export async function dieterOutcome(env:Env,event:Event){
  const row=await env.DB.prepare('SELECT * FROM ugc_reel_jobs WHERE content_id=?1').bind(event.content_id).first<any>();
  if(!row)throw Error('dieter_job_missing');
- if(['working','published'].includes(row.status)&&row.claim_id!==event.claim_id)throw Error('dieter_claim_changed');
+ if(['working','uploaded','published'].includes(row.status)&&row.claim_id!==event.claim_id)throw Error('dieter_claim_changed');
  const proofs=reelPublicationProof(JSON.parse(row.publications??'[]'),(await env.DB.prepare('SELECT content_url FROM ugc_content WHERE id=?1').bind(event.content_id).first<{content_url:string}>())?.content_url??'');
  const missing=reelScope(row).active.filter((p:string)=>!proofs?.some(x=>x.platform===p));
- return {status:row.status,verified:row.status==='published'&&missing.length===0,missing,attempts:row.attempts,last_error:row.last_error};
+ return {status:row.status,upload_completed:['uploaded','published'].includes(row.status),verified:row.status==='published'&&missing.length===0,missing,attempts:row.attempts,last_error:row.last_error};
 }
 export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
  async run(event:WorkflowEvent<Event>,step:WorkflowStep){
@@ -163,21 +164,7 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
   work:for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
    const before=await step.do('read-result-'+attempt,()=>dieterOutcome(this.env,input));
    if(before.verified||before.status!=='working')break;
-   if(attempt>0&&await awaitsDieterApiCompletion(this.env,input.content_id,input.claim_id)){
-    // Known provider IDs are being finalized by API-only Workflows. Release
-    // the model/container and wait for saved public proof, not another LLM.
-    for(let wait=0;wait<3;wait++){
-     if(wait>0)await step.sleep('api-completion-wait-'+wait,'2 minutes');
-     await step.do('api-known-provider-reconcile-'+wait,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},async()=>{
-      if(await getRecord(this.env,`ugc-rutube-pending:${input.content_id}:${input.claim_id}`))await reconcileDieterRutubeStatus(this.env,{contentId:input.content_id,claimId:input.claim_id});
-      return finalizeDieterApiPublication(this.env,input.content_id,input.claim_id);
-     });
-     const after=await step.do('api-completion-result-'+wait,()=>dieterOutcome(this.env,input));
-     if(after.verified||after.status!=='working')break work;
-    }
-    const pending={status:'awaiting_api_completion',publication_verified:false,content_id:input.content_id,claim_id:input.claim_id,model_calls_after_work:0,executor:'cloudflare_workflow'};
-    await putRecord(this.env,'dieter_cloud_api_pending:'+executionKey,pending);return pending;
-   }
+   if(attempt>0){const completed=await step.do('complete-accepted-uploads-'+attempt,()=>finishDieterUploads(this.env,input.content_id,input.claim_id));if(completed.upload_completed)break;}
    const action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'18 minutes'},async()=>{
     const actionMode=attempt===0?'work':'reconcile';
     const requestId=input.continuation_id?'dieter-continuation-'+input.continuation_id+'-'+attempt:'dieter-'+input.claim_id+'-'+attempt;
@@ -226,6 +213,8 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
    }
    const firstWorkFailure=records.find(record=>record.mode==='work'&&record.outcome!=='completed')??null;
    const firstFailure=firstWorkFailure??records.find(record=>record.outcome!=='completed')??null;
+   const active=await this.env.DB.prepare('SELECT claim_id FROM ugc_reel_jobs WHERE content_id=?').bind(input.content_id).first<any>();
+   if(active?.claim_id===input.claim_id)await finishDieterUploads(this.env,input.content_id,input.claim_id);
    const outcome=await dieterOutcome(this.env,input);
    if(!outcome.verified&&outcome.status==='working'){
     const reason=firstFailure?'Cloud runtime: '+firstFailure.error+'; reconciliation did not verify publication':'Cloud execution incomplete; missing verified destinations: '+outcome.missing.join(', ');
@@ -239,9 +228,9 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
     runtime_completed:records.some(record=>record.outcome==='completed'),
     work_runtime_completed:records.some(record=>record.mode==='work'&&record.outcome==='completed'),
     reconciliation_completed:records.some(record=>record.mode==='reconcile'&&record.outcome==='completed'),
-    execution_result:final.verified?'publication_verified':firstFailure?'runtime_error':'incomplete',
+    execution_result:final.verified?'publication_verified':final.upload_completed?'upload_accepted':firstFailure?'runtime_error':'incomplete',
     runtime_incident_present:Boolean(firstFailure),
-    material_result:final.verified?'published':firstFailure?'not_assessed':'unverified',
+    material_result:final.verified?'published':final.upload_completed?'accepted_processing':firstFailure?'not_assessed':'unverified',
     first_work_failure:firstWorkFailure,first_runtime_failure:firstFailure,
     actions:records,continuation_id:input.continuation_id,executor:'cloudflare_workflow',workflow_id:event.instanceId};
    await putRecord(this.env,'dieter_cloud_result:'+executionKey,result);

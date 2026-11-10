@@ -52,7 +52,7 @@ type ContentObservation = {
   id: string;
   content_url: string | null;
   content_type: string | null;
-  reel_status?: 'queued' | 'working' | 'published' | null;
+  reel_status?: 'queued' | 'working' | 'uploaded' | 'published' | null;
   collab_status?: 'requested' | 'confirmed' | null;
   reel_error?: string | null;
   reel_publications?: { platform: string; url: string }[];
@@ -799,7 +799,7 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
     if (jobBusy.current || jobStatus) return true;
     jobBusy.current = true; setJobError(null);
     try {
-      const response = await apiPostTimed<{ job: { status: 'queued' | 'working' | 'published' } }>(`/api/ugc/content/${encodeURIComponent(item.id)}/reel-job`, {}, 20_000);
+      const response = await apiPostTimed<{ job: { status: 'queued' | 'working' | 'uploaded' | 'published' } }>(`/api/ugc/content/${encodeURIComponent(item.id)}/reel-job`, {}, 20_000);
       if (!response.success || !response.result?.job) { setJobError(response.errors?.[0]?.message ?? 'Ролик не добавлен в очередь'); return false; }
       setJobStatus(response.result.job.status); window.dispatchEvent(new Event('ugc:reload')); return true;
     } catch { setJobError('Нет связи. Отметка не подтверждена'); return false; }
@@ -821,7 +821,7 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
   };
   const failed = jobStatus === 'queued' && Boolean(item.reel_error);
   const failureReason = reelFailureReason(jobError || item.reel_error || 'Обработка ролика остановлена');
-  const jobLabel = failed ? 'Ролик остановлен' : jobStatus === 'queued' ? 'В очереди Дитера' : jobStatus === 'working' ? 'Дитер работает' : jobStatus === 'published' ? 'Опубликовано нами' : '';
+  const jobLabel = failed ? 'Ролик остановлен' : jobStatus === 'queued' ? 'В очереди Дитера' : jobStatus === 'working' ? 'Дитер работает' : jobStatus === 'uploaded' ? 'Загружено — площадка проверяет' : jobStatus === 'published' ? 'Опубликовано нами' : '';
   const kind = mediaKind(item);
   const confirmed=contentConfirmed(item);
   const status = !confirmed ? 'Ожидает проверки Дианы: автор и наш товар не подтверждены' : item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Проверено Дианой';

@@ -22,7 +22,8 @@ export async function payoutImagePolicy(env:Env):Promise<Policy>{
 }
 /** Only source images and structured subscription results enter the numeric decision.
  * Source/policy hashes deduplicate recognition. No sends, payment calls or profile context selection. */
-export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[],options:{readOnly?:boolean;budget?:{remaining:number};policy?:()=>Promise<Policy>;now?:number;handle?:string}={}){
+export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[],options:{transient?:boolean;infer?:any;readImage?:any;readOnly?:boolean;budget?:{remaining:number};policy?:()=>Promise<Policy>;now?:number;handle?:string}={}){
+ if(options.transient){if(typeof options.infer!=='function')throw Error('cart_transient_inference_required');options={...options,readOnly:true};}
  const now=options.now??Date.now(),quote=incomingAmount(messages);
  const imageMessages=messages.filter(m=>m.direction==='in'&&m.attachments_json&&m.attachments_json!=='[]'&&m.attachments_json!=='{}').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at));
  const latestImageAt=imageMessages[0]?.created_at??null;
@@ -40,12 +41,12 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
     if(options.budget&&options.budget.remaining<=0){omitted=true;continue;}
     if(options.budget)options.budget.remaining--;
     try{
-     let image;try{image=await loadInstagramImage(env,m.id,index,originalUrl);}catch{
-      const fresh=await refreshIgAttachments(env,m.id),url=fresh?imageUrls(fresh)[index]:null;if(!url)throw Error('image_unavailable');image=await loadInstagramImage(env,m.id,index,url);
+     let image;try{image=await (options.readImage??loadInstagramImage)(env,options.transient?undefined:m.id,index,originalUrl);}catch{
+      if(options.transient)throw Error('image_unavailable');const fresh=await refreshIgAttachments(env,m.id),url=fresh?imageUrls(fresh)[index]:null;if(!url)throw Error('image_unavailable');image=await loadInstagramImage(env,m.id,index,url);
      }
      const hash=await digest(image.data);
      const result=await checkSubscriptionImages({images:[{...image,label:`Скриншот из входящего сообщения ${m.created_at}, вложение ${index+1}.`}],policy:policy.policy,
-      task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Other unselected goods and their totals are not our reimbursement. Prefer the selected payment method total for this programme item. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:subscriptionInfer(env,'image')});
+      task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Other unselected goods and their totals are not our reimbursement. Prefer the selected payment method total for this programme item. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:options.infer??subscriptionInfer(env,'image')});
      const c=result.checks[0]!;
      check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,encoded_image_sha256:hash,policy_sha:policy.sha,recognition_version:RECOGNITION_VERSION,kind:c.kind,source_kind:(c as any).source_kind??c.kind,product:c.product,seller:c.seller,amount:c.amount,observed:c.observed,unresolved_required:(c as any).unresolved_required??[],attempts:c.attempts,checked_at:now};
     }catch{check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,kind:'unknown',product:'unknown',seller:'unknown',amount:'unknown',reason:'recognition_pending',retry_at:now+5*60000};}
@@ -74,3 +75,4 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
  }
  return receipt;
 }
+

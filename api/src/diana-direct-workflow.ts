@@ -15,6 +15,8 @@ import {deliverDirectReply} from './lib/diana-direct-deliver.mjs';
 // @ts-expect-error plain JS module
 import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
+import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
+// @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
@@ -42,6 +44,9 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const payouts=creator?.id?(await this.env.DB.prepare('SELECT status,amount_minor,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY updated_at DESC LIMIT 5').bind(creator.id).all<any>()).results:[];
        return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts}});
       },
+      handoffPayout:({event:input,source}:any)=>handoffDirectPayout({env:this.env,event:input,source,
+       refreshOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
+       infer,readImage:loadInstagramImage}),
       deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN}),
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),

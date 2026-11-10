@@ -1,3 +1,4 @@
+import { payoutEvidenceReader } from './diana-payout-evidence.mjs';
 import type { Env } from '../types';
 import { konsolPhone, isFpsBankMemberId, maskPhoneWide } from './ugc-payouts.mjs';
 import { confirmedCartAmount } from './ugc-cart-amount.mjs';
@@ -12,7 +13,8 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   source_message_ids: string[]; amount_minor: number; phone: string; first_name?: string | null;
   fps_bank_member_id: string; bank_ref: string;
   cart_review?: {source_message_id:string;amount_minor:number;source_kind?:'checkout';evidence?:string;reviewer?:string};
-}, now = Date.now()) {
+}, now = Date.now(), evidenceCapability?: object) {
+  const evidence = payoutEvidenceReader(env,input.conversation_id,evidenceCapability,undefined,input.cycle_message_id);
   const handle = String(input.handle ?? '').replace(/^@/, '').toLowerCase();
   const phone = konsolPhone(input.phone);
   const sources = [...new Set(input.source_message_ids ?? [])];
@@ -25,9 +27,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   if (!isFpsBankMemberId(input.fps_bank_member_id) || typeof input.bank_ref !== 'string' || !input.bank_ref.trim()) missing.push('bank');
   let firstAt = Infinity, lastAt = 0, incoming = false;
   for (const id of sources) {
-    const message = await env.DB.prepare(`SELECT direction,from_username,created_at FROM ugc_ig_messages
-      WHERE id=?1 AND conversation_id=?2`).bind(id, input.conversation_id)
-      .first<{direction:string;from_username:string;created_at:string}>();
+    const message = await evidence.source(id);
     if (!message) throw Error('original_message_archive_required');
     const at = Date.parse(message.created_at);
     if (!Number.isFinite(at) || at > now) throw Error('invalid_original_message_time');
@@ -67,39 +67,39 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const open = await env.DB.prepare(`SELECT id,amount_minor FROM ugc_payouts WHERE creator_id=?1
     AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL
     ORDER BY updated_at DESC LIMIT 1`).bind(creatorId).first<{id:string;amount_minor:number}>();
-  const context = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_context:'+input.conversation_id).first<{value:string}>();
-  const latestImage = await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND attachments_json IS NOT NULL AND attachments_json NOT IN ('[]','{}','null','') AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(input.conversation_id).first<{at:string}>();
+  const context = await evidence.context();
+  const latestImage = await evidence.latestImage();
   let imageCheck; try { imageCheck=JSON.parse(context?.value ?? '{}').image_check; } catch {}
   let cartAmount=confirmedCartAmount(imageCheck,latestImage?.at);
-  const cartReceipt=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('ugc_cart_review:'+input.conversation_id).first<{value:string}>();
+  const cartReceipt=await evidence.cart();
   let structuredCart:any=null;
   if(cartReceipt){
     cartAmount=null;
     try{
       const proof=JSON.parse(cartReceipt.value);
-      const latestIncoming=await env.DB.prepare("SELECT MAX(created_at) at FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in'").bind(input.conversation_id).first<{at:string}>();
+      const latestIncoming=await evidence.latestIncoming();
       const sameTime=(a:string|null|undefined,b:string|null|undefined)=>!a&&!b||Boolean(a&&b&&Date.parse(a)===Date.parse(b));
       const decision=decideCart(proof.checks??[],proof.quote);
       if(proof.version===1&&proof.conversation_id===input.conversation_id&&sameTime(proof.latest_image_at,latestImage?.at)&&sameTime(proof.latest_incoming_at,latestIncoming?.at)&&decision.status==='confirmed'&&decision.amount_minor===proof.amount_minor){
-        const source=await env.DB.prepare('SELECT direction,from_username,created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(decision.source_message_id,input.conversation_id).first<{direction:string;from_username:string;created_at:string}>();
+        const source=await evidence.source(decision.source_message_id);
         let sellerValid=true;
         const selected=[...(proof.checks??[])].filter((c:any)=>c.kind==='basket').sort((a:any,b:any)=>Date.parse(a.created_at)-Date.parse(b.created_at)).at(-1);
         if(selected?.seller_evidence==='creator_answer'){
           const ref=selected.seller_source;
-          const q=ref?.question_id?await env.DB.prepare('SELECT direction,text,created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(ref.question_id,input.conversation_id).first<{direction:string;text:string;created_at:string}>():null;
-          const a=ref?.answer_id?await env.DB.prepare('SELECT direction,text,created_at,from_username FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2').bind(ref.answer_id,input.conversation_id).first<{direction:string;text:string;created_at:string;from_username:string}>():null;
+          const q=ref?.question_id?await evidence.source(ref.question_id,true):null;
+          const a=ref?.answer_id?await evidence.source(ref.answer_id,true):null;
           const answer=String(a?.text??'').trim().replace(/^(?:продавец|магазин)\s*[:—-]\s*/iu,'');
           sellerValid=!!q&&!!a&&q.direction==='out'&&q.text===SELLER_QUESTION&&a.direction==='in'&&a.from_username?.toLowerCase()===handle&&
             Date.parse(q.created_at)>Date.parse(selected?.created_at??'')&&Date.parse(a.created_at)>Date.parse(q.created_at)&&!!ref.normalized_name&&normalizeSeller(answer)===ref.normalized_name;
         }
-        if(source?.direction==='in'&&source.from_username?.toLowerCase()===handle&&sellerValid){cartAmount=decision.amount_minor;structuredCart={receipt_key:'ugc_cart_review:'+input.conversation_id,authority:decision.authority,source_message_id:decision.source_message_id,amount_minor:decision.amount_minor};}
+        if(source?.direction==='in'&&source.from_username?.toLowerCase()===handle&&sellerValid){cartAmount=decision.amount_minor;structuredCart={...(evidenceCapability!==undefined?{evidence_kind:evidence.provenance().mode==='transient'?'transient_original':'immutable_original',source_sha256:evidence.provenance().source_sha256}:{receipt_key:'ugc_cart_review:'+input.conversation_id}),authority:decision.authority,source_message_id:decision.source_message_id,amount_minor:decision.amount_minor};}
       }
     }catch{} // Invalid/stale receipt remains unconfirmed, never a guessed number.
   }
   if(input.cart_review){
     const review=input.cart_review;
     if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>99900)throw Error('invalid_verified_cart_amount');
-    const source=await env.DB.prepare("SELECT created_at FROM ugc_ig_messages WHERE id=?1 AND conversation_id=?2 AND direction='in' AND json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)>0").bind(review.source_message_id,input.conversation_id).first<{created_at:string}>();
+    const source=await evidence.attachmentSource(review.source_message_id);
     if(!source||!latestImage?.at)throw Error('verified_cart_must_be_current_original');
     if(Date.parse(source.created_at)!==Date.parse(latestImage.at)){
       let inspection;try{inspection=JSON.parse(cartReceipt?.value??'null');}catch{}
@@ -111,6 +111,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   // Never create a financial row from the one-kopeck 'unknown' sentinel.
   // Preserve an existing Owner amount; current-cart review remains the existing
   // amount authority. A raw observed/parser number is not a replacement for it.
+  if(evidenceCapability!==undefined&&open&&open.amount_minor>=5000&&cartAmount!==open.amount_minor)throw Error('payout_existing_amount_conflict');
   const amount = open && Number.isSafeInteger(open.amount_minor) && open.amount_minor >= 5000
     ? open.amount_minor : cartAmount;
   if (amount == null || !Number.isSafeInteger(amount) || amount < 5000) missing.unshift('amount_minor');
@@ -193,3 +194,4 @@ async function savePendingClarification(db: Env['DB'], key: string, value: strin
   return result.length===(partialAmount?3:2) && result.every(row=>row.success===true)
     && [0,1].includes(Number(result[0]?.meta?.changes)) && result.at(-1)?.results?.[0]?.value===value;
 }
+

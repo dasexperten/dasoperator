@@ -1,9 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 const dir=mkdtempSync(join(tmpdir(),'payout-source-'));
-await createRequire(import.meta.url)('esbuild').build({entryPoints:[fileURLToPath(new URL('./ugc-payout-source.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:join(dir,'source.mjs'),plugins:[{name:'save-boundary',setup(b){b.onResolve({filter:/ugc-(?:payout-intake|cart-review)$/},()=>({path:'save',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const reviewPayoutCart=async()=>globalThis.__review??({status:"pending"}),payoutImagePolicy=async()=>({});export const prepareCreatorPayout=async(_e,facts)=>{globalThis.__intake.push(facts);return globalThis.__intakeResult??{registered:true,id:"payout1"}}'}));}}]});
+await createRequire(import.meta.url)('esbuild').build({entryPoints:[fileURLToPath(new URL('./ugc-payout-source.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:join(dir,'source.mjs'),plugins:[{name:'save-boundary',setup(b){b.onResolve({filter:/(?:ugc-(?:payout-intake|cart-review)|ig-dm-image-cache|diana-subscription-vision\.mjs|diana-subscription\.mjs)$/},()=>({path:'save',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const imageUrls=s=>JSON.parse(s||"[]").filter(a=>a.image_data).map(a=>a.image_data.url);export const loadInstagramImage=async(_env,id)=>{if(id!==undefined)throw Error("image cache used");return {mediaType:"image/jpeg",data:"ZmFrZQ=="};};export const checkSubscriptionImages=async()=>globalThis.__imageCheck;export const subscriptionInfer=()=>()=>{};export const reviewPayoutCart=async()=>globalThis.__review??({status:"pending"}),payoutImagePolicy=async()=>({});export const prepareCreatorPayout=async(_e,facts)=>{globalThis.__intake.push(facts);return globalThis.__intakeResult??{registered:true,id:"payout1"}}'}));}}]});
 const {ingestCreatorPayouts}=await import(pathToFileURL(join(dir,'source.mjs')));rmSync(dir,{recursive:true});
-function fixture(t,existing=null){
+function fixture(t,existing=null,scenario={}){
  const original={id:'details',created_time:new Date(Date.now()-60000).toISOString(),from:{id:'creator',username:'alice'},message:'89990000000 ТБанк Елена'};
+ if(scenario.image){original.message='';original.attachments={data:[{mime_type:'image/jpeg',image_data:{url:'https://x.fbcdn.net/screenshot'}}]};}
  const reply={id:'ack',created_time:new Date().toISOString(),from:{id:'17841466350261166',username:'dasexperten'},message:'Данные получила'};
  const archived=[];globalThis.__intake=[];globalThis.__intakeResult=null;globalThis.__review=null;
  t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(options.method,undefined);return Response.json(url.includes('conversations?')?{data:[{id:'chat',messages:{data:[reply,original]}}]}:url.includes('/chat?')?{id:'chat',messages:{data:[original]}}:{access_token:'test-page'})});
@@ -37,4 +38,46 @@ test('a previously saved amount cannot replace a newer cart',async t=>{
  const target={conversation_id:'chat',message_id:'details',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
  await assert.rejects(ingestCreatorPayouts(env,target),/payment_intake_failed/);
  assert.equal(globalThis.__intake.length,0);
+});
+
+test('video payout uses two original frame proofs and the current cart, not synthetic message text',async t=>{
+ const env=fixture(t);globalThis.__review={status:'confirmed',amount_minor:45300};
+ const frames=[{sourceMessageId:'details',videoSha256:'abc',data:'same'}];
+ const check={kind:'other',requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:null,currency:null,card:null},unresolved_required:[]};
+ let second={frames,videoCheck:{checks:[check]}};const first={frames,videoCheck:{checks:[check]}};
+ env.DOCS={get:async key=>({json:async()=>key.endsWith('video-evidence.json')?first:second})};
+ const target={conversation_id:'chat',message_id:'details',phone:'',bank:'',first_name:'',amount_minor:1,video:true,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
+ assert.deepEqual(await ingestCreatorPayouts(env,target),{registered:1,payout_id:'payout1'});assert.equal(globalThis.__intake.at(-1).amount_minor,45300);assert.deepEqual(globalThis.__intake.at(-1).source_message_ids,['details']);
+ second={frames,videoCheck:{checks:[{...check,requisites:{...check.requisites,phone:'89990000001'}}]}};
+ await assert.rejects(ingestCreatorPayouts(env,target),/video_payout_source_unverified/);
+});
+
+test('video requisites cannot bypass current cart or a conflicting video amount',async t=>{
+ const env=fixture(t);const frames=[{sourceMessageId:'details',videoSha256:'abc',data:'same'}];
+ const check={kind:'other',requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:'455',currency:'RUB',card:null},unresolved_required:[]};
+ const proof={frames,videoCheck:{checks:[check]}};env.DOCS={get:async()=>({json:async()=>proof})};
+ const target={conversation_id:'chat',message_id:'details',phone:'',bank:'',first_name:'',amount_minor:1,video:true,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
+ globalThis.__review={status:'confirmed',amount_minor:45300};await assert.rejects(ingestCreatorPayouts(env,target),/amount_not_verified/);assert.equal(globalThis.__intake.length,0);
+ globalThis.__review={status:'pending'};await assert.rejects(ingestCreatorPayouts(env,target),/payment_intake_failed/);assert.equal(globalThis.__intake.length,0);
+});
+
+
+test('a newer video showing a cart or unreadable frame cannot authorize an older cart',async t=>{
+ const env=fixture(t);globalThis.__review={status:'confirmed',amount_minor:45300};
+ const frames=[{sourceMessageId:'details',videoSha256:'abc',data:'same'}];
+ const target={conversation_id:'chat',message_id:'details',phone:'',bank:'',first_name:'',amount_minor:1,video:true,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
+ for(const kind of ['basket','order','unknown']){const check={kind,requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:null,currency:null,card:null},unresolved_required:[]};const proof={frames,videoCheck:{checks:[check]}};env.DOCS={get:async()=>({json:async()=>proof})};
+  await assert.rejects(ingestCreatorPayouts(env,target),/video_cart_requires_review/);assert.equal(globalThis.__intake.length,0);}
+});
+
+
+test('targeted screenshot requisites require independently reread original screenshot',async t=>{
+ const env=fixture(t,null,{image:true});globalThis.__review={status:'confirmed',amount_minor:45300};
+ const target={conversation_id:'chat',message_id:'details',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,image:true,originals:[{id:'details',direction:'in',text:''}]};
+ globalThis.__imageCheck={checks:[{requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:null,currency:null,card:null},unresolved_required:[]}]};
+ assert.deepEqual(await ingestCreatorPayouts(env,target),{registered:1,payout_id:'payout1'});assert.equal(globalThis.__intake.at(-1).phone,'89990000000');
+ globalThis.__imageCheck.checks[0].requisites.phone='89990000001';
+ await assert.rejects(ingestCreatorPayouts(env,target),/facts_do_not_match_original/);
+ globalThis.__imageCheck.checks[0].unresolved_required=['bank'];
+ await assert.rejects(ingestCreatorPayouts(env,target),/image_payout_source_unverified/);
 });

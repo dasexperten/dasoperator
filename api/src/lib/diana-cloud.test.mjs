@@ -10,10 +10,12 @@ const {build}=createRequire(import.meta.url)('esbuild');
 const dir=mkdtempSync(join(tmpdir(),'diana-cloud-test-'));
 const outfile=join(dir,'cloud.mjs');
 const stubs={
- 'ig-dm-attachments':`export const incomingScreenshots=async(env)=>({images:[],unreadable:0,currentUnavailable:env.unavailable===true,omitted:0});`,
+ 'ig-dm-attachments':`export const imageUrls=s=>JSON.parse(s||'[]').filter(a=>a.image_data||String(a.mime_type||'').startsWith('image/')).map(a=>a.image_data?.url||a.file_url);export const incomingScreenshots=async(env)=>({images:[],unreadable:0,currentUnavailable:env.unavailable===true,omitted:0});`,
  'diana-context.mjs':`export const prepareDianaContext=async({task})=>({system:'Full Diana profile',imagePolicy:{},receipt:{org_sha:'fixture',skills:['ugc-master','personizer']}});`,
  'diana-subscription.mjs':`export const subscriptionInfer=(env,operation)=>async(messages,options)=>{env.inferences.push({operation,messages,options});return {text:JSON.stringify(env.decision),receipt:{transport:'codex-native',auth:'subscription',model:options.model}}};`,
- 'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async()=>({checks:[],status:'yes'});`,
+ 'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async({task})=>task.startsWith('Inspect original video frames')?globalThis.__videoFixture:({checks:[],status:'yes'});`,
+ 'diana-video-vision.mjs':`export const checkVideoFrames=async()=>globalThis.__videoFixture;`,
+ 'diana-video.mjs':`export const currentVideos=messages=>messages.flatMap(m=>JSON.parse(m.attachments_json||'[]').filter(a=>a.video_data||String(a.mime_type||'').startsWith('video/')).map(a=>({url:a.file_url,messageId:m.id})));export const extractCurrentVideoFrames=async(_env,videos)=>[{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'original video frame',sourceMessageId:videos[0].messageId,videoSha256:'fixture-hash'}];`,
  'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
  'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
  'ugc-payout-intake':`export const prepareCreatorPayout=async(env,input)=>{env.partialIntake=input;return {registered:false,missing_fields:['bank','phone','first_name']}};`,
@@ -38,7 +40,7 @@ function fixture(t){
  CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,creator_id TEXT,amount_minor INTEGER,status TEXT,product TEXT,paid_at TEXT,failed_at TEXT,sent_at TEXT,created_at INTEGER,konsol_payment_id TEXT,konsol_status TEXT,konsol_error TEXT,notice_status TEXT,notice_message_id TEXT,handle TEXT,notice_at TEXT,notice_error TEXT,paid_notice_at TEXT,updated_at INTEGER,execute_claim TEXT);
  INSERT INTO ugc_creators VALUES('creator-id','creator','replied',1);
  INSERT INTO ugc_creator_platforms VALUES('creator-id','creator','instagram');`);
- const f={db,files:new Map(),sends:[],originals:[{id:'incoming',from:{id:'person',username:'creator'},message:'Расскажите о программе',created_time:'2026-11-09T09:00:00Z'}]};
+ const f={db,files:new Map(),sends:[],graphReads:[],originals:[{id:'incoming',from:{id:'person',username:'creator'},message:'Расскажите о программе',created_time:'2026-11-09T09:00:00Z'}]};
  f.event={cid:'chat',message_id:'incoming',event_id:'message:incoming',handle:'creator',at:'2026-11-09T09:00:00.000Z'};
  f.set=(k,v)=>db.prepare('INSERT OR REPLACE INTO crm_sync_state VALUES(?,?,?)').run(k,typeof v==='string'?v:JSON.stringify(v),Date.now());
  f.state=k=>db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(k)?.value;
@@ -48,7 +50,7 @@ function fixture(t){
  DOCS:{async put(k,v){f.files.set(k,v);},async get(k){return f.files.has(k)?{json:async()=>JSON.parse(f.files.get(k))}:null;},async head(k){return f.files.has(k)?{}:null;}},
  async send(handle,text,opts){f.sends.push({handle,text,opts});const id='out-'+f.sends.length;f.originals.unshift({id,from:{id:'17841466350261166'},message:text,created_time:'2026-11-09T09:01:00Z'});return{ok:true,messageId:id};}};
  t.mock.method(globalThis,'fetch',async url=>{
-  const u=new URL(url),id=u.pathname.split('/').at(-1);
+  const u=new URL(url),id=u.pathname.split('/').at(-1);f.graphReads.push(u.pathname+u.search);
   if(u.searchParams.get('fields')==='access_token')return Response.json({access_token:'fixture-page'});
   if(u.pathname.endsWith('/messages'))return Response.json({data:f.originals});
   if(id==='chat')return Response.json({messages:{data:f.originals.slice(0,1)}});
@@ -71,7 +73,7 @@ test('Diana hands complete requisites to payout for the exact incoming message',
  f.env.decision={...f.env.decision,reply:null,requisites:{amount_rub:453,phone:'89990000000',bank:'ТБанк',first_name:'Елена'}};
  const {draft}=await f.prepare();
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'registered');
- assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'incoming',direction:'in',text:'Расскажите о программе'}]}]);
+ assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,image:false,originals:[{id:'incoming',direction:'in',text:'Расскажите о программе'}]}]);
  assert.equal((await cloud.executeCloudPayout(f.env,'payout1',f.event,'person')).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
  assert.equal(f.env.refreshedPayout,'payout1');
  f.env.executedPayout=undefined;f.originals[0].from.id='another-person';
@@ -239,4 +241,43 @@ test('a no-reply decision cannot close a payment action after its provider facts
  const event={...f.event,event_id:'action:changed-payment',task:'payout_paid_notice',payout_id:'p1'};f.env.decision.reply=null;
  const {draft}=await f.prepare(event);f.db.prepare("UPDATE ugc_payouts SET konsol_payment_id='replacement' WHERE id='p1'").run();
  const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'needs_review');assert.equal(f.sends.length,0);
+});
+
+
+test('confirmed product gets only a short thank-you and keeps separate video review',async t=>{
+ const f=fixture(t);f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};
+ globalThis.__videoFixture={checks:[{product:'yes',observed:{product_name:'TERMO'},requisites:{},unresolved_required:[]}]};
+ f.env.decision={...f.env.decision,reply:'Качество отличное, публикуйте!',send_cards:true};
+ const {draft}=await f.prepare();const result=await cloud.deliverCloudDecision(f.env,draft.key);
+ assert.equal(result.status,'delivered');assert.equal(f.sends.length,1);assert.equal(f.sends[0].text,'Спасибо за видео!');
+ const review=JSON.parse(f.state('diana_video_pending:'+f.event.event_id));assert.equal(review.reason,'video_payment_coverage_unverified');assert.equal(review.message_id,'incoming');
+ await cloud.completeCloudEvent(f.env,f.event,result);assert.ok(f.state('diana_video_pending:'+f.event.event_id));
+});
+test('video with unresolved requisites or no visible product stays in review with source evidence',async t=>{
+ for(const result of [
+  {checks:[{product:'yes',observed:{product_name:'TERMO'},requisites:{phone:'partial'},unresolved_required:['phone']}]},
+  {checks:[{product:'unknown',observed:{product_name:null},requisites:{},unresolved_required:[]}]},
+ ]){
+  const f=fixture(t);f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};globalThis.__videoFixture=result;
+  const source=await cloud.readCloudConversation(f.env,f.event);const ctx=await cloud.prepareCloudDecision(f.env,source.key);
+  assert.equal(ctx.status,'needs_review');assert.ok(ctx.evidenceKey);assert.equal(f.sends.length,0);assert.equal(f.env.payoutHandoffs,undefined);
+  if(result.checks[0].requisites.phone){assert.ok(f.graphReads.some(path=>path.includes('/incoming?fields=id,from,attachments')));assert.equal(ctx.videoSourceVerified,false);assert.ok(f.state('diana_payout_signal:'+f.event.event_id));}
+
+ }
+});
+
+
+test('independently matched video requisites hand off only the original event without sending or paying in test',async t=>{
+ const f=fixture(t);f.originals[0].attachments={data:[{mime_type:'video/mp4',file_url:'https://x.fbcdn.net/v'}]};
+ globalThis.__videoFixture={checks:[{product:'yes',observed:{product_name:'TERMO'},requisites:{holder_name:'Елена',bank:'Т-Банк',phone:'89990000000',amount:null,currency:null,card:null},unresolved_required:[]}]};
+ const {draft}=await f.prepare();const handoff=await cloud.handoffCloudPayout(f.env,draft.key);
+ assert.equal(handoff.status,'registered');assert.equal(f.env.payoutHandoffs[0].video,true);assert.equal(f.env.payoutHandoffs[0].message_id,'incoming');
+ assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);
+});
+
+test('screenshot requisites trigger original-image verification without sending or paying in the test',async t=>{
+ const f=fixture(t);f.originals[0].message='';f.originals[0].attachments={data:[{mime_type:'image/jpeg',image_data:{url:'https://x.fbcdn.net/image'}}]};
+ f.env.decision={...f.env.decision,requisites:{phone:'89990000000',bank:'ТБанк',first_name:'Елена',amount_rub:453}};
+ const {draft}=await f.prepare();const result=await cloud.handoffCloudPayout(f.env,draft.key);
+ assert.equal(result.status,'registered');assert.equal(f.env.payoutHandoffs[0].image,true);assert.equal(f.env.payoutHandoffs[0].originals[0].text,'');assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);
 });

@@ -6,8 +6,8 @@ const result=await build({entryPoints:[fileURLToPath(new URL('../diana-cloud-rou
 }}]});
 const {DianaCloudRoundWorkflow}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
 test('round records each creator separately and keeps unsupported duties open',async t=>{
- const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);CREATE TABLE ugc_creators(id TEXT,normalized_handle TEXT,lifecycle_stage TEXT);CREATE TABLE ugc_content(creator_id TEXT,content_url TEXT);CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,direction TEXT,from_username TEXT,created_at TEXT);
- INSERT INTO ugc_creators VALUES('a','alice','paid'),('b','bob','creation');INSERT INTO ugc_ig_messages VALUES('m1','chat','in','alice','2026-01-01');`);
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);CREATE TABLE ugc_creators(id TEXT,normalized_handle TEXT,lifecycle_stage TEXT,archived_at INTEGER);CREATE TABLE ugc_content(creator_id TEXT,content_url TEXT);CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,direction TEXT,from_username TEXT,created_at TEXT);
+ INSERT INTO ugc_creators VALUES('a','alice','paid',NULL),('b','bob','creation',NULL);INSERT INTO ugc_ig_messages VALUES('m1','chat','in','alice','2026-01-01');`);
  const run='diana-round-2026-11-10-morning';db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_execution_lock',JSON.stringify({kind:'round',id:run}),Date.now());
  db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('manual_stage:a',JSON.stringify({to:'paid',at:1,reviewed_at:null}),1);
  const DB={prepare(sql){let args=[];return{bind(...v){args=v;return this},async all(){return{results:db.prepare(sql).all(...args)}},async first(){return db.prepare(sql).get(...args)??null},async run(){return{meta:{changes:Number(db.prepare(sql).run(...args).changes)}}}}}};

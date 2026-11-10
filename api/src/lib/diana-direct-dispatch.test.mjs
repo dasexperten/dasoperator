@@ -18,3 +18,16 @@ test('dispatches one metadata-only signal and prevents concurrent starts',async 
 test('payout and uncertain delivery remain pending and are not redispatched',async t=>{for(const reason of ['payout_handoff_pending','delivery_unknown']){const f=fixture(t);f.set('diana_direct_event:message:m1',{status:'pending',reason});assert.equal((await dispatchDianaDirect(f.env,undefined,at)).reason,'no_direct_signal_ready');assert.equal(f.created.length,0);}});
 test('unavailable attachment waits three minutes and stops after the third attempt',async t=>{const f=fixture(t);f.set('diana_direct_event:message:m1',{status:'pending',reason:'original_attachment_unavailable',attempt:1,retry_at:at+180000});assert.equal((await dispatchDianaDirect(f.env,undefined,at)).reason,'media_retry_waiting');assert.equal((await dispatchDianaDirect(f.env,undefined,at+180000)).dispatched,true);assert.equal(f.created[0].params.attempt,2);});
 test('uncertain creation holds the claim and cannot create a duplicate',async t=>{const f=fixture(t);f.env.DIANA_DIRECT.create=async()=>{throw Error('unknown')};assert.equal((await dispatchDianaDirect(f.env,undefined,at)).reason,'workflow_creation_unknown');assert.equal((await dispatchDianaDirect(f.env,undefined,at)).reason,'diana_cloud_working');});
+test('terminal workflow without receipt is held for review and releases only its exact lock',async t=>{
+ const f=fixture(t);await dispatchDianaDirect(f.env,undefined,at);const id=f.created[0].id;
+ f.env.DIANA_DIRECT.get=async()=>({status:async()=>({status:'errored'})});
+ const result=await dispatchDianaDirect(f.env,undefined,at+181000);
+ assert.equal(result.reason,'no_direct_signal_ready');assert.equal(f.created.length,1);
+ const review=JSON.parse(f.sql.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_direct_event:message:m1').value);
+ assert.equal(review.reason,'terminal_workflow_without_verified_receipt');assert.equal(review.review_owner,'diana-helios');
+ assert.equal(f.sql.prepare("SELECT value FROM crm_sync_state WHERE key='diana_direct_active'").get(),undefined);
+});
+test('unreachable workflow never releases an uncertain lock by age alone',async t=>{
+ const f=fixture(t);await dispatchDianaDirect(f.env,undefined,at);f.env.DIANA_DIRECT.get=async()=>{throw Error('unavailable')};
+ assert.equal((await dispatchDianaDirect(f.env,undefined,at+181000)).reason,'workflow_status_unknown');assert.equal(f.created.length,1);
+});

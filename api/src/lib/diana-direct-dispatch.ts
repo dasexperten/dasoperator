@@ -7,8 +7,20 @@ import {dianaWorkWindow} from './diana-work-window.mjs';
 // The detector supplies IDs only. Content is fetched by the Workflow itself.
 export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Date.now()){
  if(!dianaWorkWindow(now).direct)return {dispatched:false,reason:'outside_direct_hours'};
- const active=await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_direct_active'").first<{value:string}>();
- if(active)return {dispatched:false,reason:'diana_cloud_working'};
+ const active=await env.DB.prepare("SELECT value,updated_at FROM crm_sync_state WHERE key='diana_direct_active'").first<{value:string;updated_at:number}>();
+ if(active){
+  if(now-Number(active.updated_at)<180000)return {dispatched:false,reason:'diana_cloud_working'};
+  let status:string;
+  try{status=String((await(await env.DIANA_DIRECT.get(active.value)).status()).status);}catch{return {dispatched:false,reason:'workflow_status_unknown'};}
+  if(!['complete','errored','terminated'].includes(status))return {dispatched:false,reason:'diana_cloud_working'};
+  const mapping=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_direct_instance:'+active.value).first<{value:string}>();
+  let eventId:string;try{eventId=JSON.parse(mapping?.value??'null')?.event_id;}catch{return {dispatched:false,reason:'workflow_mapping_missing'};}
+  if(!eventId)return {dispatched:false,reason:'workflow_mapping_missing'};
+  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
+   .bind('diana_direct_event:'+eventId,JSON.stringify({status:'needs_review',reason:'terminal_workflow_without_verified_receipt',review_owner:'diana-helios',review_since_ms:now}),now).run();
+  await releaseDianaCloud(env,{kind:'direct',id:active.value});
+  await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(active.value).run();
+ }
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
  pending.sort((a:any,b:any)=>Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
@@ -31,6 +43,8 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  if(!await reserveDianaCloud(env,owner))return {dispatched:false,reason:'diana_cloud_locked'};
  const claim=await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_direct_active',?1,?2) ON CONFLICT(key) DO NOTHING").bind(id,now).run();
  if(!claim.meta.changes){await releaseDianaCloud(env,owner);return {dispatched:false,reason:'diana_cloud_working'};}
+ await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
+  .bind('diana_direct_instance:'+id,JSON.stringify({event_id:next.event_id,created_at:now}),now).run();
  try{
   await env.DIANA_DIRECT.create({id,params:{cid:String(next.cid),message_id:next.message_id,event_id:next.event_id,handle:next.handle,attempt:nextAttempt}});
  }catch{

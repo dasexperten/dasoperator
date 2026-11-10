@@ -234,15 +234,15 @@ export async function handoffCloudPayout(env: Env, key: string) {
     phone:r.phone,bank:r.bank,first_name:r.first_name,amount_minor:r.amount_minor,
     originals:source.history.map((m:any)=>({id:m.id,direction:m.direction,text:m.text}))});
   if(typeof result==='number')throw Error('payout_target_result_invalid');
-  return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id};
+  return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id,recipient:source.recipient};
 }
 
-export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent) {
+export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent, recipient:string) {
   const {executeUgcPayout}=await import('./ugc-payout-store');
   const result=await executeUgcPayout(env,payoutId,async()=>{
     const live=await cloudGraph('/'+encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,created_time}',await pageToken(env));
     const latest=live.messages?.data?.[0];
-    return !!latest && String(latest.id)===event.message_id && ![BRAND,PAGE].includes(String(latest.from?.id));
+    return !!latest && !!recipient && String(latest.id)===event.message_id && String(latest.from?.id)===recipient && ![BRAND,PAGE].includes(recipient);
   });
   if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
   return {status:'submitted_or_already_exists',payout_id:payoutId};

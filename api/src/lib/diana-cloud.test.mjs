@@ -17,7 +17,7 @@ const stubs={
  'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
  'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
  'ugc-payout-intake':`export const prepareCreatorPayout=async(env,input)=>{env.partialIntake=input;return {registered:false,missing_fields:['bank','phone','first_name']}};`,
- 'ugc-payout-store':`export const executeUgcPayout=async(env,id)=>{env.executedPayout=id;return {ok:true}};`
+ 'ugc-payout-store':`export const executeUgcPayout=async(env,id,check)=>{if(!await check())return {ok:false,code:'source_changed'};env.executedPayout=id;return {ok:true}};`
 };
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile,
  plugins:[{name:'dependencies',setup(b){b.onResolve({filter:/^\.\/|^\.\.\//},args=>{const name=args.path.split('/').at(-1);return stubs[name]?{path:name,namespace:'fixture'}:undefined;});b.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:stubs[args.path]}));}}]});
@@ -72,7 +72,9 @@ test('Diana hands complete requisites to payout for the exact incoming message',
  const {draft}=await f.prepare();
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'registered');
  assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'incoming',direction:'in',text:'Расскажите о программе'}]}]);
- assert.equal((await cloud.executeCloudPayout(f.env,'payout1',f.event)).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
+ assert.equal((await cloud.executeCloudPayout(f.env,'payout1',f.event,'person')).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
+ f.env.executedPayout=undefined;f.originals[0].from.id='another-person';
+ await assert.rejects(cloud.executeCloudPayout(f.env,'payout1',f.event,'person'),/source_changed/);assert.equal(f.env.executedPayout,undefined);
 });
 test('partial payment details create a durable signal without a transfer',async t=>{
  const f=fixture(t);f.originals[0].message='Телефон 89990000000';

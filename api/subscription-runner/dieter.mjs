@@ -91,8 +91,13 @@ export async function probeDrive(value,fetchImpl=fetch){
   const c=typeof value==='string'?JSON.parse(value):value;
   const response=await fetchImpl('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:c.client_id,client_secret:c.client_secret,refresh_token:c.refresh_token,grant_type:'refresh_token'}),signal:AbortSignal.timeout(25000)});
   if(!response.ok)return {ready:false,reason:'drive_refresh_rejected'};
-  const token=await response.json(),scopes=String(token.scope??c.scope??'').split(' ');
-  if(!scopes.some(s=>['https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/drive.file'].includes(s)))return {ready:false,reason:'drive_write_scope_missing'};
+  const token=await response.json(),scopes=String(token.scope??c.scope??'').split(/\s+/).filter(Boolean);
+  // Owner 10.11: the uploader receives only the two approved Drive scopes,
+  // never unrelated older Gmail/Script/Webmaster grants of the same client.
+  const approved=['https://www.googleapis.com/auth/drive.readonly','https://www.googleapis.com/auth/drive.file'];
+  if(!scopes.includes(approved[1]))return {ready:false,reason:'drive_write_scope_missing'};
+  if(!scopes.includes(approved[0]))return {ready:false,reason:'drive_read_scope_missing'};
+  if(scopes.some(s=>!approved.includes(s)))return {ready:false,reason:'drive_scope_exceeds_approved_permissions'};
   const headers={Authorization:'Bearer '+token.access_token};
   const about=await fetchImpl('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)',{headers,signal:AbortSignal.timeout(25000)});
   if(!about.ok||(await about.json()).user?.emailAddress!=='dasexperten@gmail.com')return {ready:false,reason:'drive_company_account_not_verified'};

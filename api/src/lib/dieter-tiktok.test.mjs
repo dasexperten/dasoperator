@@ -30,10 +30,11 @@ function fixture(t,options={}){
  const vault=['TIKTOK_BUSINESS_APP_ID=7706160588917342228','TIKTOK_BUSINESS_USERNAME=dasbroadcast','TIKTOK_BUSINESS_OPEN_ID=fixture-business','TIKTOK_BUSINESS_ACCESS_TOKEN=fixture-token-not-real','TIKTOK_BUSINESS_SCOPE=video.upload,video.publish,video.list','TIKTOK_BUSINESS_ACCESS_TOKEN_EXPIRES_AT=2099-01-01T00:00:00Z'].join('\n');
  const ledger=()=>{const row=db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get();return row?JSON.parse(row.value):null};
  const fetchImpl=async(value,init={})=>{
+  if(options.cloudRuntime&&init.redirect==='error')throw new TypeError('Workers Request does not implement error redirect mode; synthetic-private-detail');
   const url=new URL(value);requests.push({host:url.hostname,path:url.pathname,method:init.method??'GET'});
   assert.equal(url.searchParams.has('access_token'),false);
   if(url.hostname==='api.github.com'){assert.equal(init.headers.Authorization,'Bearer fixture-github-only');return Response.json({content:btoa(vault)});}
-  if(url.hostname==='org.dasexperten.com')return new Response(options.badSource?'wrong':bytes,{headers:{'Content-Type':'video/mp4'}});
+  if(url.hostname==='org.dasexperten.com')return new Response(options.badSource?'wrong':bytes,{headers:{'Content-Type':options.mime??'video/mp4'}});
   assert.equal(url.hostname,'business-api.tiktok.com');assert.equal(init.headers['Access-Token'],'fixture-token-not-real');
   const reply=data=>Response.json({code:0,data});
   if(url.pathname.endsWith('/business/get/'))return reply({username:'dasbroadcast'});
@@ -66,6 +67,23 @@ test('one exact Business POST, accepted ID persisted before readback, prior proo
 });
 test('preflight has no TikTok POST, no ledger, no proof writes',async t=>{
  const f=fixture(t);const r=await f.run('preflight');assert.equal(r.status,'preflight_ready');assert.equal(f.ledger(),null);assert.equal(f.stats().posts,0);assert.deepEqual(JSON.parse(f.db.prepare('SELECT publications FROM ugc_reel_jobs').get().publications),f.prior);
+});
+test('Cloudflare redirect contract and octet-stream asset hosting support the complete one-post path',async t=>{
+ const f=fixture(t,{cloudRuntime:true,mime:'application/octet-stream'});const result=await f.run();assert.equal(result.status,'verified',JSON.stringify(result));assert.equal(f.stats().posts,1);
+});
+test('an unexpected first-fetch TypeError exposes only the fixed phase and class before any intent',async t=>{
+ const f=fixture(t),result=await runDieterTikTokApi(f.env,args,'preflight',{fetchImpl:async()=>{throw new TypeError('synthetic-private-value-not-for-output');}});
+ assert.equal(result.code,'tiktok_transport_failed_closed');assert.deepEqual(result.diagnostic,{phase:'grant_read',error_class:'type_error'});assert.equal(f.ledger(),null);assert.equal(f.stats().posts,0);assert.ok(!JSON.stringify(result).includes('synthetic-private-value'));
+});
+test('a manual vault redirect is rejected without forwarding its credential',async t=>{
+ const f=fixture(t);let requests=0;
+ const result=await runDieterTikTokApi(f.env,args,'preflight',{fetchImpl:async(_url,init)=>{requests++;assert.equal(init.redirect,'manual');return new Response('',{status:302,headers:{Location:'https://example.invalid/never-follow'}});}});
+ assert.equal(result.code,'tiktok_vault_unavailable');assert.equal(result.diagnostic.phase,'grant_read');assert.equal(requests,1);assert.equal(f.ledger(),null);
+});
+test('HTML or a wrong octet-stream body cannot pass the exact original SHA check',async t=>{
+ for(const options of [{mime:'text/html'},{mime:'application/octet-stream',badSource:true}]){
+  const f=fixture(t,options),result=await f.run('preflight');assert.equal(result.status,'blocked');assert.equal(f.stats().posts,0);assert.equal(f.ledger(),null);
+ }
 });
 test('uncertain POST is durably blocked from a second send across modes',async t=>{
  const f=fixture(t,{unknown:true});assert.equal((await f.run()).status,'uncertain');assert.equal(f.ledger().state,'uncertain');assert.equal((await f.run()).status,'uncertain');assert.equal((await f.run('reconcile')).status,'uncertain');assert.equal(f.stats().posts,1);
@@ -104,7 +122,8 @@ for(const duration of [0,1,16,'13'])test('invalid/truncated provider duration '+
 test('canonical source hosting uses exact Drive bytes and org/assets R2 mapping, then public SHA readback',async()=>{
  let hosted=false,puts=0;const env={DIETER_PRIVATE_FILES:JSON.stringify({'google-drive-api.json':{client_id:'fixture-client',client_secret:'fixture-secret',refresh_token:'fixture-refresh'}}),ORG_ASSETS:{async put(key,value,options){puts++;assert.equal(key,`org/assets/ugc/${sha}/original.mp4`);assert.equal(options.httpMetadata.contentType,'video/mp4');assert.deepEqual(new Uint8Array(value),bytes);hosted=true;}}};
  const fetcher=async(u,init={})=>{
-  if(u===asset)return hosted?new Response(bytes,{headers:{'Content-Type':'video/mp4'}}):new Response('',{status:404});
+  assert.equal(init.redirect,'manual');
+  if(u===asset)return hosted?new Response(bytes,{headers:{'Content-Type':'application/octet-stream'}}):new Response('',{status:404});
   if(u==='https://oauth2.googleapis.com/token'){assert.equal(init.method,'POST');return Response.json({access_token:'fixture-drive-token'});}
   assert.equal(new URL(u).searchParams.get('alt'),'media');assert.equal(init.headers.Authorization,'Bearer fixture-drive-token');return new Response(bytes);
  };

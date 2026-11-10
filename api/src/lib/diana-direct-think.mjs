@@ -24,7 +24,7 @@ export function directThink(env, operation) {
       const reason=String(failure?.error??'');
       const upstream=/^codex (\d{3})(?::|$)/.exec(reason);
       if(upstream)throw Error(`direct_upstream_http_${upstream[1]}`);
-      if(['model_not_verified','empty_answer','codex_no_pass'].includes(reason))throw Error(`direct_upstream_${reason}`);
+      if(['model_not_verified','empty_answer','empty_answer_completed','empty_answer_failed','empty_answer_incomplete','empty_answer_no_terminal','codex_no_pass'].includes(reason))throw Error(`direct_upstream_${reason}`);
       throw Error(`direct_inference_http_${response.status}`);
     }
     const result=await response.json();

@@ -22,3 +22,7 @@ test('reports only upstream status and never exposes provider error text',async(
  const env={CODEX_ROUTE_SECRET:'x',CODEX_DOOR:{async fetch(){return Response.json({error:'codex 400: PRIVATE PROVIDER DETAIL'},{status:502});}}};
  await assert.rejects(directThink(env,'image')([{role:'user',content:'read'}],{model:'gpt-6-luna'}),error=>error.message==='direct_upstream_http_400');
 });
+test('preserves the safe terminal category when Terra returns no image answer',async()=>{
+ const env={CODEX_ROUTE_SECRET:'x',CODEX_DOOR:{async fetch(){return Response.json({error:'empty_answer_failed'},{status:502});}}};
+ await assert.rejects(directThink(env,'image')([{role:'user',content:'read'}],{model:'gpt-6.1-terra'}),error=>error.message==='direct_upstream_empty_answer_failed');
+});

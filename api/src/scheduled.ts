@@ -416,6 +416,10 @@ export async function handleScheduled(
   // Each lane runs only when due — 3 min after activity, then 15, then 30.
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
+    try {
+      const {scheduleDianaRound}=await import('./lib/diana-cloud-round-schedule');
+      await scheduleDianaRound(env,event.scheduledTime || Date.now());
+    } catch(e) {recordFailure(e);console.error('[diana-cloud-round] scheduling failed');}
     // Owner 2026-11-07: ERP owns erp-ugc-diter; the local tool-capable
     // diter-ugc-round receives the exact accepted job from a live consumer.
     try {

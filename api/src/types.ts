@@ -3,6 +3,7 @@
 // =============================================================================
 
 export interface Env {
+  DIANA_ROUND: Workflow<{id:string;scheduled_at:number}>;
   DIETER_CLOUD: Workflow<{content_id:string;claim_id:string}>;
   DIETER_WAKE: DurableObjectNamespace;
   DIETER_SUBSCRIPTION: Fetcher;

@@ -106,6 +106,14 @@ test('old completion cannot remove a newer incoming alarm',async t=>{
  f.set('diana_round_alarm:chat',{...f.event,message_id:'new',event_id:'message:new'});await cloud.completeCloudEvent(f.env,f.event,out);
  assert.equal(JSON.parse(f.state('diana_round_alarm:chat')).message_id,'new');assert.equal(f.state('diana_message_done:chat'),undefined);
 });
+test('scheduled review can read a conversation whose last message is ours without acknowledging a Direct alarm',async t=>{
+ const f=fixture(t);f.originals.unshift({id:'previous-out',from:{id:'17841466350261166'},message:'Проверяем',created_time:'2026-11-09T09:00:05Z'});
+ const event={...f.event,event_id:'round:2026-11-10:morning:creator-id',task:'round',round_slot:'2026-11-10:morning',creator_id:'creator-id'};
+ f.env.decision.reply=null;f.env.decision.reason='No new action.';
+ const {draft}=await f.prepare(event),outcome=await cloud.deliverCloudDecision(f.env,draft.key);
+ assert.equal(outcome.status,'no_reply');await cloud.completeCloudEvent(f.env,event,outcome);
+ assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.state('diana_message_done:chat'),undefined);assert.equal(f.sends.length,0);
+});
 test('dispatcher creates exactly one durable event, waits on its real status and preserves paused actions',async t=>{
  const f=fixture(t),instances=new Map(),creates=[];
  f.env.DIANA_CLOUD={async create({id,params}){creates.push({id,params});instances.set(id,'running');},async get(id){return{async status(){if(!instances.has(id))throw Error('not found');return{status:instances.get(id)};}};}};

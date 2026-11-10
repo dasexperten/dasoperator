@@ -44,7 +44,7 @@ export function runDieterProcess(cmd,args,input,{env=process.env,spawnImpl=spawn
 export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
  const execution=body.execution;
  dieterPrompt(execution,'/source'); // validate before any process or credential use
- if(body.model!=='gpt-6.1-terra'||!execution.githubToken||!execution.serviceSecret)throw Error('dieter_runtime_credentials_required');
+ if(body.model!=='gpt-6.1-terra'||!body.subscriptionDoorKey||!execution.githubToken||!execution.serviceSecret)throw Error('dieter_runtime_credentials_required');
  const privateDir=join(dir,'Library/CloudStorage/GoogleDrive-dasexperten@gmail.com/My Drive/DOCUMENTACIA/secrets/company');
  await mkdir(privateDir,{recursive:true,mode:0o700});
  const files=execution.privateFiles??{},privateSecrets=[];
@@ -55,7 +55,7 @@ export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
   await writeFile(join(privateDir,name),valueString,{mode:0o600});
  }
  const env={PATH:process.env.PATH,SSL_CERT_FILE:process.env.SSL_CERT_FILE,HOME:dir,CODEX_HOME:home,DAS_PRIVATE_COMPANY_DIR:privateDir,
-  GH_TOKEN:execution.githubToken,EMAILER_SERVICE_SECRET:execution.serviceSecret,
+  GH_TOKEN:execution.githubToken,EMAILER_SERVICE_SECRET:execution.serviceSecret,DIETER_SUBSCRIPTION_DOOR_KEY:body.subscriptionDoorKey,
   GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'credential.helper',
   GIT_CONFIG_VALUE_0:'!f() { printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; }; f'};
  const run=(cmd,args,input,timeout=120000)=>runDieterProcess(cmd,args,input,{env,spawnImpl,timeout});
@@ -75,7 +75,13 @@ export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
  }
  await mkdir(join(dir,'work'),{recursive:true});
  const args=['exec','--ignore-user-config','--ephemeral','--json','--skip-git-repo-check','-s','danger-full-access',
-  '-c','approval_policy="never"','-c','forced_login_method="chatgpt"','-c','features.shell_tool=true',
+  '-c','approval_policy="never"','-c','model_provider="dieter_subscription"',
+  '-c','model_providers.dieter_subscription.name="Dieter managed subscription door"',
+  '-c','model_providers.dieter_subscription.base_url="https://org.dasexperten.com/api/dieter/codex"',
+  '-c','model_providers.dieter_subscription.env_key="DIETER_SUBSCRIPTION_DOOR_KEY"',
+  '-c','model_providers.dieter_subscription.wire_api="responses"',
+  '-c','model_providers.dieter_subscription.requires_openai_auth=false',
+  '-c','model_providers.dieter_subscription.request_max_retries=0','-c','model_providers.dieter_subscription.stream_max_retries=0','-c','model_providers.dieter_subscription.supports_websockets=false','-c','features.shell_tool=true',
   '-c','shell_environment_policy.inherit="all"','-c','shell_environment_policy.ignore_default_excludes=true',
   '-c','apps._default.enabled=false','-c','features.apps=false','-c','features.plugins=false',
   '-c','web_search="disabled"','-c','project_doc_max_bytes=0','-c','model_reasoning_effort="medium"','-m','gpt-6.1-terra','-C',root,'--','-'];
@@ -86,7 +92,7 @@ export async function runDieter(body,{dir,home,spawnImpl=spawn}={}) {
  if(execution.mode==='preflight'&&!parsed.some(e=>e?.type==='item.completed'&&e.item?.type==='command_execution'&&e.item.exit_code===0&&e.item.aggregated_output?.includes('DIETER_CLOUD_TOOLS_READY')))throw Error('dieter_native_tools_not_verified');
  // These are the only secrets the bootstrap supplies, never publication copy.
  let safeEvents=events,safeText=text;
- for(const secret of [execution.githubToken,execution.serviceSecret,...privateSecrets]){safeEvents=safeEvents.split(secret).join('[redacted]');safeText=safeText.split(secret).join('[redacted]');}
+ for(const secret of [body.subscriptionDoorKey,execution.githubToken,execution.serviceSecret,...privateSecrets]){safeEvents=safeEvents.split(secret).join('[redacted]');safeText=safeText.split(secret).join('[redacted]');}
  const drive=execution.mode==='preflight'?await probeDrive(files['google-drive-api.json']):null;
  return {text:execution.mode==='preflight'?JSON.stringify({ready:true,activation_ready:drive.ready,native_tools_verified:true,drive,private_files:Object.keys(files),org_sha:orgSha,tools:versions}):safeText,
   privateEvents:auditDieterEvents(parsed),receipt:{transport:'codex-native',auth:'subscription',model:'gpt-6.1-terra',operation:'dieter_round',mode:execution.mode,org_sha:orgSha,requestId:body.requestId}};

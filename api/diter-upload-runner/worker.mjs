@@ -1,14 +1,10 @@
 import { Container } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 const enc=new TextEncoder();
-async function key(secret){return crypto.subtle.importKey('raw',Uint8Array.from(atob(secret),c=>c.charCodeAt(0)),{name:'AES-GCM'},false,['encrypt','decrypt']);}
-async function seal(value,secret){const iv=crypto.getRandomValues(new Uint8Array(12));const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(secret),enc.encode(JSON.stringify(value)));return {iv:[...iv],data:[...new Uint8Array(data)]};}
-async function unseal(value,secret){return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(value.iv)},await key(secret),new Uint8Array(value.data))));}
 export class DieterRunner extends Container {
  defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();
- async seed(auth){return this.serial(async()=>{if(await this.ctx.storage.get('auth'))throw Error('auth_already_seeded');if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('managed_chatgpt_auth_required');await this.ctx.storage.put('auth',await seal(auth,this.env.AUTH_KEY));return {seeded:true};});}
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
- async contract(){return {version:'dieter-tools-v1',operations:['dieter_round'],managed_login_present:Boolean(await this.ctx.storage.get('auth'))};}
+ async contract(){return {version:'dieter-tools-v1',operations:['dieter_round'],managed_login_present:Boolean(this.env.SUBSCRIPTION_DOOR_KEY)};}
  async runtimeCheck(){return this.serial(async()=>{
   try{
    await this.startAndWaitForPorts({ports:8080,cancellationOptions:{instanceGetTimeoutMS:120000,portReadyTimeoutMS:120000}});
@@ -55,14 +51,13 @@ export class DieterRunner extends Container {
     return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
    }
   }
-  const encrypted=await this.ctx.storage.get('auth');if(!encrypted)return Response.json({error:'subscription_auth_not_seeded'},{status:503});
-  const auth=await unseal(encrypted,this.env.AUTH_KEY);
+  if(!this.env.SUBSCRIPTION_DOOR_KEY)return Response.json({error:'subscription_auth_required'},{status:503});
   if(acted&&!intent)await this.ctx.storage.put(intentKey,{at:Date.now(),fingerprint});
   // Owner 2026-11-06: every call leaves one log line (operation, model, wait, run time, outcome) so an outage has a cause on record.
   const t0=Date.now();const log=(outcome,extra={})=>console.log(JSON.stringify({dieter_runner:true,op:body.operation,model:body.model,req:String(body.requestId).slice(0,24),run_ms:Date.now()-t0,outcome,...extra}));
   let response=intent?await this.cachedContainerResult(body.requestId):null;
   if(intent&&!response)return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
-  if(!intent)try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);}catch{response=await this.cachedContainerResult(body.requestId);if(!response){const diagnostic={phase:'container_proxy',code:'http_unavailable'};log('container_fetch_threw',{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});}}
+  if(!intent)try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,subscriptionDoorKey:this.env.SUBSCRIPTION_DOOR_KEY})}),8080);}catch{response=await this.cachedContainerResult(body.requestId);if(!response){const diagnostic={phase:'container_proxy',code:'http_unavailable'};log('container_fetch_threw',{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});}}
   if(!response.ok){
    const raw=await response.text();let diagnostic;
    try{const d=JSON.parse(raw).diagnostic;if(d&&['read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code))diagnostic={phase:d.phase,code:d.code};}catch{}
@@ -71,12 +66,10 @@ export class DieterRunner extends Container {
     {phase:'container_proxy',code:response.status===409?'busy':'http_unavailable'};
    log('container_http_'+response.status,{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
   }
-  const result=await response.json();
+  let result;try{result=await response.json();}catch{const cached=await this.cachedContainerResult(body.requestId);if(!cached)return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'container_proxy',code:'http_unavailable'}},{status:503});try{result=await cached.json();}catch{return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'parse_request',code:'invalid_json'}},{status:503});}}
   if(containerReady)result.receipt={...result.receipt,container_health_verified:true};
   log(result.error?'error':'ok',result.error?{error:result.error,diagnostic:result.diagnostic}:{});
-  // Persist native refresh before returning. Never expose the credential to callers.
-  if(result.auth)await this.ctx.storage.put('auth',await seal(result.auth,this.env.AUTH_KEY));
-  delete result.auth;
+  delete result.auth;delete result.subscriptionDoorKey;
   if(result.privateEvents){
    const artifact='dieter/cloud-round/'+body.requestId+'/events.jsonl';
    await this.env.AUDIT.put(artifact,result.privateEvents,{httpMetadata:{contentType:'application/x-ndjson'}});
@@ -101,7 +94,6 @@ export default {
  async fetch(request,env){
   if(!env.ADMIN_KEY || request.headers.get('Authorization')!==`Bearer ${env.ADMIN_KEY}`)return new Response('',{status:404});
   const runner=env.RUNNER.getByName('subscription-singleton');
-  if(request.method==='POST'&&new URL(request.url).pathname==='/auth'){try{return Response.json(await runner.seed(await request.json()));}catch{return Response.json({error:'auth_seed_rejected'},{status:409});}}
   if(request.method==='GET'&&new URL(request.url).pathname==='/runtime-check')return runner.runtimeCheck();
   if(request.method==='POST'&&new URL(request.url).pathname==='/smoke')return runner.infer(await request.json());
   return new Response('',{status:404});

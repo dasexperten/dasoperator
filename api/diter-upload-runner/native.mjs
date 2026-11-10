@@ -1,21 +1,14 @@
 import {mkdtemp,writeFile,readFile,rm,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {runDieter,runDieterProcess} from './dieter.mjs';
-export async function nativeInfer(body,{auth,spawnImpl}={}){
+export async function nativeInfer(body,{spawnImpl}={}){
  if(body.operation!=='dieter_round'||body.model!=='gpt-6.1-terra')throw Error('invalid_request');
- if(auth?.auth_mode!=='chatgpt'||!auth.tokens?.refresh_token)throw Error('subscription_auth_required');
+ if(!body.subscriptionDoorKey)throw Error('subscription_auth_required');
  const base=process.env.DIETER_STATE_DIR??tmpdir();await mkdir(base,{recursive:true,mode:0o700});
- const dir=await mkdtemp(join(base,'dieter-')),home=join(dir,'auth');await mkdir(home,{mode:0o700});let refreshed=auth;
- try{
-  await writeFile(join(home,'auth.json'),JSON.stringify(auth),{mode:0o600});
-  const result=await runDieter(body,{dir,home,...(spawnImpl?{spawnImpl}:{})});
-  refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));return {...result,auth:refreshed};
- }catch(error){
-  try{refreshed=JSON.parse(await readFile(join(home,'auth.json'),'utf8'));}catch{}
-  const safe=/^(?:invalid_\w+|exact_dieter_assignment_required|dieter_\w+|dieter_process_(?:stdin_)?failed:(?:git|gh|python3|ffmpeg|yt-dlp|codex))$/.test(error?.message??'')?error.message:'native_execution_failed';
-  const code=['ENOSPC','EACCES','ENOENT','EMFILE'].includes(error?.code)?error.code:error instanceof SyntaxError?'invalid_json':'unclassified';
-  return {error:safe,diagnostic:{phase:'native_initialization',code},auth:refreshed};
- }finally{await rm(dir,{recursive:true,force:true});}
+ const dir=await mkdtemp(join(base,'dieter-')),home=join(dir,'auth');await mkdir(home,{mode:0o700});
+ try{return await runDieter(body,{dir,home,...(spawnImpl?{spawnImpl}:{})});}
+ catch(error){const safe=/^(?:invalid_\w+|exact_dieter_assignment_required|dieter_\w+|dieter_process_(?:stdin_)?failed:(?:git|gh|python3|ffmpeg|yt-dlp|codex))$/.test(error?.message??'')?error.message:'native_execution_failed';const code=['ENOSPC','EACCES','ENOENT','EMFILE'].includes(error?.code)?error.code:error instanceof SyntaxError?'invalid_json':'unclassified';return {error:safe,diagnostic:{phase:'native_initialization',code}};}
+ finally{await rm(dir,{recursive:true,force:true});}
 }
 export async function runtimeCheck(){
  const env={PATH:process.env.PATH,SSL_CERT_FILE:process.env.SSL_CERT_FILE};

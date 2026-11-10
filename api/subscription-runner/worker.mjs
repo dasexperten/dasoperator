@@ -17,6 +17,24 @@ export class CodexRunner extends Container {
   const acted=body.operation==='dieter_round'&&body.execution?.mode!=='preflight';
   const intentKey='dieter-intent:'+body.requestId;
   if(acted&&await this.ctx.storage.get(intentKey))return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
+  let containerReady=false;
+  if(body.operation==='dieter_round'&&body.execution?.mode==='preflight'){
+   // The SDK's implicit placement wait is only 8s. Actual rollouts have
+   // returned "no container instance" while the replacement was provisioning.
+   // Wait for placement/ports and a real HTTP health response before any model
+   // call or video claim. This does not replay an inference or upload.
+   try{
+    await this.startAndWaitForPorts({ports:8080,cancellationOptions:{instanceGetTimeoutMS:120000,portReadyTimeoutMS:120000}});
+    const health=await this.containerFetch('http://container/health',{method:'GET'},8080);
+    if(!health.ok||await health.text()!=='ok')throw Error('health_not_ready');
+    containerReady=true;
+   }catch(error){
+    const message=String(error?.message??error),code=/no container instance/i.test(message)?'placement_unavailable':/not listening|port/i.test(message)?'port_not_ready':/health_not_ready/.test(message)?'health_not_ready':'startup_unavailable';
+    const diagnostic={phase:'container_startup',code};
+    console.log(JSON.stringify({diana_runner:true,op:body.operation,req:String(body.requestId).slice(0,24),outcome:'container_not_ready',diagnostic}));
+    return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
+   }
+  }
   const encrypted=await this.ctx.storage.get('auth');if(!encrypted)return Response.json({error:'subscription_auth_not_seeded'},{status:503});
   const auth=await unseal(encrypted,this.env.AUTH_KEY);
   if(acted)await this.ctx.storage.put(intentKey,{at:Date.now(),fingerprint});
@@ -28,6 +46,7 @@ export class CodexRunner extends Container {
    log('container_http_'+response.status,{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
   }
   const result=await response.json();
+  if(containerReady)result.receipt={...result.receipt,container_health_verified:true};
   log(result.error?'error':'ok',result.error?{error:result.error,diagnostic:result.diagnostic}:{});
   // Persist native refresh before returning. Never expose the credential to callers.
   if(result.auth)await this.ctx.storage.put('auth',await seal(result.auth,this.env.AUTH_KEY));

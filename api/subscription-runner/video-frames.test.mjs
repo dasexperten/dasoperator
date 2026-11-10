@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,rm,readFile} from 'node:fs/promises';
 import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {extractVideoFrames} from './video-frames.mjs';
+test('Docker build context includes the video extractor copied by the Dockerfile',async()=>{
+ const ignore=await readFile(new URL('./.dockerignore',import.meta.url),'utf8');
+ const dockerfile=await readFile(new URL('./Dockerfile',import.meta.url),'utf8');
+ assert.match(ignore,/^!video-frames\.mjs$/m);
+ assert.match(dockerfile,/^COPY .*video-frames\.mjs/m);
+});
 test('bounded local video is probed and sampled without shell or network access',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'video-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));const calls=[];
  const execute=async(cmd,args)=>{calls.push([cmd,args]);if(cmd==='ffprobe')return {stdout:'{"format":{"duration":"10"}}'};await writeFile(join(dir,'frame-01.jpg'),'synthetic jpeg');return {stdout:''};};

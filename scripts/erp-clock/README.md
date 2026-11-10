@@ -24,6 +24,8 @@ execution ownership. Existing WB cross-slot locking remains in force.
 Only workers with this ownership contract may use `/scheduled`. Local workers
 require the explicit local claim path; adding a name alone is insufficient.
 Removed by the Owner on 2026-11-08: `erp-promo-refill` and `erp-ugc-payout-summary`.
+`erp-site-order-retry` is consolidated into `erp-ru-track`; remove its entry
+from the installed VPS registry before deleting the retired Worker.
 Excluded: provider-disabled `erp-vn-einvoice` and the independently scheduled
 read-only monitor `erp-promozon`. They are not added to this transport.
 

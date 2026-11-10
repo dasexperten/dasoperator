@@ -85,9 +85,6 @@
   "erp-ru-track": [
     "45 */3 * * *"
   ],
-  "erp-site-order-retry": [
-    "7 */2 * * *"
-  ],
   "erp-site-orders": [
     "7 * * * *"
   ],

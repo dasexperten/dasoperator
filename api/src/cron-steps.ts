@@ -70,13 +70,6 @@ export const STEPS: Record<string, Step> = {
     if (!r || r.ok === false) throw new Error(String(r?.error ?? 'no result'));
     return JSON.stringify(r).slice(0, 600);
   },
-  'erp-site-order-retry': async (env) => {
-    // @ts-expect-error plain JS module
-    const { syncOzonOrdersOnSite } = await import('./lib/site-order-sync.mjs');
-    const r = await syncOzonOrdersOnSite(storefrontEnv(env));
-    if (!r || r.ok === false) throw new Error(String(r?.error ?? 'no result'));
-    return JSON.stringify(r).slice(0, 600);
-  },
   'erp-ozon-ads-poll': async (env) => {
     await cronPollPerfReports(env);
     return 'Ozon Performance reports polled';

@@ -74,4 +74,6 @@ test('required waiting and payout count reads cannot report unknown as zero and 
 test('removed timer jobs have no executable ERP step', () => {
   assert.equal(STEPS['erp-promo-refill'], undefined);
   assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
+  assert.equal(STEPS['erp-site-order-retry'], undefined);
+  assert.equal(typeof STEPS['erp-ru-track'], 'function');
 });

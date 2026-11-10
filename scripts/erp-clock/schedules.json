@@ -24,7 +24,6 @@
   "erp-review-canon": { "crons": ["45 */3 * * *"], "execution": "local" },
   "erp-ru-orders": { "crons": ["2 * * * *"] },
   "erp-ru-track": { "crons": ["45 */3 * * *"] },
-  "erp-site-order-retry": { "crons": ["7 */2 * * *"] },
   "erp-site-orders": { "crons": ["7 * * * *"] },
   "erp-site-sales-rebuild": { "crons": ["0 4 * * 4"], "gate": "first_wednesday" },
   "erp-site-stock": { "crons": ["10 */3 * * *"] },

@@ -20,12 +20,12 @@ async function guard(t, at, rows = []) {
 }
 const find = (rows, name = 'erp-site-sales-rebuild') => rows.find(r => r.worker === name);
 test('retired jobs stay out of active timer lists without erasing their stored history', async () => {
-  const rows = [{ worker: 'erp-promo-refill' }, { worker: 'erp-ugc-payout-summary' }, { worker: 'erp-promozon' }];
+  const rows = [{ worker: 'erp-promo-refill' }, { worker: 'erp-ugc-payout-summary' }, { worker: 'erp-site-order-retry' }, { worker: 'erp-promozon' }];
   const DB = { prepare() { return { bind() { return this; }, async all() { return { results: rows }; } }; } };
   const response = await route.request('/', {}, { DB });
   const result = (await response.json()).result;
   for (const list of [result.workers, result.last_24h, result.recent]) assert.deepEqual(list, [{ worker: 'erp-promozon' }]);
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 4);
 });
 test('promotion report with no prior saved snapshot is unknown rather than fabricated zeros', async () => {
   const DB = { prepare() { return { bind() { return this; }, async first() { return null; } }; } };

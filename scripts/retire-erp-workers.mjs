@@ -5,7 +5,7 @@ const names = JSON.parse(readFileSync(new URL('./erp-retired.json', import.meta.
 const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/`;
 const headers = { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` };
 for (const name of names) {
-  if (!['erp-promo-refill', 'erp-ugc-payout-summary'].includes(name)) throw Error('Unapproved retirement');
+  if (!['erp-promo-refill', 'erp-ugc-payout-summary', 'erp-site-order-retry'].includes(name)) throw Error('Unapproved retirement');
   if (existsSync(new URL(`../workers/${name}/wrangler.toml`, import.meta.url))) throw Error(`${name}: source still deployable`);
   const url = base + name;
   const before = await fetch(url, { headers });

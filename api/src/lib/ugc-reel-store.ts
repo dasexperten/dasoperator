@@ -49,7 +49,7 @@ export async function reelAssignment(env: Env, consumerId: string, origin: strin
   const row = await env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.status='working' AND j.consumer_id=? LIMIT 1`).bind(consumerId).first<{content_id:string;claim_id:string;content_url:string;handle:string;started_at:string;acknowledged_at:string|null;required_destinations:string;publications:string}>();
   if (!row) return null;
   return { runner:'diter-ugc-round', content_id:row.content_id,claim_id:row.claim_id,status:'working',source_url:row.content_url,author:row.handle,
-    started_at:row.started_at,acknowledged_at:row.acknowledged_at,required_destinations:reelScope(row).active,destination_scope:reelScope(row),publications:JSON.parse(row.publications),
+    started_at:row.started_at,acknowledged_at:row.acknowledged_at,required_destinations:reelScope(row).active,optional_destinations:reelScope(row).optional,destination_scope:reelScope(row),publications:JSON.parse(row.publications),
     task:reelTaskText(row,origin) };
 }
 

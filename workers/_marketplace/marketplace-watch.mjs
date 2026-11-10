@@ -93,7 +93,8 @@ export async function wbNews(env, { daysBack = 1, limit = 16 } = {}) {
   if (!r.ok) {
     return { ok: false, http: r.status, error: `WB news HTTP ${r.status}`, items: [] };
   }
-  const raw = Array.isArray(r.body?.data) ? r.body.data : [];
+  if (!Array.isArray(r.body?.data)) return { ok: false, error: "WB news malformed response", items: [] };
+  const raw = r.body.data;
   const since = Date.parse(from + "T00:00:00+03:00");
   const items = raw
     .filter((x) => {

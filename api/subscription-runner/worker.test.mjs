@@ -27,6 +27,14 @@ test('a lost tool-round outcome cannot execute a second upload round',async()=>{
  assert.equal((await runner.infer(body)).status,409);assert.equal(calls,1);
  assert.equal((await runner.infer({...body,model:'gpt-6-luna'})).status,400);
 });
+test('container failure exposes only closed diagnostic fields and never retries work',async()=>{
+ const {ctx}=setup();let calls=0;
+ const env={AUTH_KEY:Buffer.alloc(32,6).toString('base64'),containerFetch:async()=>{calls++;return Response.json({diagnostic:{phase:'native_initialization',code:'ENOSPC',message:'credential-fixture-secret'}},{status:500});}};
+ const runner=new CodexRunner(ctx,env);await runner.seed({auth_mode:'chatgpt',tokens:{refresh_token:'fixture'}});
+ const body={requestId:'dieter-failure-0',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}};
+ const response=await runner.infer(body),result=await response.json();assert.equal(response.status,503);assert.deepEqual(result.diagnostic,{phase:'native_initialization',code:'ENOSPC'});assert.ok(!JSON.stringify(result).includes('credential-fixture-secret'));
+ assert.equal((await runner.infer(body)).status,409);assert.equal(calls,1);
+});
 test('tool traces are archived privately and removed from public cached results',async()=>{
  const {ctx,map}=setup(),artifacts=[];
  const env={AUTH_KEY:Buffer.alloc(32,8).toString('base64'),AUDIT:{async put(k,v){artifacts.push({k,v});}},containerFetch:async()=>Response.json({text:'done',privateEvents:'private upload receipts',auth:{auth_mode:'chatgpt',tokens:{refresh_token:'refreshed'}}})};

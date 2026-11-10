@@ -14,9 +14,14 @@ async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
  if(!response.ok)throw Error('dieter_native_runtime:'+JSON.stringify({error:result.error??response.status,contract:result.contract,request_id_present:result.request_id_present,operation_supported:result.operation_supported,model_supported:result.model_supported}));
  return result;
 }
-export async function preflightDieter(env:Env){
- const id='dieter-preflight-'+crypto.randomUUID();
- const result=await infer(env,id,{mode:'preflight'});
+export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))){
+ let result:any;
+ // This read-only tool/source probe may recover a transient container HTTP
+ // failure. Never apply this retry to a work/reconciliation call.
+ for(let attempt=0;attempt<3;attempt++){
+  try{result=await infer(env,'dieter-preflight-'+crypto.randomUUID(),{mode:'preflight'});break;}
+  catch(error){if(attempt===2||!String((error as Error).message).includes('"error":"native_runner_unavailable"'))throw error;await pause(1000);}
+ }
  const readiness=JSON.parse(result.text);if(readiness.ready!==true)throw Error('dieter_runtime_not_ready');
  const receipt={...readiness,receipt:result.receipt,checked_at:new Date().toISOString()};
  await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('dieter_cloud_readiness',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify(receipt),Date.now()).run();

@@ -23,7 +23,10 @@ export class CodexRunner extends Container {
   // Owner 2026-11-06: every call leaves one log line (operation, model, wait, run time, outcome) so an outage has a cause on record.
   const t0=Date.now();const log=(outcome,extra={})=>console.log(JSON.stringify({diana_runner:true,op:body.operation,model:body.model,req:String(body.requestId).slice(0,24),run_ms:Date.now()-t0,outcome,...extra}));
   let response;try{response=await this.containerFetch(new Request('http://container/infer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,auth})}),8080);}catch(e){log('container_fetch_threw',{error:String(e?.message??e).slice(0,200)});throw e;}
-  if(!response.ok){log('container_http_'+response.status);return Response.json({error:'native_runner_unavailable'},{status:503});}
+  if(!response.ok){
+   let diagnostic;try{const d=(await response.json()).diagnostic;if(d&&['read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code))diagnostic={phase:d.phase,code:d.code};}catch{}
+   log('container_http_'+response.status,{diagnostic});return Response.json({error:'native_runner_unavailable',diagnostic},{status:503});
+  }
   const result=await response.json();
   log(result.error?'error':'ok',result.error?{error:result.error,diagnostic:result.diagnostic}:{});
   // Persist native refresh before returning. Never expose the credential to callers.

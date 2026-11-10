@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {Dat
 import {createRequire} from 'node:module';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 const {build}=createRequire(import.meta.url)('esbuild'),dir=mkdtempSync(join(tmpdir(),'dieter-cloud-')),file=join(dir,'cloud.mjs');
 await build({entryPoints:[fileURLToPath(new URL('../dieter-cloud.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:file,plugins:[{name:'runtime',setup(b){b.onResolve({filter:/^cloudflare:workers$/},()=>({path:'runtime',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export class WorkflowEntrypoint{}'}));}}]});
-const {DieterWake}=await import(pathToFileURL(file));rmSync(dir,{recursive:true});
+const {DieterWake,preflightDieter}=await import(pathToFileURL(file));rmSync(dir,{recursive:true});
 function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);
@@ -23,6 +23,20 @@ test('overlapping cloud ticks accept only one real job and preserve the next red
 test('an unavailable cloud runtime never makes a red job yellow',async t=>{
  const f=fixture(t);f.env.DIETER_SUBSCRIPTION.fetch=async()=>Response.json({error:'unavailable'},{status:503});await assert.rejects(f.wake.fetch(f.request()),/unavailable/);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM ugc_reel_jobs WHERE status='working'").get().n,0);assert.equal(f.created.length,0);
+});
+test('read-only preflight recovers one container HTTP failure without claiming a job',async t=>{
+ const f=fixture(t);let calls=0;const ids=[];
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{const body=JSON.parse(init.body);ids.push(body.requestId);assert.equal(body.execution.mode,'preflight');return ++calls===1?Response.json({error:'native_runner_unavailable'},{status:503}):Response.json({text:JSON.stringify({ready:true,activation_ready:true})});};
+ assert.equal((await preflightDieter(f.env,async()=>{})).activation_ready,true);assert.equal(calls,2);assert.equal(new Set(ids).size,2);
+ assert.equal(f.created.length,0);assert.equal(f.db.prepare("SELECT count(*) n FROM ugc_reel_jobs WHERE status='working'").get().n,0);
+});
+test('preflight container recovery stops after three calls; auth failures are not retried',async t=>{
+ const f=fixture(t);let calls=0;
+ f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;return Response.json({error:'native_runner_unavailable'},{status:503});};
+ await assert.rejects(preflightDieter(f.env,async()=>{}),/native_runner_unavailable/);assert.equal(calls,3);
+ calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;return Response.json({error:'subscription_auth_not_seeded'},{status:503});};
+ await assert.rejects(preflightDieter(f.env,async()=>{}),/subscription_auth_not_seeded/);assert.equal(calls,1);
+ assert.equal(f.created.length,0);
 });
 test('lost create acknowledgement recovers the same claim and instance without another attempt',async t=>{
  const f=fixture(t);await f.wake.fetch(f.request());const original=f.created[0];f.missing();await f.wake.fetch(f.request());assert.equal(f.created.length,2);assert.deepEqual(f.created[1],original);

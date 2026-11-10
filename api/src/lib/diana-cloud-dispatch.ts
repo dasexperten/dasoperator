@@ -116,7 +116,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
         if(data?.status==='media_wait'&&Number.isFinite(Number(data.retry_at))){mediaRetryAt=Number(data.retry_at);if(now<mediaRetryAt){mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);continue;}mediaResume=true;recoveryResume=true;}
         else if(data?.status==='create_missing'&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){recoveryRetry=true;recoveryId=data.workflow_id;}
         else if(data?.status==='deferred'&&Number.isFinite(Number(data.at))&&dianaWorkWindow(Number(data.at)).date<dianaWorkWindow(now).date)recoveryResume=true;
-        else if(data?.status==='needs_review'&&data.reason==='text_recovery_requires_separate_review'&&recoveryKind==='text'&&previousAttempt===1&&!data.deliveryKey){
+        else if(data?.status==='needs_review'&&(data.reason==='text_recovery_requires_separate_review'||/продав(?:ец|ц)/iu.test(String(data.reason??''))&&/(?:сверк|подтвержд|реестр)/iu.test(String(data.reason??'')))&&recoveryKind==='text'&&previousAttempt===1&&!data.deliveryKey){
           // This specific legacy guard returned before creating an outbox. The
           // original must still be latest, and any delivery or done marker stops replay.
           const delivery=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(igDeliveryKey(event.cid,new Date(event.at).toISOString())).first();

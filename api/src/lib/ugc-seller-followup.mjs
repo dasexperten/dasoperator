@@ -7,11 +7,11 @@ export function sellerAnswerForBasket(messages,basket,policy,handle){
  let question=null,answer=null;
  for(const m of ordered){
   const at=Date.parse(String(m.created_at??''));if(!Number.isFinite(at)||at<=when)continue;
-  if(m.direction==='out'&&String(m.text??'').trim()===SELLER_QUESTION){question=m;answer=null;continue;}
+  if(m.direction==='out'&&(String(m.text??'').trim()===SELLER_QUESTION||(/продав(?:ец|ц)/iu.test(String(m.text??''))&&/(?:подскаж|назван|называ|как\s+зов)/iu.test(String(m.text??''))&&/\?/u.test(String(m.text??''))))){question=m;answer=null;continue;}
   if(question&&m.direction==='in'){if(!answer)answer=m;else if(/продавец|магазин/iu.test(String(m.text??'')))return null;}
  }
  if(!question||!answer||!answer.id||!question.id||String(answer.from_username??'').toLocaleLowerCase()!==String(handle??'').toLocaleLowerCase())return null;
- const text=String(answer.text??'').trim().replace(/^(?:продавец|магазин)\s*[:—-]\s*/iu,'');const normalized=normalizeSeller(text);
+ const text=String(answer.text??'').trim().split(/\r?\n/u)[0].trim().replace(/^(?:продавец|магазин)\s*[:—-]\s*/iu,'');const normalized=normalizeSeller(text);
  if(!normalized||/[?]/u.test(text)||/^(?:не\s+знаю|не\s+вижу|не\s+помню|не\s+нашла|не\s+нашёл)$/iu.test(text))return null;
  const matching=policy.sellers.filter(s=>normalizeSeller(s?.legal_name)===normalized);
  return {question_id:question.id,answer_id:answer.id,name:text,normalized_name:normalized,registry_match:matching.length>0};

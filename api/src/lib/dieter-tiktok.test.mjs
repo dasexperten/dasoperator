@@ -20,6 +20,7 @@ function fixture(t,options={}){
    bind(...v){values=v;return this;},
    async first(){return db.prepare(sql).get(...values)??null;},
    async run(){
+    if(options.stopBeforeRequestCAS&&sql.startsWith('UPDATE crm_sync_state')&&JSON.parse(values[0]).state==='publish_requested')db.prepare('INSERT OR IGNORE INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{}');
     if(options.failRequestCAS&&sql.startsWith('UPDATE crm_sync_state')&&JSON.parse(values[0]).state==='publish_requested')throw Error('synthetic crash before provider intent');
     if(options.proofConflict&&sql.startsWith('UPDATE ugc_reel_jobs SET publications'))return {meta:{changes:0}};
     return {meta:{changes:Number(db.prepare(sql).run(...values).changes)}};
@@ -109,4 +110,8 @@ test('canonical source hosting uses exact Drive bytes and org/assets R2 mapping,
  };
  assert.equal((await ensureDieterTikTokSourceAsset(env,args,fetcher)).sourceHosted,true);assert.equal(puts,1);
  assert.equal((await ensureDieterTikTokSourceAsset(env,args,fetcher)).sourceHosted,false);assert.equal(puts,1);
+});
+
+test('global stop appearing at the final publish-request CAS prevents the provider POST',async t=>{
+ const f=fixture(t,{stopBeforeRequestCAS:true});const result=await f.run();assert.equal(f.stats().posts,0);assert.equal(f.ledger().state,'reserved');assert.equal(result.status,'pending');
 });

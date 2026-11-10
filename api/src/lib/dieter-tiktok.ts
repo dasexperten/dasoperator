@@ -119,7 +119,7 @@ export async function runDieterTikTokApi(env:Env,args:TikTokSource,mode:Mode,opt
   const read=async()=>await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(ledgerKey).first();
   const cas=async(before:string,value:any,requireWorkingClaim=false)=>{
    const next=JSON.stringify(value),params:any[]=[next,now(),ledgerKey,before];
-   const guard=requireWorkingClaim?" AND EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='working' AND claim_id=?)":'';
+   const guard=requireWorkingClaim?" AND EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='working' AND claim_id=?) AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked'))":'';
    if(requireWorkingClaim)params.push(args.contentId,args.claimId);
    const r=await env.DB.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=? AND value=?'+guard).bind(...params).run();
    return r.meta.changes?next:null;

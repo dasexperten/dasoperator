@@ -241,3 +241,10 @@ test('TikTok-only API scheduling and activation respect the global stop and immu
  await assert.rejects(scheduleDieterTikTokTransport(f.env,{...f.args,sourceDurationSeconds:15},'repair-one'),/immutable_transport_conflict/);
  assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
 });
+
+test('TikTok transport rechecks stop after cached assignment immediately before publishing',async t=>{
+ const f=transportFixture(t),scheduled=await scheduleDieterTikTokTransport(f.env,f.args,'repair-one');let sleeps=0;
+ const step={async do(name,options,callback){if(name==='tiktok-publish-once')f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{}');return (typeof options==='function'?options:callback)();},async sleep(){sleeps++;}};
+ const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim',transport:'tiktok',transport_id:scheduled.transport_id},instanceId:scheduled.workflow_id},step);
+ assert.equal(result.tiktok_status,'blocked');assert.equal(result.code,'dieter_tiktok_runtime_incident_stop');assert.equal(sleeps,0);assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key LIKE 'ugc-tiktok-business:%'").get().n,0);
+});

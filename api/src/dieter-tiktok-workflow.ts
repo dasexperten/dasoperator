@@ -62,7 +62,7 @@ export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEven
   return d;
  });
  // This is one first provider action, never another native/LLM work call.
- let result=await step.do('tiktok-publish-once',{retries:{limit:0},timeout:'3 minutes'},()=>runDieterTikTokApi(env,definition.args,'publish'));
+ let result=await step.do('tiktok-publish-once',{retries:{limit:0},timeout:'3 minutes'},async()=>await stopped(env)?{status:'blocked' as const,code:'dieter_tiktok_runtime_incident_stop'}:runDieterTikTokApi(env,definition.args,'publish'));
  for(let index=0;result.status==='pending'&&index<2;index++){
   await step.sleep('tiktok-processing-wait-'+index,index===0?'30 seconds':'2 minutes');
   result=await step.do('tiktok-readback-'+index,{retries:{limit:0},timeout:'1 minute'},()=>runDieterTikTokApi(env,definition.args,'reconcile'));

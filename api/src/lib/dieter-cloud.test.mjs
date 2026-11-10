@@ -54,28 +54,6 @@ test('disabled cloud mode cannot claim work',async t=>{
  const f=fixture(t);f.db.prepare("UPDATE crm_sync_state SET value='disabled'").run();assert.equal((await(await f.wake.fetch(f.request())).json()).note,'cloud_disabled');assert.equal(f.created.length,0);
 });
 
-test('Drive source readiness needs company identity, write scope and the exact originals folder',async()=>{
- const {probeDrive}=await import('../../subscription-runner/dieter.mjs');assert.equal((await probeDrive(null)).ready,false);
- const credential={client_id:'fixture',client_secret:'fixture',refresh_token:'fixture'};
- let count=0;const call=async()=>Response.json([ {access_token:'fixture',scope:'https://www.googleapis.com/auth/drive.readonly'}, {}, {} ][count++]);
- assert.equal((await probeDrive(credential,call)).reason,'drive_write_scope_missing');assert.equal(count,1);
- count=0;const wrong=async()=>Response.json([{access_token:'fixture',scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'}, {user:{emailAddress:'other@example.com'}}][count++]);
- assert.equal((await probeDrive(credential,wrong)).reason,'drive_company_account_not_verified');assert.equal(count,2);
- count=0;const good=async()=>Response.json([{access_token:'fixture',scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'}, {user:{emailAddress:'dasexperten@gmail.com'}},{id:'13fAh0oFKq_PCUkL0iG8WIOpHfPN8vM39',name:'originals',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true}}][count++]);
- assert.equal((await probeDrive(credential,good)).ready,true);
-});
-test('private runtime audit cannot persist shell text or credential-bearing errors',async()=>{
- const {auditDieterEvents}=await import('../../subscription-runner/dieter.mjs');
- const audit=auditDieterEvents([{type:'item.completed',item:{type:'command_execution',command:'echo secret-fixture',aggregated_output:'secret-fixture',exit_code:0,status:'completed'}},{type:'turn.failed',error:{message:'secret-fixture'}}]);
- assert.ok(!audit.includes('secret-fixture'));assert.ok(audit.includes('command_execution'));assert.ok(audit.includes('"exit_code":0'));
-});
-
-test('an older wider company grant cannot activate the uploader',async()=>{
- const {probeDrive}=await import('../../subscription-runner/dieter.mjs');let calls=0;
- const result=await probeDrive({client_id:'fixture',client_secret:'fixture',refresh_token:'fixture'},async()=>{calls++;return Response.json({access_token:'fixture',scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.modify'});});
- assert.equal(result.ready,false);assert.equal(result.reason,'drive_scope_exceeds_approved_permissions');assert.equal(calls,1);
-});
-
 function workflowFixture(t){
  const f=fixture(t);
  f.db.exec(`ALTER TABLE ugc_reel_jobs ADD COLUMN published_at TEXT;

@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { Env } from './types';
+import { releaseDianaCloud } from './lib/diana-cloud-lock';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
   stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
 
@@ -37,6 +38,11 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       await step.do('record-pending-failure',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},()=>stateWrite(this.env,cloudEventKey(input),
         {status:'failed',event_id:input.event_id,reason:'cloud_workflow_step_failed',workflow_id:event.instanceId,at:Date.now()}));
       throw error;
+    } finally {
+      // Conditional release cannot remove another workflow's lock. Preview
+      // instances do not take the production lock.
+      if (!input.dryRun) await step.do('release-diana-cloud-lock', {retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},
+        ()=>releaseDianaCloud(this.env,{kind:'direct',id:event.instanceId}));
     }
   }
 }

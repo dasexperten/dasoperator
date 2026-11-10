@@ -24,6 +24,9 @@ const cloud=await import(pathToFileURL(outfile));
 const dispatchFile=join(dir,'dispatch.mjs');
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud-dispatch.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:dispatchFile});
 const {dispatchDianaCloud}=await import(pathToFileURL(dispatchFile));
+const lockFile=join(dir,'lock.mjs');
+await build({entryPoints:[fileURLToPath(new URL('./diana-cloud-lock.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile:lockFile});
+const {reserveDianaCloud,releaseDianaCloud,readDianaCloudLock}=await import(pathToFileURL(lockFile));
 rmSync(dir,{recursive:true});
 function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
@@ -120,6 +123,18 @@ test('outside Moscow Direct hours the event remains queued and no workflow start
  }
  assert.equal(creates.length,0);
  assert.ok(f.state('diana_round_alarm:chat'));
+});
+test('direct and round share an atomic owner lock; another owner cannot release it',async t=>{
+ const f=fixture(t), round={kind:'round',id:'round-2026-11-10-night'}, direct={kind:'direct',id:'direct-other'};
+ assert.equal(await reserveDianaCloud(f.env,round),true);
+ assert.equal(await reserveDianaCloud(f.env,direct),false);
+ assert.deepEqual(await readDianaCloudLock(f.env),round);
+ assert.equal(await releaseDianaCloud(f.env,direct),false);
+ f.env.DIANA_CLOUD={async create(){assert.fail('round is active');}};
+ assert.equal((await dispatchDianaCloud(f.env)).reason,'diana_cloud_locked');
+ assert.deepEqual(await readDianaCloudLock(f.env),round);
+ assert.equal(await releaseDianaCloud(f.env,round),true);
+ assert.equal(await reserveDianaCloud(f.env,direct),true);
 });
 test('confirmed paid action can notify after our last reply, with a separate outbox and verified payout receipt',async t=>{
  const f=fixture(t);

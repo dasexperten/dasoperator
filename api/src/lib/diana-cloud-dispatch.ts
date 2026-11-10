@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { pendingDianaMessages } from './diana-alarm';
 import { dianaWorkWindow } from './diana-work-window.mjs';
+import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud } from './diana-cloud-lock';
 
 // One durable workflow at a time, across metadata scans and connected machines.
 // The Durable Object serializes dispatch; instance identity makes creation replay-safe.
@@ -16,6 +17,9 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       const instance=await env.DIANA_CLOUD.get(active.value);
       const status=await instance.status();
       if(!['complete','errored','terminated'].includes(status.status))return {dispatched:false,reason:'diana_cloud_working',workflow_id:active.value};
+      // Only a positively terminal workflow permits recovery after an abrupt
+      // runtime failure. Never evict a live or unidentifiable owner by age.
+      await releaseDianaCloud(env,{kind:'direct',id:active.value});
     } catch(error) {
       // Only a positively identified missing instance permits replay of create.
       if(!/not found|does not exist|not exist/i.test(String((error as Error)?.message??error)))throw error;
@@ -29,6 +33,10 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     if(known)continue; // incomplete/failed events stay visible; no infinite automatic restart
     const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
     const id='direct-v1-'+hash;
+    if(!await reserveDianaCloud(env,{kind:'direct',id})){
+      const owner=await readDianaCloudLock(env);
+      return {dispatched:false,reason:'diana_cloud_locked',owner};
+    }
     // Write the exact instance ID before creation. A lost create acknowledgement
     // is recovered by get(id); never mint a second instance for the same event.
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_cloud_active',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")

@@ -4,7 +4,9 @@ const {build}=createRequire(import.meta.url)('esbuild'),dir=mkdtempSync(join(tmp
 await build({entryPoints:[fileURLToPath(new URL('../dieter-cloud.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:file,plugins:[{name:'runtime',setup(b){b.onResolve({filter:/^cloudflare:workers$/},()=>({path:'runtime',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export class WorkflowEntrypoint{}'}));}}]});
 const {DieterWake,preflightDieter,DieterCloudWorkflow}=await import(pathToFileURL(file));
 const transportFile=join(dir,'transport.mjs');await build({entryPoints:[fileURLToPath(new URL('../dieter-tiktok-workflow.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:transportFile,logLevel:'silent'});
-const {scheduleDieterTikTokTransport}=await import(pathToFileURL(transportFile));rmSync(dir,{recursive:true});
+const {scheduleDieterTikTokTransport}=await import(pathToFileURL(transportFile));
+const timingFile=join(dir,'timing.mjs');await build({entryPoints:[fileURLToPath(new URL('./dieter-flow-timing.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:timingFile,logLevel:'silent'});
+const {dieterFlowTiming,saveDieterFlowTiming}=await import(pathToFileURL(timingFile));rmSync(dir,{recursive:true});
 function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);
@@ -280,4 +282,18 @@ test('accepted API provider states wait in Workflows instead of launching anothe
  const step={...f.step,async sleep(){f.db.prepare("UPDATE ugc_reel_jobs SET status='published',publications=? WHERE content_id='one'").run(JSON.stringify([...f.proofs,proof]));}};
  const result=await f.workflow.run({payload:{content_id:'one',claim_id:'exact-claim'},instanceId:'normal-cloud-flow'},step);
  assert.equal(result.publication_verified,true,JSON.stringify({result,modes}));assert.deepEqual(modes,['work']);
+});
+
+test('full-flow timing ends only after all saved publications and separates repair runs',async t=>{
+ const f=workflowFixture(t);
+ f.db.exec("UPDATE ugc_reel_jobs SET status='published',required_destinations='[\"youtube\"]',started_at='2026-11-10T04:00:00Z',published_at='2026-11-10T04:15:00Z',publications='[{\"platform\":\"youtube\",\"url\":\"https://www.youtube.com/watch?v=actualId123\",\"account\":\"company\",\"verified\":true,\"verified_at\":\"2026-11-10T04:14:59Z\",\"evidence\":\"public video and source checked\"}]' WHERE content_id='one'");
+ const row=f.db.prepare("SELECT j.*,c.content_url FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id WHERE j.content_id='one'").get();
+ assert.equal(dieterFlowTiming({...row,status:'working'}),null);
+ assert.equal(dieterFlowTiming({...row,required_destinations:'["youtube","tiktok"]'}),null);
+ const normal=dieterFlowTiming(row);assert.equal(normal.elapsed_ms,900000);assert.equal(normal.clean_run,null);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_work_ordinal:one:3',JSON.stringify({at:'2026-11-10T04:05:00Z',continuation_id:'repair'}));
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_continuation:repair',JSON.stringify({claim_id:'exact-claim'}));
+ const timing=await saveDieterFlowTiming(f.env,'one','exact-claim');assert.equal(timing.elapsed_ms,600000);assert.equal(timing.clean_run,false);assert.equal(timing.benchmark_class,'repair_run');
+ f.db.exec("UPDATE ugc_reel_jobs SET published_at='2026-11-10T04:16:00Z'");
+ assert.deepEqual(await saveDieterFlowTiming(f.env,'one','exact-claim'),timing);
 });

@@ -4,6 +4,7 @@ import type {TikTokSource} from './lib/dieter-tiktok';
 import {runDieterTikTokApi} from './lib/dieter-tiktok';
 import {reelPublicationProof,reelScope} from './lib/ugc-reel-jobs.mjs';
 import {reconcileDieterRutubeStatus} from './lib/dieter-rutube-status';
+import {saveDieterFlowTiming} from './lib/dieter-flow-timing';
 
 export type TikTokTransportEvent={content_id:string;claim_id:string;transport:'tiktok';transport_id:string};
 const definitionKey=(id:string)=>'dieter_tiktok_transport:'+id;
@@ -58,12 +59,13 @@ export async function finalizeDieterApiPublication(env:Env,contentId:string,clai
  const proofs=row?reelPublicationProof(JSON.parse(row.publications??'[]'),row.content_url):null;
  const missing=row?reelScope(row).active.filter((p:string)=>!proofs?.some(x=>x.platform===p)):[];
  if(!row||missing.length||!proofs||proofs.some(p=>Date.parse(p.verified_at)<Date.parse(row.started_at)))return {publication_verified:false,missing};
- if(row.status==='published')return {publication_verified:true,missing:[],published_at:row.published_at};
+ if(row.status==='published'){await saveDieterFlowTiming(env,contentId,claimId);return {publication_verified:true,missing:[],published_at:row.published_at};}
  if(row.status!=='working'||row.claim_id!==claimId)throw Error('dieter_tiktok_final_claim_changed');
  const now=new Date().toISOString();
  const result=await env.DB.prepare("UPDATE ugc_reel_jobs SET status='published',published_at=COALESCE(published_at,?),last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=?")
   .bind(now,now,contentId,claimId,row.publications).run();
  if(!result.meta.changes)throw Error('dieter_tiktok_final_proof_conflict');
+ await saveDieterFlowTiming(env,contentId,claimId);
  return {publication_verified:true,missing:[],published_at:now};
 }
 export async function runDieterTikTokTransport(env:Env,input:TikTokTransportEvent,workflowId:string,step:WorkflowStep){

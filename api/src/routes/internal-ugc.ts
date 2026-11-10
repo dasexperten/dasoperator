@@ -9,6 +9,7 @@ import { answerHardQuestion } from '../lib/ugc-hard-question';
 import instagramOperationRoutes from './internal-ugc-instagram';
 import {scheduleDieterTikTokTransport,awaitsDieterApiCompletion} from '../dieter-tiktok-workflow';
 import {runDieterTikTokApi} from '../lib/dieter-tiktok';
+import {saveDieterFlowTiming} from '../lib/dieter-flow-timing';
 
 const route = new Hono<{ Bindings: Env }>();
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
@@ -196,7 +197,14 @@ route.post('/reel-jobs/:id/complete', async (c) => {
   const now = new Date().toISOString();
   const result = await c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',publications=?,published_at=?,last_error=NULL,updated_at=? WHERE content_id=? AND status='working' AND claim_id=? AND publications=? AND (consumer_id IS NULL OR acknowledged_at IS NOT NULL)`).bind(JSON.stringify(publications), now, now, id, body.claim_id,content?.publications ?? '[]').run();
   if (!result.meta.changes) return c.json({ ok: false, error: 'claim_mismatch_or_not_working' }, 409);
+  await saveDieterFlowTiming(c.env,id,body.claim_id);
   return c.json({ ok: true, content_id: id, status: 'published', destination_scope:reelScope(content ?? {}), publications });
+});
+route.get('/reel-jobs/:id/timing',async(c)=>{
+ const job=await c.env.DB.prepare('SELECT claim_id FROM ugc_reel_jobs WHERE content_id=?').bind(c.req.param('id')).first<{claim_id:string}>();
+ if(!job?.claim_id)return c.json({ok:false,error:'flow_timing_not_available'},404);
+ const timing=await saveDieterFlowTiming(c.env,c.req.param('id'),job.claim_id);
+ return timing?c.json({ok:true,timing}):c.json({ok:false,error:'flow_not_complete'},409);
 });
 // UGC Selection: later verified placements append without reopening the job or
 // replacing its first publication timestamp. Compare-and-swap prevents lost updates.

@@ -345,6 +345,11 @@ name = "DIANA_WAKE"
 class_name = "DianaWake"
 
 [[workflows]]
+binding = "DIANA_DIRECT"
+name = "diana-direct"
+class_name = "DianaDirectWorkflow"
+
+[[workflows]]
 binding = "DIANA_ROUND"
 name = "diana-cloud-round"
 class_name = "DianaCloudRoundWorkflow"

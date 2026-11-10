@@ -12,9 +12,16 @@ export async function deliverDirectReply({db,conversationId,messageId,recipientI
     if(!r.ok)throw Error(`direct_meta_read_${r.status}`);return r.json();
   }
   const page=await get(`${PAGE}?fields=access_token`);if(!page.access_token)throw Error('direct_page_token_missing');
-  const latest=await get(`${encodeURIComponent(conversationId)}/messages?fields=id,from&limit=1`,page.access_token);
+  const latest=await get(`${encodeURIComponent(conversationId)}/messages?fields=id,from,created_time&limit=1`,page.access_token);
   const original=latest?.data?.[0];
   if(String(original?.id??'')!==String(messageId)||String(original?.from?.id??'')!==String(recipientId)||[PAGE,BRAND].includes(String(original?.from?.id??'')))return {status:'superseded'};
+  if(!Number.isFinite(Date.parse(String(original.created_time??''))))throw Error('direct_original_time_missing');
+  // Historical delivery plans can contain a send in flight or already sent.
+  // Check their metadata without loading or copying their message content.
+  const legacy=await db.prepare(`SELECT 1 AS present FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%' AND json_valid(value)
+    AND json_extract(value,'$.conversationId')=?1 AND julianday(json_extract(value,'$.incomingAt'))=julianday(?2) LIMIT 1`)
+    .bind(conversationId,original.created_time).first();
+  if(legacy)return {status:'legacy_delivery_review'};
   const key=keyFor(conversationId,messageId);
   const claim=await db.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING`)
     .bind(key,JSON.stringify({status:'claimed',conversation_id:conversationId,incoming_id:messageId,at:now}),now).run();

@@ -1,6 +1,7 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
 import { dispatchDianaCloud } from './lib/diana-cloud-dispatch';
+import { dispatchDianaDirect } from './lib/diana-direct-dispatch';
 import {scheduleDianaRound} from './lib/diana-cloud-round-schedule';
 
 // Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 50 identifiers
@@ -73,7 +74,11 @@ export class DianaWake {
     return{active:!!row&&Date.now()-Number(row.updated_at)<180_000,updated_at:row?.updated_at??null};
   }
   private async dispatch(priorityEventId?:string,justReturned:string[]=[]){
-    const mode=await this.env.DB.prepare("SELECT (SELECT value FROM crm_sync_state WHERE key='diana_execution_mode') value,(SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode') cloud,(SELECT value FROM crm_sync_state WHERE key='diana_machine_dispatch') machine").first<{value:string;cloud:string;machine:string}>();
+    const mode=await this.env.DB.prepare("SELECT (SELECT value FROM crm_sync_state WHERE key='diana_execution_mode') value,(SELECT value FROM crm_sync_state WHERE key='diana_cloud_mode') cloud,(SELECT value FROM crm_sync_state WHERE key='diana_machine_dispatch') machine,(SELECT value FROM crm_sync_state WHERE key='diana_direct_mode') direct").first<{value:string;cloud:string;machine:string;direct:string}>();
+    if(mode?.direct==='enabled'){
+      const result=this.cloudQueue.then(()=>dispatchDianaDirect(this.env,priorityEventId));
+      this.cloudQueue=result.catch(()=>undefined);return result;
+    }
     if(mode?.cloud==='enabled'){
       const result=this.cloudQueue.then(()=>dispatchDianaCloud(this.env,priorityEventId));
       this.cloudQueue=result.catch(()=>undefined);return result;

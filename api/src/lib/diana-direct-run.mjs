@@ -4,8 +4,9 @@ export async function runDirect({event,readOriginal,decide,deliver,saveProof,ack
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
   const decision=await decide(source);
-  if(decision.action!=='reply')return {status:'pending',reason:decision.reason};
+  if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_unavailable:Number(decision.receipt?.images_unavailable??0)}:{})};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});
+  if(delivery.status==='preview')return {status:'preview',images_read:Number(decision.receipt?.images_read??0),images_unavailable:Number(decision.receipt?.images_unavailable??0)};
   if(delivery.status!=='verified')return {status:'pending',reason:'delivery_'+delivery.status};
   const proof={event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:delivery.outgoingId,executor:'diana_direct_workflow'};
   await saveProof(proof);

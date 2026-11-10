@@ -4,9 +4,20 @@ function fixture(t){
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);CREATE TABLE ugc_ig_messages(id TEXT,conversation_id TEXT,created_at TEXT,direction TEXT,from_username TEXT);INSERT INTO ugc_ig_messages VALUES('original','chat','2026-11-09T10:00:00Z','in','creator');CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,handle TEXT,status TEXT,konsol_payment_id TEXT,konsol_status TEXT,paid_at TEXT,failed_at TEXT,amount_minor INTEGER,currency TEXT,notice_status TEXT,paid_notice_at TEXT,notice_error TEXT,notice_at TEXT);INSERT INTO ugc_payouts VALUES('p1','creator','paid','provider1','executed','2026-11-09T12:00:00Z',NULL,45300,'RUB','sending','claim',NULL,NULL);`);
  const DB={prepare(sql){let p=[];return{bind(...v){p=v;return this},async first(){return db.prepare(sql).get(...p)??null},async all(){return{results:db.prepare(sql).all(...p)}},async run(){return{meta:{changes:db.prepare(sql).run(...p).changes}}}}},async batch(qs){db.exec('BEGIN');try{const r=[];for(const q of qs)r.push(await q.run());db.exec('COMMIT');return r}catch(e){db.exec('ROLLBACK');throw e}}};
  const peer={readyState:1,meta:{role:'primary',busy:false,seen:Date.now()},sent:[],deserializeAttachment(){return this.meta},serializeAttachment(v){this.meta=v},send(v){this.sent.push(JSON.parse(v))},close(){this.readyState=3}};
- const env={DB};const actor=new DianaWake({getWebSockets:()=>[peer]},env);env.DIANA_WAKE={idFromName:()=>1,get:()=>({fetch:(url,init)=>actor.fetch(new Request(url,init))})};return{db,env,peer,actor};
+ const values=new Map(),alarms=[];const storage={async put(k,v){values.set(k,v)},async get(k){return values.get(k)},async delete(k){values.delete(k)},async setAlarm(at){alarms.push(at)}};
+ const env={DB};const actor=new DianaWake({getWebSockets:()=>[peer],storage},env);env.DIANA_WAKE={idFromName:()=>1,get:()=>({fetch:(url,init)=>actor.fetch(new Request(url,init))})};return{db,env,peer,actor,alarms};
 }
 const events=f=>f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").all().map(r=>JSON.parse(r.value));
+test('a finished cloud workflow schedules a durable retry and dispatches paid notice when it becomes terminal',async t=>{
+ const f=fixture(t),instances=new Map([['direct-old','running']]),created=[];
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_mode','enabled',Date.now());
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_active','direct-old',Date.now());
+ f.env.DIANA_CLOUD={async get(id){return{async status(){if(!instances.has(id))throw Error('not found');return{status:instances.get(id)}}}},async create({id,params}){created.push({id,params});instances.set(id,'running')}};
+ const out=await queueConfirmedPayoutNotice(f.env,'p1','paid');assert.equal(out.dispatch.reason,'diana_cloud_working');assert.equal(events(f).length,1);
+ await f.actor.fetch(new Request('https://wake/cloud-released',{method:'POST'}));assert.equal(f.alarms.length,1);
+ await f.actor.alarm();assert.equal(f.alarms.length,2);assert.equal(created.length,0);
+ instances.set('direct-old','complete');await f.actor.alarm();assert.equal(created.length,1);assert.equal(created[0].params.task,'payout_paid_notice');
+});
 test('canonical paid facts durably queue then immediately wake once; dispatch is not delivery',async t=>{
  const f=fixture(t),a=await queueConfirmedPayoutNotice(f.env,'p1','paid');assert.equal(a.dispatch.dispatched,true);const [e]=events(f);assert.equal(e.task,'payout_paid_notice');assert.equal(e.paid_at,'2026-11-09T12:00:00Z');assert.equal(e.payout_id,'p1');assert.equal(e.amount_minor,45300);assert.equal(Object.hasOwn(e,'text'),false);assert.equal(f.peer.sent.length,1);
  const receipt=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key=?").get('diana_wake_dispatch:'+e.event_id).value);assert.equal(receipt.status,'pushed_to_machine');assert.equal(receipt.peer_role,'primary');assert.ok(Date.parse(receipt.dispatched_at)>=Date.parse(e.at));

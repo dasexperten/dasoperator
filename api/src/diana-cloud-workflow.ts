@@ -42,7 +42,12 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
       // Conditional release cannot remove another workflow's lock. Preview
       // instances do not take the production lock.
       if (!input.dryRun) await step.do('release-diana-cloud-lock', {retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},
-        ()=>releaseDianaCloud(this.env,{kind:'direct',id:event.instanceId}));
+        async()=>{
+          await releaseDianaCloud(this.env,{kind:'direct',id:event.instanceId});
+          const wake=this.env.DIANA_WAKE.get(this.env.DIANA_WAKE.idFromName('diana'));
+          const response=await wake.fetch('https://diana/cloud-released',{method:'POST'});
+          if(!response.ok)throw Error('diana_wake_after_release_failed');
+        });
     }
   }
 }

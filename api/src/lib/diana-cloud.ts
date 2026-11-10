@@ -13,6 +13,7 @@ import { sendIgDirect } from './ig-dm-watch';
 import { acknowledgeDianaEvent } from './diana-alarm';
 import { mapKonsolStatus } from './ugc-payouts.mjs';
 import { recordPayoutNotice } from './ugc-payout-notice';
+import { ingestCreatorPayouts } from './ugc-payout-source';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
   task?:'payout_paid_notice'|'payout_failed_notice';payout_id?:string };
@@ -205,6 +206,26 @@ export async function deliverCloudDecision(env: Env, key: string) {
   if (result.status!=='complete') return {status:'needs_review',reason:result.error??result.status,deliveryKey,
     retryable:result.status==='pending'&&/rate limit|too many requests/i.test(result.error??'')};
   return {status:'delivered',deliveryKey};
+}
+
+// Diana's decision starts payout intake for this one original conversation.
+// Intake independently verifies the original messages, cart and existing payout.
+export async function handoffCloudPayout(env: Env, key: string) {
+  const draft=await get(env,key), source=await get(env,draft.sourceKey), r=draft.decision.requisites;
+  await modeCheck(env,source.event);
+  if (source.event.dryRun || source.event.task || !r || draft.decision.refused || draft.decision.escalate)
+    return {status:'not_applicable'};
+  const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
+    phone:r.phone,bank:r.bank,first_name:r.first_name,amount_minor:r.amount_minor});
+  if(typeof result==='number')throw Error('payout_target_result_invalid');
+  return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id};
+}
+
+export async function executeCloudPayout(env: Env, payoutId:string) {
+  const {executeUgcPayout}=await import('./ugc-payout-store');
+  const result=await executeUgcPayout(env,payoutId);
+  if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
+  return {status:'submitted_or_already_exists',payout_id:payoutId};
 }
 
 /** Completion requires Meta original readback for every send receipt and ERP readback. */

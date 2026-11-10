@@ -91,7 +91,7 @@ test('first Wednesday idle receipt cannot stand in for a required actual rebuild
   assert.equal(r.missed, 1); assert.equal(r.verdict, 'red');
 });
 
-test('Direct metadata detector expects 400 three-minute ticks in the Yerevan 06:00?02:00 window', async t => {
+test('Direct metadata detector expects 310 three-minute ticks in the Moscow 08:00–23:30 window', async t => {
   const r = find(await guard(t, '2026-11-11T06:20:00Z', []), 'erp-ugc-direct');
-  assert.equal(r.expected, 400);
+  assert.equal(r.expected, 310);
 });

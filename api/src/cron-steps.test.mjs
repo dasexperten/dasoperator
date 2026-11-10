@@ -55,9 +55,9 @@ test('Direct only detects metadata; it never reads bodies, calls a reply model o
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
   assert.deepEqual(g.calls, ['video_batch', 'detect']);
 });
-test('payout timer ingests originals before sweeping payouts without legacy incident escalation, creator links or metrics', async t => {
+test('payout timer reconciles existing payments without independently searching creator chats', async t => {
   const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);
-  assert.deepEqual(f.calls, ['intake', 'payout']);
+  assert.deepEqual(f.calls, ['payout']);
 });
 test('payout idle is success; sweep exception is failure', async t => {
   const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 10);
@@ -72,6 +72,3 @@ test('removed timer jobs have no executable ERP step', () => {
   assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
 });
 
-test('recognition outage still refreshes existing payouts before reporting failed intake',async t=>{
- const f=await failsOnPayoutClock(t,'erp-ugc-payouts',{intake:new Error('cart_recognition_pending')},/cart_recognition_pending/);assert.deepEqual(f.calls,['intake','payout']);
-});

@@ -14,7 +14,9 @@ const stubs={
  'diana-context.mjs':`export const prepareDianaContext=async({task})=>({system:'Full Diana profile',imagePolicy:{},receipt:{org_sha:'fixture',skills:['ugc-master','personizer']}});`,
  'diana-subscription.mjs':`export const subscriptionInfer=(env,operation)=>async(messages,options)=>{env.inferences.push({operation,messages,options});return {text:JSON.stringify(env.decision),receipt:{transport:'codex-native',auth:'subscription',model:options.model}}};`,
  'diana-subscription-vision.mjs':`export const checkSubscriptionImages=async()=>({checks:[],status:'yes'});`,
- 'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`
+ 'ig-dm-watch':`export const sendIgDirect=async(env,handle,text,opts)=>env.send(handle,text,opts);`,
+ 'ugc-payout-source':`export const ingestCreatorPayouts=async(env,target)=>{env.payoutHandoffs??=[];env.payoutHandoffs.push(target);return {registered:1,payout_id:'payout1'}};`,
+ 'ugc-payout-store':`export const executeUgcPayout=async(env,id)=>{env.executedPayout=id;return {ok:true}};`
 };
 await build({entryPoints:[fileURLToPath(new URL('./diana-cloud.ts',import.meta.url))],bundle:true,format:'esm',platform:'node',outfile,
  plugins:[{name:'dependencies',setup(b){b.onResolve({filter:/^\.\/|^\.\.\//},args=>{const name=args.path.split('/').at(-1);return stubs[name]?{path:name,namespace:'fixture'}:undefined;});b.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:stubs[args.path]}));}}]});
@@ -59,6 +61,14 @@ test('original -> full context -> Terra -> Meta -> verified ERP ACK; retry never
  const complete=await cloud.completeCloudEvent(f.env,f.event,delivered);assert.equal(complete.status,'complete');assert.equal(f.state('diana_message_done:chat'),'incoming');assert.equal(f.state('diana_round_alarm:chat'),undefined);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM ugc_ig_messages WHERE direction='out'").get().n,1);
  await cloud.deliverCloudDecision(f.env,draft.key);await cloud.completeCloudEvent(f.env,f.event,delivered);assert.equal(f.sends.length,1);
+});
+test('Diana hands complete requisites to payout for the exact incoming message',async t=>{
+ const f=fixture(t);
+ f.env.decision={...f.env.decision,reply:null,requisites:{amount_rub:453,phone:'89990000000',bank:'ТБанк',first_name:'Елена'}};
+ const {draft}=await f.prepare();
+ assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'registered');
+ assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300}]);
+ assert.equal((await cloud.executeCloudPayout(f.env,'payout1')).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
 });
 test('preview exercises the same chain with zero sends and no live ACK',async t=>{
  const f=fixture(t);f.set('diana_cloud_mode','disabled');const event={...f.event,dryRun:true};

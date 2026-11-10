@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { Env } from './types';
 import { readCloudConversation, prepareCloudDecision, draftCloudDecision, deliverCloudDecision, completeCloudEvent,
-  stateWrite, cloudEventKey, type DianaCloudEvent } from './lib/diana-cloud';
+  stateWrite, cloudEventKey, handoffCloudPayout, executeCloudPayout, type DianaCloudEvent } from './lib/diana-cloud';
 
 // Each read/model step has at most three attempts. Durable send intents are never
 // blindly retried by Workflows; only their separately persisted receipts allow resume.
@@ -19,10 +19,16 @@ export class DianaCloudWorkflow extends WorkflowEntrypoint<Env,DianaCloudEvent> 
         outcome=context;
         if (context.status==='ready' && context.key) {
           const draft=await step.do('diana-native-terra-decision',READ,()=>draftCloudDecision(this.env,context.key!));
-          for(let attempt=0;attempt<3;attempt++){
-            if(attempt)await step.sleep('meta-rate-limit-wait-'+attempt,'3 minutes');
-            outcome=await step.do('deliver-durable-plan-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>deliverCloudDecision(this.env,draft.key));
-            if(!outcome.retryable)break;
+          const payout=await step.do('handoff-confirmed-requisites-to-payout',READ,()=>handoffCloudPayout(this.env,draft.key));
+          if(payout.payout_id){
+            await step.do('submit-payout-once',{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>executeCloudPayout(this.env,payout.payout_id!));
+            outcome={status:'no_reply',reason:'Verified requisites handed to ERP; payment notice follows provider confirmation.'};
+          }else{
+            for(let attempt=0;attempt<3;attempt++){
+              if(attempt)await step.sleep('meta-rate-limit-wait-'+attempt,'3 minutes');
+              outcome=await step.do('deliver-durable-plan-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},()=>deliverCloudDecision(this.env,draft.key));
+              if(!outcome.retryable)break;
+            }
           }
         }
       }

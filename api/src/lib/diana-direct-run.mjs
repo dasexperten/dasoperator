@@ -1,9 +1,12 @@
+const PREPARE_DIAGNOSTICS=new Set(['payout_original_media_unresolved','payout_amount_unconfirmed','payout_requisites_unconfirmed','payout_original_changed','payout_cycle_already_processed','payout_existing_amount_conflict','payout_intake_incomplete']);
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
 export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,saveProof,acknowledge}) {
+  if(event.preparePayoutOnly!==undefined&&typeof event.preparePayoutOnly!=='boolean')throw Error('direct_prepare_flag_invalid');
+  if(event.preparePayoutOnly===true&&(event.task!==undefined||event.payout_id!==undefined||event.event_id!=='message:'+event.message_id))throw Error('direct_prepare_incompatible_signal');
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
-  const decision=await decide(source);
+  const decision=event.preparePayoutOnly===true?{action:'payout',reason:'payout_prepare_only'}:await decide(source);
   if(decision.action==='payout' && !event.dryRun && typeof handoffPayout==='function') {
     // This callback only prepares an Owner-approval row. Never submit a transfer,
     // send a confirmation or mark the incoming message as answered here.
@@ -13,8 +16,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
         throw Error('direct_payout_receipt_invalid');
       return {status:'prepared',reason:'payout_awaiting_owner',payout_id:handoff.payout_id,amount_minor:handoff.amount_minor};
     }
-    if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields'};
-    return {status:'pending',reason:'payout_verification_pending'};
+    const diagnostic=event.preparePayoutOnly===true&&PREPARE_DIAGNOSTICS.has(handoff?.reason)?{prepare_diagnostic:handoff.reason}:{};
+    if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields',...diagnostic};
+    return {status:'pending',reason:'payout_verification_pending',...diagnostic};
   }
   if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{})};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});

@@ -3,7 +3,7 @@ const dir=mkdtempSync(join(tmpdir(),'direct-workflow-payout-'));
 const stubs={
  'cloudflare:workers':`export class WorkflowEntrypoint{constructor(ctx,env){this.env=env}}`,
  'diana-alarm':`export const acknowledgeDianaEvent=()=>{throw Error('payout must not ACK reply')}`,
- 'diana-cloud-lock':`export const finishDianaCloud=async env=>{env.released++}`,
+ 'diana-cloud-lock':`export const finishDianaCloud=async env=>{env.released++};export const reserveDianaCloud=async()=>true;export const releaseDianaCloud=async()=>true;export const readDianaCloudLock=async()=>null;`,
  'ig-dm-image-cache':`export const loadInstagramImage=async()=>{throw Error('unexpected image')}`,
  'diana-direct-original.mjs':`export const readDirectOriginal=async({conversationId,messageId})=>({status:'ready',conversationId,messageId,messages:[{id:messageId,from:{id:'person',username:'creator'},message:'PRIVATE SOURCE'}]})`,
  'diana-direct-think.mjs':`export const directThink=()=>()=>{throw Error('unexpected inference')}`,

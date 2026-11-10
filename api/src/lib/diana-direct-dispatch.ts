@@ -1,3 +1,5 @@
+import {isPayoutNotice,loadNotice} from './diana-direct-notice.mjs';
+import {mapKonsolStatus} from './ugc-payouts.mjs';
 import type {Env} from '../types';
 import {pendingDianaMessages} from './diana-alarm';
 import {reserveDianaCloud,releaseDianaCloud} from './diana-cloud-lock';
@@ -6,6 +8,7 @@ import {dianaWorkWindow} from './diana-work-window.mjs';
 
 // The detector supplies IDs only. Content is fetched by the Workflow itself.
 export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Date.now()){
+ const noticesEnabled=(env as any).DIANA_DIRECT_NOTICES_ENABLED==='true';
  if(!dianaWorkWindow(now).direct)return {dispatched:false,reason:'outside_direct_hours'};
  const active=await env.DB.prepare("SELECT value,updated_at FROM crm_sync_state WHERE key='diana_direct_active'").first<{value:string;updated_at:number}>();
  if(active){
@@ -22,10 +25,12 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(active.value).run();
  }
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>
-  typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
+  typeof e.message_id==='string' && ((e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:')) || (noticesEnabled && isPayoutNotice(e) && e.queue_key==='diana_action_pending:'+e.event_id)));
  pending.sort((a:any,b:any)=>Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
- const ready:{item:any;attempt:number}[]=[];let earliest=Infinity;
+ const ready:{item:any;attempt:number}[]=[];const selectedCids=new Set<string>();let earliest=Infinity;
  for(const item of pending){
+  if(selectedCids.has(String(item.cid)))continue;
+  if(isPayoutNotice(item)){try{await loadNotice(env.DB,item,{mapProviderStatus:mapKonsolStatus,now});}catch{continue;}}
   let nextAttempt=1;
   const row=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_direct_event:'+item.event_id).first<{value:string}>();
   let state:any=null;try{state=row?JSON.parse(row.value):null;}catch{continue;}
@@ -35,7 +40,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
    const retryAt=Number(state.retry_at??0);if(retryAt>now){earliest=Math.min(earliest,retryAt);continue;}
    nextAttempt=Number(state.attempt??1)+1;
   }
-  ready.push({item,attempt:nextAttempt});if(ready.length>=4)break;
+  selectedCids.add(String(item.cid));ready.push({item,attempt:nextAttempt});if(ready.length>=4)break;
  }
  if(!ready.length)return Number.isFinite(earliest)?{dispatched:false,reason:'media_retry_waiting',retry_at:earliest}:{dispatched:false,reason:'no_direct_signal_ready'};
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(ready.map(({item,attempt})=>[item.event_id,attempt]))));
@@ -47,10 +52,11 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
   .bind('diana_direct_instance:'+id,JSON.stringify({event_ids:ready.map(({item})=>item.event_id),created_at:now}),now).run();
  try{
-  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt})=>({cid:String(item.cid),message_id:item.message_id,event_id:item.event_id,handle:item.handle,attempt}))}});
+  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt})=>({cid:String(item.cid),message_id:item.message_id,event_id:item.event_id,handle:item.handle,attempt,...(isPayoutNotice(item)?{task:item.task,payout_id:item.payout_id}:{})}))}});
  }catch{
   // An uncertain create cannot be replayed blindly; preserve claim and lock.
   return {dispatched:false,reason:'workflow_creation_unknown'};
  }
  return {dispatched:true,workflow_id:id,event_ids:ready.map(({item})=>item.event_id)};
 }
+

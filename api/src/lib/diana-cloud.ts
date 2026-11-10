@@ -238,14 +238,18 @@ export async function handoffCloudPayout(env: Env, key: string) {
 }
 
 export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent, recipient:string) {
-  const {executeUgcPayout}=await import('./ugc-payout-store');
+  const {executeUgcPayout,refreshUgcPayout}=await import('./ugc-payout-store');
   const result=await executeUgcPayout(env,payoutId,async()=>{
     const live=await cloudGraph('/'+encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,created_time}',await pageToken(env));
     const latest=live.messages?.data?.[0];
     return !!latest && !!recipient && String(latest.id)===event.message_id && String(latest.from?.id)===recipient && ![BRAND,PAGE].includes(recipient);
   });
   if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
-  return {status:'submitted_or_already_exists',payout_id:payoutId};
+  // Re-read the provider immediately after saving its payment ID. A callback
+  // that arrived before that ID was saved could not have matched the row.
+  const refreshed=await refreshUgcPayout(env,payoutId).catch(()=>({ok:false}));
+  if(!refreshed.ok)await stateWrite(env,'diana_payout_refresh_pending:'+payoutId,{payout_id:payoutId,reason:'provider_read_unavailable',at:Date.now()});
+  return {status:'submitted_or_already_exists',payout_id:payoutId,provider_checked:refreshed.ok};
 }
 
 /** Completion requires Meta original readback for every send receipt and ERP readback. */

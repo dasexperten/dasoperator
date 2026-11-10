@@ -5,7 +5,7 @@ import {reelScope,reelPublicationProof} from './lib/ugc-reel-jobs.mjs';
 import {diterWindow,START_INTERVAL_MS} from './lib/ugc-reel-store';
 
 const CONSUMER='cloudflare-dieter-v1';
-type Event={content_id:string;claim_id:string};
+type Event={content_id:string;claim_id:string;continuation_id?:string};
 const RUNTIME_STOP='dieter_cloud_runtime_stop';
 const executionHold=(id:string)=>'dieter_cloud_execution_hold:'+id;
 async function runtimeStopped(env:Env){
@@ -28,6 +28,27 @@ async function stopRuntime(env:Env,input:Event,record:unknown){
  // An uncertain work outcome cannot be bypassed by a later clock/claim even
  // after the shared runtime is repaired. Reconciliation retains this claim.
  await putRecord(env,executionHold(input.content_id),value);
+}
+async function activateContinuation(env:Env,input:Event,workflowId:string){
+ const id=input.continuation_id;
+ if(!id||!/^[A-Za-z0-9_-]{1,100}$/.test(id))throw Error('invalid_dieter_continuation');
+ const key='dieter_cloud_continuation:'+id,c=await getRecord(env,key);
+ if(!c||c.state!=='ready'||c.content_id!==input.content_id||c.claim_id!==input.claim_id||c.workflow_id!==workflowId||c.owner_authorized!==true||c.runtime_accepted!==true||c.side_effect_assessment_accepted!==true||c.raw_attempts!==3||c.observed_work_rpcs!==2||c.next_work_ordinal!==3||c.remaining_work_after!==0||!Array.isArray(c.previous_claim_ids)||c.previous_claim_ids.length!==2||new Set(c.previous_claim_ids).size!==2||c.previous_claim_ids.some((claim:unknown)=>typeof claim!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(claim))||!c.previous_claim_ids.includes(input.claim_id))throw Error('dieter_continuation_not_authorized');
+ if(await runtimeStopped(env))throw Error('dieter_runtime_incident_stop');
+ for(const previous of c.previous_claim_ids){
+  const receipt=await getRecord(env,'dieter_cloud_assignment:'+previous);
+  if(receipt?.content_id!==input.content_id||receipt?.claim_id!==previous)throw Error('dieter_continuation_history_mismatch');
+ }
+ const startKey=key+':started',ordinalKey='dieter_cloud_work_ordinal:'+input.content_id+':3';
+ const start=JSON.stringify({workflow_id:workflowId,continuation_id:id,at:new Date().toISOString()});
+ await env.DB.batch([
+  env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=?4 AND status='queued' AND attempts=3) AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working' OR started_at>?6) AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked',?5)) ON CONFLICT(key) DO NOTHING`).bind(startKey,start,Date.now(),input.content_id,ordinalKey,new Date(Date.now()-START_INTERVAL_MS).toISOString()),
+  env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?4 AND json_extract(value,'$.workflow_id')=?5) ON CONFLICT(key) DO NOTHING`).bind(ordinalKey,start,Date.now(),startKey,workflowId),
+  env.DB.prepare(`UPDATE ugc_reel_jobs SET status='working',claim_id=?1,consumer_id=?2,acknowledged_at=NULL,last_error=NULL,updated_at=?3 WHERE content_id=?4 AND status='queued' AND attempts=3 AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working') AND EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?5 AND json_extract(value,'$.workflow_id')=?6) AND EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?7 AND json_extract(value,'$.workflow_id')=?6) AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked'))`).bind(input.claim_id,CONSUMER,new Date().toISOString(),input.content_id,startKey,workflowId,ordinalKey),
+ ]);
+ const started=await getRecord(env,startKey),ordinal=await getRecord(env,ordinalKey);
+ if(started?.workflow_id!==workflowId||ordinal?.workflow_id!==workflowId)throw Error('dieter_continuation_already_consumed');
+ return c;
 }
 async function mode(env:Env){return (await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled';}
 async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
@@ -124,18 +145,20 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
  async run(event:WorkflowEvent<Event>,step:WorkflowStep){
   const input=event.payload;
   const assignment=await step.do('read-exact-assignment',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
+   const continuation=input.continuation_id?await activateContinuation(this.env,input,event.instanceId):null;
    const job=await reelAssignment(this.env,CONSUMER,'https://dasoperator-api.dasexperten.workers.dev');
    if(!job||job.content_id!==input.content_id||job.claim_id!==input.claim_id)throw Error('dieter_exact_claim_missing');
    await this.env.DB.prepare("UPDATE ugc_reel_jobs SET acknowledged_at=?1 WHERE content_id=?2 AND claim_id=?3 AND consumer_id=?4 AND status='working'").bind(new Date().toISOString(),input.content_id,input.claim_id,CONSUMER).run();
-   return job;
+   return continuation?{...job,continuation,task:job.task+'\nCONTROLLED CONTINUATION: this is the third and final work call for this original content, after verified runtime repair and independent seven-platform inventory review. Keep the existing claim, raw attempts and clocks. Recheck each destination inventory and any known pending IDs immediately BEFORE its first provider intent; reuse existing verified posts. A match or uncertain response permits reconciliation only on that destination, while independently safe destinations continue. Save each provider ID and ERP proof immediately. Never repeat an ambiguous upload. No fourth work call. The source remains the archived full original. Create/read back the current exact-claim caption plan before publication, including exact source credit in the Facebook description.'}:job;
   });
-  for(let attempt=0;attempt<3;attempt++){
+  const executionKey=input.continuation_id?input.claim_id+':continuation:'+input.continuation_id:input.claim_id;
+  for(let attempt=0;attempt<(input.continuation_id?2:3);attempt++){
    const before=await step.do('read-result-'+attempt,()=>dieterOutcome(this.env,input));
    if(before.verified||before.status!=='working')break;
    const action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'18 minutes'},async()=>{
     const actionMode=attempt===0?'work':'reconcile';
-    const requestId='dieter-'+input.claim_id+'-'+attempt;
-    const prefix='dieter_cloud_attempt:'+input.claim_id+':'+attempt;
+    const requestId=input.continuation_id?'dieter-continuation-'+input.continuation_id+'-'+attempt:'dieter-'+input.claim_id+'-'+attempt;
+    const prefix='dieter_cloud_attempt:'+executionKey+':'+attempt;
     const previous=await getRecord(this.env,prefix+':outcome');
     if(previous){
      // Recover the crash gap after an outcome was committed but before its
@@ -145,7 +168,7 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
      return previous;
     }
     if(!await mode(this.env))return {outcome:'paused'};
-    if(actionMode==='work'&&(await runtimeStopped(this.env)||await getRecord(this.env,executionHold(input.content_id))))return {outcome:'blocked'};
+    if(actionMode==='work'&&(await runtimeStopped(this.env)||!input.continuation_id&&await getRecord(this.env,executionHold(input.content_id))))return {outcome:'blocked'};
     const identity={...input,mode:actionMode,request_id:requestId,index:attempt};
     const accepted=await putRecord(this.env,prefix+':intent',{...identity,started_at:new Date().toISOString()});
     let result:any;
@@ -156,7 +179,7 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
     }else{
      try{
       const native=await infer(this.env,requestId,{mode:actionMode,assignment});
-      const key='dieter/cloud-round/'+input.claim_id+'/result-'+attempt+'.json';
+      const key='dieter/cloud-round/'+executionKey+'/result-'+attempt+'.json';
       await this.env.DOCS.put(key,JSON.stringify(native));
       result={...identity,outcome:'completed',key};
      }catch(error){result={...identity,outcome:'runtime_error',...safeNativeFailure(error)};}
@@ -175,7 +198,7 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
   return step.do('verify-saved-outcome',{retries:{limit:2,delay:'5 seconds'},timeout:'1 minute'},async()=>{
    const records=[];
    for(let index=0;index<3;index++){
-    const record=await getRecord(this.env,'dieter_cloud_attempt:'+input.claim_id+':'+index+':outcome');
+    const record=await getRecord(this.env,'dieter_cloud_attempt:'+executionKey+':'+index+':outcome');
     if(record)records.push(record);
    }
    const firstWorkFailure=records.find(record=>record.mode==='work'&&record.outcome!=='completed')??null;
@@ -197,8 +220,8 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
     runtime_incident_present:Boolean(firstFailure),
     material_result:final.verified?'published':firstFailure?'not_assessed':'unverified',
     first_work_failure:firstWorkFailure,first_runtime_failure:firstFailure,
-    actions:records,executor:'cloudflare_workflow',workflow_id:event.instanceId};
-   await putRecord(this.env,'dieter_cloud_result:'+input.claim_id,result);
+    actions:records,continuation_id:input.continuation_id,executor:'cloudflare_workflow',workflow_id:event.instanceId};
+   await putRecord(this.env,'dieter_cloud_result:'+executionKey,result);
    return result;
   });
  }

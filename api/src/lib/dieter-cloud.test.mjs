@@ -167,3 +167,46 @@ test('disabled runtime preserves the exact working claim and records explicit re
  const result=await f.workflow.run(f.event,f.step);assert.equal(result.status,'paused');assert.equal(result.continuation_required,true);assert.equal(result.next_allowed_mode,'reconcile');assert.equal(result.retry_work,false);assert.equal(calls,0);
  const row=f.db.prepare("SELECT status,claim_id,attempts FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(row.status,'working');assert.equal(row.claim_id,'exact-claim');assert.equal(row.attempts,2);
 });
+
+function continuationFixture(t){
+ const f=workflowFixture(t),id='repair-one';
+ f.db.exec("UPDATE ugc_reel_jobs SET status='queued',attempts=3,claim_id=NULL,started_at='2026-11-10T04:00:00Z' WHERE content_id='one'");
+ f.env.DB.batch=async statements=>{f.db.exec('BEGIN');try{const results=[];for(const st of statements)results.push(await st.run());f.db.exec('COMMIT');return results;}catch(error){f.db.exec('ROLLBACK');throw error;}};
+ for(const claim of ['old-one','exact-claim'])f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_assignment:'+claim,JSON.stringify({content_id:'one',claim_id:claim}));
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_execution_hold:one','{"kind":"runtime_incident_stop"}');
+ const definition={state:'ready',content_id:'one',claim_id:'exact-claim',workflow_id:'dieter-continuation-'+id,owner_authorized:true,runtime_accepted:true,side_effect_assessment_accepted:true,raw_attempts:3,observed_work_rpcs:2,next_work_ordinal:3,remaining_work_after:0,previous_claim_ids:['old-one','exact-claim']};
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_continuation:'+id,JSON.stringify(definition));
+ return {...f,id,definition,event:{payload:{content_id:'one',claim_id:'exact-claim',continuation_id:id},instanceId:definition.workflow_id}};
+}
+test('accepted repair continuation restores only the original claim, reserves final work once, and preserves raw counters and clocks',async t=>{
+ const f=continuationFixture(t),calls=[];
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{const b=JSON.parse(init.body);calls.push(b);assert.equal(b.execution.assignment.claim_id,'exact-claim');assert.equal(b.execution.assignment.continuation.next_work_ordinal,3);assert.match(b.execution.assignment.task,/third and final work/);f.db.prepare("UPDATE ugc_reel_jobs SET status='queued',claim_id=NULL WHERE content_id='one'").run();return Response.json({text:'Controlled work completed'});};
+ await f.workflow.run(f.event,f.step);assert.equal(calls.length,1);assert.equal(calls[0].requestId,'dieter-continuation-repair-one-0');
+ const row=f.db.prepare("SELECT attempts,started_at FROM ugc_reel_jobs WHERE content_id='one'").get();assert.equal(row.attempts,3);assert.equal(row.started_at,'2026-11-10T04:00:00Z');
+ assert.ok(f.db.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_work_ordinal:one:3'").get());
+ const other={...f.definition,workflow_id:'dieter-continuation-repair-two'};f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_continuation:repair-two',JSON.stringify(other));
+ await assert.rejects(f.workflow.run({payload:{...f.event.payload,continuation_id:'repair-two'},instanceId:other.workflow_id},f.step),/already_consumed/);assert.equal(calls.length,1);
+});
+test('repair continuation requires runtime acceptance and does not bypass a live incident stop',async t=>{
+ const f=continuationFixture(t);let calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;throw Error('must not infer');};
+ f.db.prepare('UPDATE crm_sync_state SET value=? WHERE key=?').run(JSON.stringify({...f.definition,runtime_accepted:false}),'dieter_cloud_continuation:'+f.id);
+ await assert.rejects(f.workflow.run(f.event,f.step),/not_authorized/);
+ f.db.prepare('UPDATE crm_sync_state SET value=? WHERE key=?').run(JSON.stringify(f.definition),'dieter_cloud_continuation:'+f.id);
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{"kind":"runtime_incident_stop"}');
+ await assert.rejects(f.workflow.run(f.event,f.step),/runtime_incident_stop/);assert.equal(calls,0);assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
+});
+test('a lost continuation work intent permits one remaining read-only reconciliation and never repeats the final work',async t=>{
+ const f=continuationFixture(t),modes=[];
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_attempt:exact-claim:continuation:repair-one:0:intent','{"mode":"work"}');
+ f.env.DIETER_SUBSCRIPTION.fetch=async(_url,init)=>{modes.push(JSON.parse(init.body).execution.mode);return Response.json({text:'Reconciliation only'});};
+ const result=await f.workflow.run(f.event,f.step);assert.deepEqual(modes,['reconcile']);assert.equal(result.first_work_failure.error,'native_call_outcome_unknown');assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,3);
+});
+
+test('duplicate or invalid historical claim identities cannot authorize the final continuation',async t=>{
+ const f=continuationFixture(t);let calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;throw Error('must not infer');};
+ for(const claims of [['exact-claim','exact-claim'],['','exact-claim']]){
+  f.db.prepare('UPDATE crm_sync_state SET value=? WHERE key=?').run(JSON.stringify({...f.definition,previous_claim_ids:claims}),'dieter_cloud_continuation:'+f.id);
+  await assert.rejects(f.workflow.run(f.event,f.step),/not_authorized/);
+ }
+ assert.equal(calls,0);assert.equal(f.db.prepare("SELECT count(*) n FROM crm_sync_state WHERE key='dieter_cloud_work_ordinal:one:3'").get().n,0);assert.equal(f.db.prepare("SELECT status FROM ugc_reel_jobs WHERE content_id='one'").get().status,'queued');
+});

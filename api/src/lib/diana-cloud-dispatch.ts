@@ -31,7 +31,8 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     }
   }
   const financial=(e:any)=>['payout_paid_notice','payout_failed_notice'].includes(e.task)&&e.payout_id&&String(e.event_id).startsWith('action:');
-  const waiting=(await pendingDianaMessages(env)).filter(e=>e.message_id&&(financial(e)||String(e.queue_key).startsWith('diana_round_alarm:')&&e.event_id==='message:'+e.message_id))
+  const ownerChoice=(e:any)=>e.task==='owner_choice'&&e.question_id&&String(e.event_id).startsWith('action:');
+  const waiting=(await pendingDianaMessages(env)).filter(e=>e.message_id&&(financial(e)||ownerChoice(e)||String(e.queue_key).startsWith('diana_round_alarm:')&&e.event_id==='message:'+e.message_id))
     .sort((a,b)=>Number(b.event_id===priorityEventId)-Number(a.event_id===priorityEventId)||Number(!!financial(b))-Number(!!financial(a))||Date.parse(b.at)-Date.parse(a.at));
   for(const event of waiting){
     const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first();
@@ -47,7 +48,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_cloud_active',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
       .bind(id,Date.now()).run();
     try { await env.DIANA_CLOUD.create({id,params:{cid:event.cid,message_id:event.message_id,event_id:event.event_id,handle:event.handle,at:event.at,
-      ...(financial(event)?{task:event.task,payout_id:event.payout_id}:{})}}); }
+      ...(financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
     catch(error){
       // A nonexistent instance is a real failed create, and leaves the pending
       // metadata untouched. A duplicate-ID response resolves to the same work.

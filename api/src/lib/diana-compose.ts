@@ -1,6 +1,6 @@
 import type { Env } from '../types';
 // Owner 2026-11-06: ERP never drafts creator text. Existing callers only queue metadata for Diana.
-export async function queueDianaAction(env: Env, handle: string, brief: string, identity?: string, metadata?: { task: string; payout_id: string; paid_at?: string; failed_at?: string; status?: string; konsol_status?: string; konsol_payment_id?: string; amount_minor?: number; currency?: string; reminder_cycle?: number }) {
+export async function queueDianaAction(env: Env, handle: string, brief: string, identity?: string, metadata?: { task: string; payout_id?: string; question_id?:string; paid_at?: string; failed_at?: string; status?: string; konsol_status?: string; konsol_payment_id?: string; amount_minor?: number; currency?: string; reminder_cycle?: number }) {
   const normalized = handle.toLowerCase().replace(/^@/, '');
   const message = await env.DB.prepare(`SELECT id,conversation_id,created_at FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1 ORDER BY created_at DESC LIMIT 1`)
     .bind(normalized).first<{ id: string; conversation_id: string; created_at: string }>();

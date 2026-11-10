@@ -134,6 +134,13 @@ test('scheduled review can read a conversation whose last message is ours withou
  assert.equal(outcome.status,'no_reply');await cloud.completeCloudEvent(f.env,event,outcome);
  assert.ok(f.state('diana_round_alarm:chat'));assert.equal(f.state('diana_message_done:chat'),undefined);assert.equal(f.sends.length,0);
 });
+test('exact Owner choice is delivered once and only marked answered after original readback',async t=>{
+ const f=fixture(t),q={cid:'chat',handle:'creator',at:f.event.at,options:{'Ответить':['Хорошо']},choice:'Ответить',decision_at:'2026-11-10T00:00:00Z'};
+ f.set('ig_hard:42',q);const event={...f.event,event_id:'action:choice42',task:'owner_choice',question_id:'42'};
+ f.set('diana_action_pending:'+event.event_id,event);f.env.decision.reply='Хорошо';
+ const {draft}=await f.prepare(event),out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');assert.equal(JSON.parse(f.state('ig_hard:42')).answered_at,undefined);
+ await cloud.completeCloudEvent(f.env,event,out);assert.ok(JSON.parse(f.state('ig_hard:42')).answered_at);assert.equal(f.sends.length,1);
+});
 test('dispatcher creates exactly one durable event, waits on its real status and preserves paused actions',async t=>{
  const f=fixture(t),instances=new Map(),creates=[];
  f.env.DIANA_CLOUD={async create({id,params}){creates.push({id,params});instances.set(id,'running');},async get(id){return{async status(){if(!instances.has(id))throw Error('not found');return{status:instances.get(id)};}};}};

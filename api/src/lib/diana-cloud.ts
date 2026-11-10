@@ -17,7 +17,7 @@ import { ingestCreatorPayouts } from './ugc-payout-source';
 import { prepareCreatorPayout } from './ugc-payout-intake';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
-  task?:'payout_paid_notice'|'payout_failed_notice'|'round';payout_id?:string;round_slot?:string;creator_id?:string };
+  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
 const PAGE = '1697038263872226', BRAND = '17841466350261166';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const PREFIX = 'diana/cloud-direct/v1/';
@@ -117,7 +117,7 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   if(event.task==='round'&&event.creator_id!==creator.id)throw Error('round_creator_identity_mismatch');
   const payouts = (await env.DB.prepare('SELECT id,amount_minor,status,product,paid_at,failed_at,sent_at,created_at,konsol_payment_id,konsol_status,konsol_error,notice_status,notice_message_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC')
     .bind(creator.id).all()).results??[];
-  if(event.task&&event.task!=='round'){
+  if(event.task&&event.task!=='round'&&event.task!=='owner_choice'){
     const payout=payouts.find((p:any)=>p.id===event.payout_id) as any;
     if(!payout)throw Error('cloud_payout_source_missing');
     const paid=event.task==='payout_paid_notice';
@@ -127,9 +127,17 @@ export async function readCloudConversation(env: Env, event: DianaCloudEvent) {
   const plans = (await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'ig_reply_delivery:%' AND json_valid(value) AND json_extract(value,'$.conversationId')=?1")
     .bind(event.cid).all<{value:string}>()).results?.map(r=>JSON.parse(r.value))??[];
   const ownerDecision = await stateRead(env,'ig_owner_decision:'+event.cid);
+  let ownerChoice:any=null;
+  if(event.task==='owner_choice'){
+    if(!/^\d{1,30}$/.test(String(event.question_id??'')))throw Error('owner_choice_question_invalid');
+    ownerChoice=await stateRead(env,'ig_hard:'+event.question_id);
+    if(!ownerChoice||ownerChoice.cid!==event.cid||String(ownerChoice.handle??'').toLowerCase()!==handle||!ownerChoice.choice||
+       !ownerChoice.options||!Array.isArray(ownerChoice.options[ownerChoice.choice]))throw Error('owner_choice_source_unverified');
+    if(ownerChoice.answered_at)throw Error('owner_choice_already_answered');
+  }
   const lastIncoming=history.filter(m=>m.direction==='in').at(-1);
   const key = await put(env,(await artifactPrefix(event))+'source.json',{event,handle,recipient:String(sender.from.id),latestId:String(newest.id),at:lastIncoming?.created_at??new Date(sender.created_time).toISOString(),
-    creator,payouts,plans,history,ownerDecision:ownerDecision?.at===event.at?ownerDecision:null});
+    creator,payouts,plans,history,ownerChoice,ownerDecision:ownerDecision?.at===event.at?ownerDecision:null});
   return {status:'ready',key};
 }
 
@@ -140,8 +148,8 @@ export async function prepareCloudDecision(env: Env, key: string) {
   const lastOut = source.history.map((m:any)=>m.direction).lastIndexOf('out');
   const current = source.history.slice(lastOut+1);
   if (current.some((m:any)=>m.unsupported)) return {status:'needs_review',reason:'meta_attachment_unavailable'};
-  const task = JSON.stringify({task:source.event.task==='round'?'Review this paid, ordered, creation or posted creator for the scheduled round. Read the entire original conversation, do not initiate video reminders, scouting, or duplicate any action. If an action needs a browser or other unavailable tool, escalate and state the reason. If no message is appropriate return no reply with the actual observation.':source.event.task?`ERP confirmed ${source.event.task} for payout ${source.event.payout_id}. Read the original conversation and the exact confirmed payout. Write Diana's notice once and the next appropriate collaboration step. If the notice is already in the original conversation, or later conversation proves this historical step is obsolete, return no reply and explain the evidence. Do not reopen old orders, repeat a notice or blame the creator's bank without its confirmed rejection. This is a notice only, never a new transfer.`:'Write the next Diana Direct decision for this original conversation. This is incoming chat handling only, not scouting or proactive reminders.',
-    handle:source.handle,creator:source.creator,payouts:source.payouts,delivery_plans:source.plans,owner_decision:source.ownerDecision,history:source.history});
+  const task = JSON.stringify({task:source.event.task==='round'?'Review this paid, ordered, creation or posted creator for the scheduled round. Read the entire original conversation, do not initiate video reminders, scouting, or duplicate any action. If an action needs a browser or other unavailable tool, escalate and state the reason. If no message is appropriate return no reply with the actual observation.':source.event.task==='owner_choice'?'The Owner selected the attached exact option for this original conversation. Follow that decision in Diana’s voice; never invent or modify its terms. If the conversation changed or the choice cannot safely be applied, escalate instead of sending.':source.event.task?`ERP confirmed ${source.event.task} for payout ${source.event.payout_id}. Read the original conversation and the exact confirmed payout. Write Diana's notice once and the next appropriate collaboration step. If the notice is already in the original conversation, or later conversation proves this historical step is obsolete, return no reply and explain the evidence. Do not reopen old orders, repeat a notice or blame the creator's bank without its confirmed rejection. This is a notice only, never a new transfer.`:'Write the next Diana Direct decision for this original conversation. This is incoming chat handling only, not scouting or proactive reminders.',
+    handle:source.handle,creator:source.creator,payouts:source.payouts,delivery_plans:source.plans,owner_decision:source.ownerChoice??source.ownerDecision,history:source.history});
   const prepared = await prepareDianaContext({task,githubToken:(env as any).GITHUB_TOKEN??'',infer:subscriptionInfer(env,'context')});
   const screenshots = await incomingScreenshots(env,source.history,source.at);
   if (screenshots.currentUnavailable) throw Error('current_image_unavailable');
@@ -162,7 +170,7 @@ export async function draftCloudDecision(env: Env, key: string) {
     || !(parsed.replies===null || Array.isArray(parsed.replies)&&parsed.replies.every((p:unknown)=>typeof p==='string'))) throw Error('diana_cloud_invalid_decision');
   const incoming=source.history.filter((m:any)=>m.direction==='in');
   const guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
-    lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!source.ownerDecision});
+    lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!(source.ownerChoice??source.ownerDecision)});
   const decision={...guarded,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
   const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
@@ -172,7 +180,7 @@ export async function deliverCloudDecision(env: Env, key: string) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
   if(source.event.dryRun)return {status:'preview',decisionKey:key,decision:decision.reply?'reply':decision.escalate?'needs_review':'no_reply',reason:decision.reason};
-  const existingNotice=source.event.task&&source.event.task!=='round'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
+  const existingNotice=source.event.task&&source.event.task!=='round'&&source.event.task!=='owner_choice'?source.payouts.find((p:any)=>p.id===source.event.payout_id):null;
   if(existingNotice?.notice_status==='delivered'){
     if(!existingNotice.notice_message_id)throw Error('cloud_existing_notice_receipt_missing');
     const original=await cloudGraph('/'+encodeURIComponent(existingNotice.notice_message_id)+'?fields=id,from,created_time,message',await pageToken(env));
@@ -187,6 +195,12 @@ export async function deliverCloudDecision(env: Env, key: string) {
   const currentPayouts=(await env.DB.prepare('SELECT id,amount_minor,status,product,paid_at,failed_at,sent_at,created_at,konsol_payment_id,konsol_status,konsol_error,notice_status,notice_message_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC')
     .bind(source.creator.id).all()).results??[];
   if(currentCreator?.updated_at!==source.creator.updated_at || JSON.stringify(currentPayouts)!==JSON.stringify(source.payouts))return {status:'needs_review',reason:'erp_facts_changed_during_inference'};
+  if(source.event.task==='owner_choice'){
+    const current=await stateRead(env,'ig_hard:'+source.event.question_id);
+    if(!current||current.answered_at||current.choice!==source.ownerChoice?.choice||current.decision_at!==source.ownerChoice?.decision_at)
+      return {status:'needs_review',reason:'owner_choice_changed'};
+    if(!decision.reply)return {status:'needs_review',reason:'owner_choice_not_executed'};
+  }
   if (!decision.reply) return {status:'no_reply',reason:decision.reason};
   const cards=[...(decision.sendCards?SCENARIO_CARDS:[]),...(decision.sendOzonPhoto?[OZON_CARD_PHOTO]:[])];
   // A payment action has its own immutable outbox; it must never reuse the plan
@@ -194,6 +208,11 @@ export async function deliverCloudDecision(env: Env, key: string) {
   const result=await deliverIgReply(env,{conversationId:source.event.cid,incomingAt:source.at,handle:source.handle,...(actionId?{actionId}:{}),
     parts:decision.parts??[decision.reply],cards},async (boundEnv,handle,text,opts)=>{
       await modeCheck(env);
+      if(source.event.task==='owner_choice'){
+        const current=await stateRead(env,'ig_hard:'+source.event.question_id);
+        if(!current||current.answered_at||current.choice!==source.ownerChoice?.choice||current.decision_at!==source.ownerChoice?.decision_at)
+          return {ok:false,delivery:'not_sent',error:'owner_choice_changed'};
+      }
       const token=await pageToken(env);
       const live=await cloudGraph('/'+encodeURIComponent(source.event.cid)+'?fields=messages.limit(1){id,from,created_time}',token);
       const latest=live.messages?.data?.[0];
@@ -278,7 +297,22 @@ export async function completeCloudEvent(env: Env,event: DianaCloudEvent,outcome
   // same creator only from the snapshot Diana actually read.
   const base=await artifactPrefix(event);
   const draft=await get(env,base+'decision.json'),source=await get(env,draft.sourceKey),decision=draft.decision;
-  if(event.task&&event.task!=='round'&&event.payout_id){
+  if(event.task==='owner_choice'){
+    if(outcome.status!=='delivered')throw Error('owner_choice_delivery_not_verified');
+    const key='ig_hard:'+event.question_id;
+    const row=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key).first<{value:string}>();
+    const current=row?JSON.parse(row.value):null;
+    if(!current||current.choice!==source.ownerChoice?.choice||current.decision_at!==source.ownerChoice?.decision_at ||
+       current.answered_at&&current.delivery_key!==outcome.deliveryKey)throw Error('owner_choice_changed_before_completion');
+    if(!current.answered_at){
+      const updated={...current,answered_at:new Date().toISOString(),delivery_key:outcome.deliveryKey};
+      const changes=await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND value=?4')
+        .bind(key,JSON.stringify(updated),Date.now(),row!.value).run();
+      if(Number(changes.meta.changes)!==1)throw Error('owner_choice_changed_before_completion');
+    }
+    const saved=await stateRead(env,key);if(!saved?.answered_at||saved.delivery_key!==outcome.deliveryKey)throw Error('owner_choice_not_saved');
+  }
+  if(event.task&&event.task!=='round'&&event.task!=='owner_choice'&&event.payout_id){
     const expected=source.payouts.find((p:any)=>p.id===event.payout_id);
     const current=await env.DB.prepare('SELECT status,konsol_payment_id,konsol_status,paid_at,failed_at,notice_message_id FROM ugc_payouts WHERE id=?1').bind(event.payout_id).first<any>();
     if(!current||['status','konsol_payment_id','konsol_status','paid_at','failed_at'].some(k=>current[k]!==expected[k])||outcome.existingNoticeId&&current.notice_message_id!==outcome.existingNoticeId)throw Error('cloud_payout_changed_before_completion');

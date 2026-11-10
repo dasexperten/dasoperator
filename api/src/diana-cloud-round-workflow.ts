@@ -6,6 +6,8 @@ import {roundCandidates} from './lib/diana-cloud-round-cohort';
 import {reviewRoundCollab} from './lib/diana-round-collab';
 import {reviewRoundPublications} from './lib/diana-round-publications';
 import {reviewManualStage} from './lib/diana-round-manual';
+import {collectOwnerChoices} from './lib/diana-round-owner-choices';
+import {inspectRoundOutgoing} from './lib/diana-round-outgoing';
 
 type RoundInput={id:string;scheduled_at:number};
 const READ={retries:{limit:2,delay:'10 seconds' as const,backoff:'exponential' as const},timeout:'30 minutes' as const};
@@ -14,6 +16,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
   async run(event:WorkflowEvent<RoundInput>,step:WorkflowStep) {
     const run=event.payload, owner={kind:'round' as const,id:event.instanceId};
     try {
+      const ownerChoices=await step.do('read-owner-choices',READ,()=>collectOwnerChoices(this.env,run.id));
       const cohort=await step.do('snapshot-round-cohort',READ,()=>roundCandidates(this.env));
       let reviewed=0,exceptions=0;
       for(let i=0;i<cohort.length;i++) {
@@ -43,16 +46,12 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
           ()=>reviewRoundCollab(this.env,person.id,person.normalized_handle));
         const publication=await step.do(`round-${i}-publication`,{retries:{limit:0,delay:'1 second'},timeout:'5 minutes'},
           ()=>reviewRoundPublications(this.env,person.id,person.normalized_handle));
-        // A conversation decision does not verify manual-message analysis.
-        // invitations. Keep the successful conversation result as evidence,
-        // but never mark the creator's entire round complete on that basis.
-        if(result.status==='reviewed'){
-          const conversation=result;
-          result={status:'needs_review',reason:'manual_message_review_unavailable',conversation};
-        }
-        result.coauthor=collab;
-        result.publication=publication;
-        result.manual_stage=await step.do(`round-${i}-manual-stage`,READ,()=>reviewManualStage(this.env,person.id,sourceKey));
+        const manual=await step.do(`round-${i}-manual-stage`,READ,()=>reviewManualStage(this.env,person.id,sourceKey));
+        const outgoing=await step.do(`round-${i}-outgoing`,READ,()=>inspectRoundOutgoing(this.env,person.id,sourceKey));
+        const conversation=result;
+        const complete=conversation.status==='reviewed'&&[collab,publication,manual,outgoing].every(x=>x.status==='verified');
+        result={status:complete?'reviewed':'needs_review',...(complete?{}:{reason:'round_checks_incomplete'}),conversation,
+          coauthor:collab,publication,manual_stage:manual,outgoing};
         if(result.status==='reviewed')reviewed++;else exceptions++;
         await step.do(`round-${i}-receipt`,READ,async()=>{
           const receipt={slot:run.id,creator_id:person.id,stage_before:person.lifecycle_stage,...result,checked_at:new Date().toISOString()};
@@ -61,10 +60,9 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
           if(!saved||JSON.parse(saved.value).creator_id!==person.id)throw Error('round_receipt_not_saved');
         });
       }
-      // These phases have no cloud executor yet. A per-chat model response is
-      // not proof of coauthor acceptance, publication checking or manual review.
-      const outcome={status:'partial',cohort:cohort.length,reviewed,exceptions,
-        remaining:['owner_button_review','manual_stage_and_message_review'],finished_at:new Date().toISOString()};
+      const remaining=[...(ownerChoices.status==='verified'?[]:['owner_button_actions']),...(exceptions?['creator_exceptions']:[])];
+      const outcome={status:remaining.length?'partial':'complete',cohort:cohort.length,reviewed,exceptions,
+        owner_choices:ownerChoices,remaining,finished_at:new Date().toISOString()};
       await step.do('save-round-outcome',READ,()=>stateWrite(this.env,'diana_round_run:'+run.id,outcome));
       return outcome;
     } finally {

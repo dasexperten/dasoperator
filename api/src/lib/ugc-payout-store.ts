@@ -41,13 +41,17 @@ export function payoutStore(env: Env) {
         WHERE ${sendDay}=?1 AND ${committed} AND (?2 IS NULL OR id <> ?2)`).bind(day, excludeId).first<{ total: number }>();
       return Number(r?.total ?? 0);
     },
-    async claim(id: string, token: string, at: string) {
+    async claim(id: string, token: string, at: string, snapshot: {row:Record<string,any>;requisites:Record<string,any>}) {
       const r = await db.prepare(`UPDATE ugc_payouts SET execute_claim=?2, execute_claimed_at=?3, konsol_error=NULL, updated_at=?4
         WHERE id=?1 AND execute_claim IS NULL AND konsol_payment_id IS NULL
           AND status IN ('awaiting_approval','approved')
+          AND amount_minor IS ?5 AND fps_bank_member_id IS ?6 AND updated_at IS ?7
+          AND EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id=ugc_payouts.id
+            AND r.fps_mobile_phone IS ?8 AND r.first_name IS ?9 AND r.last_name IS ?10 AND r.patronymic IS ?11)
           AND NOT EXISTS (SELECT 1 FROM crm_sync_state h WHERE h.key = 'payout_hold:' || ugc_payouts.id)`
       // Owner 2026-10-19: no 999 ₽ or per-day cap — his click is the approval. The claim only stops a double send of one row.
-      ).bind(id, token, at, touch()).run();
+      ).bind(id, token, at, touch(), snapshot.row.amount_minor, snapshot.row.fps_bank_member_id, snapshot.row.updated_at,
+        snapshot.requisites.fps_mobile_phone, snapshot.requisites.first_name, snapshot.requisites.last_name??null, snapshot.requisites.patronymic??null).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     release: (id: string, error: string) => db.prepare(
@@ -117,8 +121,8 @@ async function notifyBloggerOnce(env: Env, row: Record<string, any>, _text: stri
   return queueConfirmedPayoutNotice(env,String(row.id),_kind);
 }
 
-export async function executeUgcPayout(env: Env, id: string) {
-  const out = await executePayout(id, deps(env));
+export async function executeUgcPayout(env: Env, id: string, preClaim?:()=>Promise<boolean>) {
+  const out = await executePayout(id, {...deps(env),preClaim});
   // Owner 2026-10-20: a click stopped for lack of own RUB tells him the shortfall for the whole queue at once.
   if (!out.ok && out.code === 'own_rub_low') await import('./konsol-balance').then((m) => m.warnIfShort(env)).catch(() => undefined);
   // A successful payment may leave the rest of the queue uncovered.

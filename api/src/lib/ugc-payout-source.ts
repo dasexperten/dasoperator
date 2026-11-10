@@ -5,7 +5,7 @@ import {prepareCreatorPayout} from './ugc-payout-intake';
 const PAGE='1697038263872226', IG='17841466350261166';
 const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
 // Original-message intake with subscription image review; no replies, read marks or payment calls.
-export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number}){
+export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number;originals:{id:string;direction:string;text:string}[]}){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
  if(!token)throw Error('payment_source_token_missing');
  async function graph(path:string,key:string):Promise<any>{
@@ -39,6 +39,10 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
    if(target && (!r.source_message_ids.includes(target.message_id) || r.phone.replace(/\D/g,'')!==target.phone.replace(/\D/g,'') ||
       r.bank!==target.bank || r.first_name.trim().toLocaleLowerCase()!==target.first_name.trim().toLocaleLowerCase()))
      throw Error('diana_payout_facts_do_not_match_original');
+   if(target && r.source_message_ids.some((id:string)=>{
+    const original=target.originals.find(m=>m.id===id),archived=messages.find((m:any)=>m.id===id);
+    return !original||original.direction!=='in'||!archived||archived.direction!=='in'||original.text!==archived.text;
+   }))throw Error('diana_payout_original_archive_mismatch');
    const handle=messages.find((m:any)=>m.id===r.cycle_message_id)?.from_username?.toLowerCase();
    if(!handle)continue;
    // Existing 60-day cycle guard: no second payout after a transfer or failed attempt.
@@ -60,7 +64,7 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
     if(receipt&&Number(JSON.parse(receipt.value).source_at)>=r.source_at){
      const context=existing.amount_minor<5000?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('diana_context:'+c.id).first<{updated_at:number}>():null;
      const cart=existing.amount_minor<5000?await env.DB.prepare('SELECT updated_at FROM crm_sync_state WHERE key=?1').bind('ugc_cart_review:'+c.id).first<{updated_at:number}>():null;
-     if((!context||context.updated_at<=receipt.updated_at)&&(!cart||cart.updated_at<=receipt.updated_at))continue;
+     if(!target&&(!context||context.updated_at<=receipt.updated_at)&&(!cart||cart.updated_at<=receipt.updated_at))continue;
     }
    }
    try{const result=await prepareCreatorPayout(env,{verified:true,handle,conversation_id:c.id,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:observedAmount,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:BANK_LABELS[r.bank]??r.bank},now);if(result.registered!==false){saved++;savedId=String(result.id??'');}}

@@ -145,7 +145,7 @@ export async function prepareCloudDecision(env: Env, key: string) {
   const screenshots = await incomingScreenshots(env,source.history,source.at);
   if (screenshots.currentUnavailable) throw Error('current_image_unavailable');
   const imageCheck = screenshots.images.length ? await checkSubscriptionImages({images:screenshots.images,policy:prepared.imagePolicy,task,infer:subscriptionInfer(env,'image')}) : null;
-  const system = prepared.system + '\n' + JSON_SPEC + `\nCloud execution facts: tools are performed by this workflow, never claim an action already happened. All payout registration and transfers are a separate ERP process. Do not confirm requisites were saved unless the supplied payout row proves it. Current creator stage and manual decisions are authoritative. Existing card delivery receipts are authoritative: do not re-send cards already delivered. An order screenshot is required before scenario cards. Acknowledgements can require no reply; explain that decision in reason. If this requires a browser or a consultation not in these sources, escalate without pretending the tool ran. Image evidence: ${JSON.stringify(imageCheck)}. Unavailable historical images: ${screenshots.unreadable}. Do not guess absent facts.`;
+  const system = prepared.system + '\n' + JSON_SPEC + `\nAdd payout_requisites_detected: true if this incoming message contains any actual bank, phone or recipient payment details, including incomplete details; otherwise false. Cloud execution facts: tools are performed by this workflow, never claim an action already happened. All payout registration and transfers are a separate ERP process. Do not confirm requisites were saved unless the supplied payout row proves it. Current creator stage and manual decisions are authoritative. Existing card delivery receipts are authoritative: do not re-send cards already delivered. An order screenshot is required before scenario cards. Acknowledgements can require no reply; explain that decision in reason. If this requires a browser or a consultation not in these sources, escalate without pretending the tool ran. Image evidence: ${JSON.stringify(imageCheck)}. Unavailable historical images: ${screenshots.unreadable}. Do not guess absent facts.`;
   const contextKey=await put(env,(await artifactPrefix(source.event))+'context.json',{sourceKey:key,system,task,receipt:prepared.receipt,imageCheck});
   await stateWrite(env,'diana_context:'+source.event.cid,{...prepared.receipt,at:source.at,executor:'cloudflare_workflow',image_check:imageCheck});
   return {status:'ready',key:contextKey};
@@ -162,6 +162,7 @@ export async function draftCloudDecision(env: Env, key: string) {
   const incoming=source.history.filter((m:any)=>m.direction==='in');
   const decision=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
     lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!source.ownerDecision});
+  decision.payoutRequisitesDetected=parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''));
   const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
@@ -214,17 +215,30 @@ export async function deliverCloudDecision(env: Env, key: string) {
 export async function handoffCloudPayout(env: Env, key: string) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), r=draft.decision.requisites;
   await modeCheck(env,source.event);
-  if (source.event.dryRun || source.event.task || !r || draft.decision.refused || draft.decision.escalate)
+  if (source.event.dryRun || source.event.task || draft.decision.refused || draft.decision.escalate)
     return {status:'not_applicable'};
+  if(!r && draft.decision.payoutRequisitesDetected){
+    // This event contains no personal or bank values: the original remains in
+    // the protected archive. It is a durable partial handoff, not a payout.
+    await stateWrite(env,'diana_payout_signal:'+source.event.event_id,{status:'incomplete',conversation_id:source.event.cid,
+      message_id:source.event.message_id,event_id:source.event.event_id,missing:'verified_complete_requisites_or_cart',at:Date.now()});
+    return {status:'partial'};
+  }
+  if(!r)return {status:'not_applicable'};
   const result=await ingestCreatorPayouts(env,{conversation_id:source.event.cid,message_id:source.event.message_id,
-    phone:r.phone,bank:r.bank,first_name:r.first_name,amount_minor:r.amount_minor});
+    phone:r.phone,bank:r.bank,first_name:r.first_name,amount_minor:r.amount_minor,
+    originals:source.history.map((m:any)=>({id:m.id,direction:m.direction,text:m.text}))});
   if(typeof result==='number')throw Error('payout_target_result_invalid');
   return {status:result.registered?'registered':'pending_or_existing',payout_id:result.payout_id};
 }
 
-export async function executeCloudPayout(env: Env, payoutId:string) {
+export async function executeCloudPayout(env: Env, payoutId:string, event:DianaCloudEvent) {
   const {executeUgcPayout}=await import('./ugc-payout-store');
-  const result=await executeUgcPayout(env,payoutId);
+  const result=await executeUgcPayout(env,payoutId,async()=>{
+    const live=await cloudGraph('/'+encodeURIComponent(event.cid)+'?fields=messages.limit(1){id,from,created_time}',await pageToken(env));
+    const latest=live.messages?.data?.[0];
+    return !!latest && String(latest.id)===event.message_id && ![BRAND,PAGE].includes(String(latest.from?.id));
+  });
   if(!result.ok)throw Error('payout_execution_'+String(result.code??'failed'));
   return {status:'submitted_or_already_exists',payout_id:payoutId};
 }

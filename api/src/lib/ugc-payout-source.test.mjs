@@ -25,8 +25,9 @@ test('a clarification outcome is not counted as a registered payout',async t=>{
 });
 test('Diana target requires original matching details and confirmed cart amount',async t=>{
  const env=fixture(t);globalThis.__review={status:'confirmed',amount_minor:45300};
- const target={conversation_id:'chat',message_id:'details',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300};
+ const target={conversation_id:'chat',message_id:'details',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'details',direction:'in',text:'89990000000 ТБанк Елена'}]};
  assert.deepEqual(await ingestCreatorPayouts(env,target),{registered:1,payout_id:'payout1'});assert.equal(globalThis.__intake.length,1);
  await assert.rejects(ingestCreatorPayouts(env,{...target,bank:'100000000111'}),/facts_do_not_match/);
  await assert.rejects(ingestCreatorPayouts(env,{...target,amount_minor:45400}),/amount_not_verified/);
+ await assert.rejects(ingestCreatorPayouts(env,{...target,originals:[{id:'details',direction:'in',text:'changed'}]}),/original_archive_mismatch/);
 });

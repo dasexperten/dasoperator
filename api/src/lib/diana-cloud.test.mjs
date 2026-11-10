@@ -70,8 +70,17 @@ test('Diana hands complete requisites to payout for the exact incoming message',
  f.env.decision={...f.env.decision,reply:null,requisites:{amount_rub:453,phone:'89990000000',bank:'ТБанк',first_name:'Елена'}};
  const {draft}=await f.prepare();
  assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'registered');
- assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300}]);
- assert.equal((await cloud.executeCloudPayout(f.env,'payout1')).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
+ assert.deepEqual(f.env.payoutHandoffs,[{conversation_id:'chat',message_id:'incoming',phone:'+79990000000',bank:'100000000004',first_name:'Елена',amount_minor:45300,originals:[{id:'incoming',direction:'in',text:'Расскажите о программе'}]}]);
+ assert.equal((await cloud.executeCloudPayout(f.env,'payout1',f.event)).status,'submitted_or_already_exists');assert.equal(f.env.executedPayout,'payout1');
+});
+test('partial payment details create a durable signal without a transfer',async t=>{
+ const f=fixture(t);f.originals[0].message='Телефон 89990000000';
+ f.env.decision={...f.env.decision,reply:'Уточните банк, пожалуйста.',requisites:null,payout_requisites_detected:true};
+ const {draft}=await f.prepare();
+ assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'partial');
+ const signal=JSON.parse(f.state('diana_payout_signal:message:incoming'));
+ assert.equal(signal.status,'incomplete');assert.equal(signal.message_id,'incoming');
+ assert.equal(f.env.payoutHandoffs,undefined);assert.equal(f.env.executedPayout,undefined);
 });
 test('preview exercises the same chain with zero sends and no live ACK',async t=>{
  const f=fixture(t);f.set('diana_cloud_mode','disabled');const event={...f.event,dryRun:true};

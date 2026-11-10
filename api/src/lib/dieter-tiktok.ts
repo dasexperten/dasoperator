@@ -17,7 +17,7 @@ const id=(value:any)=>typeof value==='string'&&/^\d+$/.test(value);
 
 async function loadGrant(env:Env,fetcher:typeof fetch,now:number){
  if(!env.GITHUB_TOKEN)stop('github_vault_access_missing');
- const r=await fetcher('https://api.github.com/repos/dasexperten/organizacia/contents/SECRETS/company/tiktok-business-publisher.md?ref=secrets',{
+ const r=await fetcher('https://api.github.com/repos/dasexperten/das-architektura/contents/SECRETS/company/tiktok-business-publisher.md?ref=main',{
   headers:{Authorization:`Bearer ${env.GITHUB_TOKEN}`,Accept:'application/vnd.github+json','User-Agent':'DasExperten-Dieter-TikTok/1.0'},redirect:'manual'});
  if(!r.ok)stop('tiktok_vault_unavailable');
  let card;try{const j:any=await r.json();card=atob(j.content.replace(/\s/g,''));}catch{stop('tiktok_vault_invalid');}

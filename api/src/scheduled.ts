@@ -687,6 +687,11 @@ export async function handleScheduled(
   // arrive from the bank's notification letters (workers/erp-modulbank-mail), every day.
 
   if (cron === '*/15 * * * *') {
+    try {
+      const { refreshDieterTikTok } = await import('./lib/dieter-tiktok-refresh.mjs');
+      const result = await refreshDieterTikTok(env);
+      console.log('[cron:tiktok-grant] ' + result.status);
+    } catch { console.error('[cron:tiktok-grant] unavailable'); }
     console.log('[cron:tg-inbox] starting Telegram inbox ingestion');
     try {
       const { runInboxIngestionTelegram } = await import('./lib/inbox-ingestion-telegram');

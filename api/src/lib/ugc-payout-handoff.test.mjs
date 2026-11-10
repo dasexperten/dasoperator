@@ -9,6 +9,7 @@ function fixture(t){
 }
 const events=f=>f.db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").all().map(r=>JSON.parse(r.value));
 test('a finished cloud workflow schedules a durable retry and dispatches paid notice when it becomes terminal',async t=>{
+ t.mock.method(Date,'now',()=>Date.parse('2026-11-10T12:00:00+03:00'));
  const f=fixture(t),instances=new Map([['direct-old','running']]),created=[];
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_mode','enabled',Date.now());
  f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_cloud_active','direct-old',Date.now());

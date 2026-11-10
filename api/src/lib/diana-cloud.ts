@@ -163,7 +163,7 @@ export async function draftCloudDecision(env: Env, key: string) {
   const incoming=source.history.filter((m:any)=>m.direction==='in');
   const guarded=guardReply(result.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,
     lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!source.ownerDecision});
-  const decision={...guarded,payoutRequisitesDetected:parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
+  const decision={...guarded,payoutRequisitesDetected:!!guarded.requisites || parsed.payout_requisites_detected===true || /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(String(incoming.at(-1)?.text??''))};
   const draftKey=await put(env,(await artifactPrefix(source.event))+'decision.json',{sourceKey:prepared.sourceKey,decision,receipt:result.receipt});
   return {key:draftKey,status:decision.escalate?'needs_review':decision.reply?'reply':'no_reply'};
 }
@@ -216,9 +216,9 @@ export async function deliverCloudDecision(env: Env, key: string) {
 export async function handoffCloudPayout(env: Env, key: string) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), r=draft.decision.requisites;
   await modeCheck(env,source.event);
-  if (source.event.dryRun || source.event.task || draft.decision.refused || draft.decision.escalate)
+  if (source.event.dryRun || source.event.task || draft.decision.refused)
     return {status:'not_applicable'};
-  if(!r && draft.decision.payoutRequisitesDetected){
+  if((!r || draft.decision.escalate) && draft.decision.payoutRequisitesDetected){
     // The payout intake validates and records the original without creating an
     // executable row. Values not independently verified are left incomplete.
     const pending=await prepareCreatorPayout(env,{verified:true,handle:source.handle,conversation_id:source.event.cid,

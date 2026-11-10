@@ -131,10 +131,10 @@ test('dispatcher creates exactly one durable event, waits on its real status and
  const f=fixture(t),instances=new Map(),creates=[];
  f.env.DIANA_CLOUD={async create({id,params}){creates.push({id,params});instances.set(id,'running');},async get(id){return{async status(){if(!instances.has(id))throw Error('not found');return{status:instances.get(id)};}};}};
  f.set('diana_action_pending:action:reminder',{...f.event,event_id:'action:reminder',task:'video_reminder'});
- assert.equal((await dispatchDianaCloud(f.env)).dispatched,true);assert.equal((await dispatchDianaCloud(f.env)).reason,'diana_cloud_working');assert.equal(creates.length,1);
+ assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).dispatched,true);assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'diana_cloud_working');assert.equal(creates.length,1);
  assert.ok(f.state('diana_action_pending:action:reminder'));
  instances.set(creates[0].id,'complete');f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review'});
- assert.equal((await dispatchDianaCloud(f.env)).reason,'cloud_events_await_review');assert.equal(creates.length,1);
+ assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'cloud_events_await_review');assert.equal(creates.length,1);
 });
 test('outside Moscow Direct hours the event remains queued and no workflow starts',async t=>{
  const f=fixture(t),creates=[];
@@ -152,7 +152,7 @@ test('direct and round share an atomic owner lock; another owner cannot release 
  assert.deepEqual(await readDianaCloudLock(f.env),round);
  assert.equal(await releaseDianaCloud(f.env,direct),false);
  f.env.DIANA_CLOUD={async create(){assert.fail('round is active');}};
- assert.equal((await dispatchDianaCloud(f.env)).reason,'diana_cloud_locked');
+ assert.equal((await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"))).reason,'diana_cloud_locked');
  assert.deepEqual(await readDianaCloudLock(f.env),round);
  assert.equal(await releaseDianaCloud(f.env,round),true);
  assert.equal(await reserveDianaCloud(f.env,direct),true);
@@ -184,7 +184,7 @@ test('an unconfirmed payment cannot become a paid notice even if the queue says 
 test('dispatcher prioritizes confirmed financial actions without restarting proactive reminders',async t=>{
  const f=fixture(t),created=[];f.env.DIANA_CLOUD={async create(p){created.push(p);},async get(){return{async status(){return{status:'complete'};}};}};
  f.set('diana_action_pending:action:paid',{...f.event,event_id:'action:paid',task:'payout_paid_notice',payout_id:'p1'});
- await dispatchDianaCloud(f.env);assert.equal(created[0].params.task,'payout_paid_notice');assert.equal(created[0].params.payout_id,'p1');assert.ok(f.state('diana_round_alarm:chat'));
+ await dispatchDianaCloud(f.env,undefined,Date.parse("2026-11-10T12:00:00+03:00"));assert.equal(created[0].params.task,'payout_paid_notice');assert.equal(created[0].params.payout_id,'p1');assert.ok(f.state('diana_round_alarm:chat'));
 });
 
 test('an already delivered payout notice cannot be repeated by a new model decision',async t=>{

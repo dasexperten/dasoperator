@@ -84,13 +84,13 @@ test('two product outputs across seven platforms are not truncated by the old tw
 });
 
 
-test('seven required API destinations and two optional preserve the original nine-destination scope',async()=>{
+test('seven required API destinations defer unverified Wibes/Ozon and preserve requested history',async()=>{
  const {reelScope,ACTIVE_REEL_DESTINATIONS}=await import('./ugc-reel-jobs.mjs');
  assert.deepEqual(ACTIVE_REEL_DESTINATIONS,['instagram','threads','youtube','facebook','vk','rutube','tiktok']);
- const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');assert.equal(scope.accounts.tiktok,'dasbroadcast');assert.equal(scope.publication_transport,'api');assert.equal(scope.tiktok_publisher,'Das Experten UGC Publisher');assert.deepEqual(scope.deferred,[]);
+ const scope=reelScope({});assert.deepEqual(scope.active,[...ACTIVE_REEL_DESTINATIONS]);assert.equal(scope.accounts.rutube_channel_id,'59945486');assert.equal(scope.accounts.tiktok,'dasbroadcast');assert.equal(scope.publication_transport,'api');assert.equal(scope.tiktok_publisher,'Das Experten UGC Publisher');assert.deepEqual(scope.deferred,['wibes','ozon']);assert.equal(scope.local_browser_fallback,false);assert.equal(scope.cloud_headless_enabled,false);
  assert.deepEqual(reelScope({required_destinations:'["youtube"]'}).active,['youtube']);
  const original=['instagram','threads','youtube','facebook','vk','rutube','tiktok','wibes','ozon'];
- const historical=reelScope({required_destinations:JSON.stringify(original)});assert.deepEqual(historical.original_required_destinations,original);assert.deepEqual(historical.active,[...ACTIVE_REEL_DESTINATIONS]);assert.deepEqual(historical.optional,['wibes','ozon']);assert.deepEqual(scope.optional,['wibes','ozon']);
+ const historical=reelScope({required_destinations:JSON.stringify(original)});assert.deepEqual(historical.original_required_destinations,original);assert.deepEqual(historical.active,[...ACTIVE_REEL_DESTINATIONS]);assert.deepEqual(historical.optional,[]);assert.deepEqual(scope.optional,[]);assert.deepEqual(historical.deferred,['wibes','ozon']);
  const text=reelTaskText({content_id:'rutube-new',content_url:'https://youtube.com/watch?v=AbC123def_0',claim_id:'private-placeholder',handle:'author'},'https://erp.test');
  assert.match(text,/jobs\/diter-rutube-upload\/runner.py/);assert.match(text,/59945486/);assert.match(text,/Das Experten UGC Publisher/);assert.match(text,/полный раунд не завершать/);assert.match(text,/модерация не равны публичной/);
 });
@@ -112,5 +112,5 @@ test('Wibes requires a concrete video link and API transport; task keeps missing
  assert.ok(reelPublicationProof([wibes],''));
  for(const patch of [{url:'https://wibes.ru/clips'},{url:'https://wibes.ru.evil/clips/video'},{publication_transport:undefined},{publication_transport:'browser'}])assert.equal(reelPublicationProof([{...wibes,...patch}],''),null);
  const text=reelTaskText({content_id:'nine',handle:'author',content_url:'https://instagram.com/reel/SOURCE/'},'https://erp.test');
- for(const literal of ['Wibes — дополнительное необязательное назначение через API','не подменять браузерной загрузкой','Ozon — дополнительное необязательное видео в карточке','сохранением всех существующих медиа','завершить раунд после проверки всех обязательных назначений'])assert.ok(text.includes(literal),literal);
+ for(const literal of ['Wibes и Ozon сейчас отключены','не подменять браузерной загрузкой','Ozon — дополнительное необязательное видео в карточке','сохранением всех существующих медиа','завершить раунд после проверки всех обязательных назначений'])assert.ok(text.includes(literal),literal);
 });

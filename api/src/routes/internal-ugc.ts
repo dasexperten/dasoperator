@@ -195,7 +195,7 @@ route.post('/reel-jobs/:id/reconcile-scope', async (c) => {
   const now=new Date().toISOString();
   const result=await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='published',published_at=COALESCE(published_at,?),last_error=NULL,updated_at=? WHERE content_id=? AND status='queued' AND publications=? AND required_destinations=?`).bind(now,now,id,job.publications,job.required_destinations),
-    c.env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='published') ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('ugc-reel-scope:'+id,JSON.stringify({...scope,reason:'Owner 10Nov: Wibes/Ozon optional; original requested destinations preserved',completion:'attended_existing_proofs',verified_at:now}),Date.now(),id),
+    c.env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='published') ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('ugc-reel-scope:'+id,JSON.stringify({...scope,reason:'Owner 10Nov: Wibes/Ozon excluded pending publishing access; original requested destinations preserved',completion:'attended_existing_proofs',verified_at:now}),Date.now(),id),
   ]);
   if(!result[0].meta.changes)return c.json({ok:false,error:'scope_reconcile_conflict_read_again'},409);
   return c.json({ok:true,content_id:id,status:'published',destination_scope:scope,publications:proofs});

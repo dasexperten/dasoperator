@@ -297,3 +297,13 @@ test('full-flow timing ends only after all saved publications and separates repa
  f.db.exec("UPDATE ugc_reel_jobs SET published_at='2026-11-10T04:16:00Z'");
  assert.deepEqual(await saveDieterFlowTiming(f.env,'one','exact-claim'),timing);
 });
+
+test('owner one-time authorization starts only its queued video outside hours and is consumed',async t=>{
+ const f=fixture(t),outside=Date.parse('2026-11-10T13:37:00Z');
+ f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run('dieter_manual_once:one',JSON.stringify({content_id:'one',state:'ready',expires_at:'2026-11-11T00:00:00Z'}));
+ const req=id=>new Request('https://dieter.internal/dispatch',{method:'POST',body:JSON.stringify({now:outside,contentId:id})});
+ assert.equal((await (await f.wake.fetch(req('two'))).json()).note,'outside_window');
+ const started=await (await f.wake.fetch(req('one'))).json();assert.equal(started.accepted,true);assert.equal(f.created.length,1);
+ const saved=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_manual_once:one'").get().value);
+ assert.equal(saved.state,'consumed');assert.equal(saved.claim_id,f.db.prepare("SELECT claim_id FROM ugc_reel_jobs WHERE content_id='one'").get().claim_id);
+});

@@ -101,7 +101,10 @@ export class DieterWake {
   if(await runtimeStopped(this.env))return Response.json({ok:true,accepted:false,note:'runtime_incident_stop'});
   if(await this.env.DB.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").first())return Response.json({ok:true,accepted:false,note:'preflight_blocked_after_three_failures'});
   const {now:inputNow,contentId=null}=await request.json() as {now?:number;contentId?:string|null};const now=inputNow??Date.now();
-  if(!diterWindow(now))return Response.json({ok:true,accepted:false,note:'outside_window'});
+  const onceKey=contentId?'dieter_manual_once:'+contentId:null;
+  const once=onceKey?await getRecord(this.env,onceKey):null;
+  const manual=Boolean(once&&once.content_id===contentId&&once.state==='ready'&&Date.parse(once.expires_at)>Date.now());
+  if(!manual&&!diterWindow(now))return Response.json({ok:true,accepted:false,note:'outside_window'});
   const busy=await this.env.DB.prepare("SELECT content_id,claim_id,consumer_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first<any>();
   if(busy){
    if(await getRecord(this.env,executionHold(busy.content_id)))return Response.json({ok:true,accepted:false,note:'execution_requires_reconciliation'});
@@ -117,16 +120,18 @@ export class DieterWake {
   if(!pending)return Response.json({ok:true,accepted:false,note:'empty'});
   const readiness=await preflightDieter(this.env); // A red job is never claimed for an unavailable runtime.
   if(readiness.activation_ready!==true)return Response.json({ok:true,accepted:false,note:'cloud_source_access_not_ready',reason:readiness.drive?.reason});
-  if(!diterWindow(Date.now()))return Response.json({ok:true,accepted:false,note:'preflight_finished_outside_window'});
+  if(!manual&&!diterWindow(Date.now()))return Response.json({ok:true,accepted:false,note:'preflight_finished_outside_window'});
   if(await runtimeStopped(this.env))return Response.json({ok:true,accepted:false,note:'runtime_incident_stop'});
   const claim=crypto.randomUUID(),at=new Date(now).toISOString(),workflowId='dieter-'+claim;
   const accepted=await this.env.DB.prepare(`UPDATE ugc_reel_jobs SET status='working',claim_id=?1,consumer_id=?2,started_at=?3,acknowledged_at=NULL,attempts=attempts+1,last_error=NULL,updated_at=?3
    WHERE content_id=?4 AND status='queued' AND attempts<3
    AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE status='working')
    AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked') OR key='dieter_cloud_execution_hold:'||?4)
+   AND (?6=0 OR EXISTS(SELECT 1 FROM crm_sync_state WHERE key=?7 AND json_extract(value,'$.state')='ready' AND json_extract(value,'$.expires_at')>?3))
    AND NOT EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE started_at>?5)`)
-   .bind(claim,CONSUMER,at,pending.content_id,new Date(now-START_INTERVAL_MS).toISOString()).run();
+   .bind(claim,CONSUMER,at,pending.content_id,new Date(now-START_INTERVAL_MS).toISOString(),manual?1:0,onceKey).run();
   if(!accepted.meta.changes)return Response.json({ok:true,accepted:false,note:'busy_or_cooldown'});
+  if(manual)await this.env.DB.prepare("UPDATE crm_sync_state SET value=json_set(value,'$.state','consumed','$.claim_id',?),updated_at=? WHERE key=? AND json_extract(value,'$.state')='ready'").bind(claim,Date.now(),onceKey).run();
   // Exact instance identity is recoverable if create acknowledgement is lost.
   await this.env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING").bind('dieter_cloud_assignment:'+claim,JSON.stringify({workflow_id:workflowId,content_id:pending.content_id,claim_id:claim}),Date.now()).run();
   try{await this.env.DIETER_CLOUD.create({id:workflowId,params:{content_id:pending.content_id,claim_id:claim}});}

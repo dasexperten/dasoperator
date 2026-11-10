@@ -22,7 +22,7 @@ export class CodexRunner extends Container {
   }catch{return Response.json({error:'runtime_check_failed'},{status:503});}
  });}
  async infer(body){return this.serial(async()=>{
-  if(!body.requestId||!['image','context','reply','dieter_round'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request',contract:'dieter-tools-v1',request_id_present:Boolean(body.requestId),operation_supported:['image','context','reply','dieter_round'].includes(body.operation),model_supported:['gpt-6-luna','gpt-6.1-terra'].includes(body.model)},{status:400});
+  if(!body.requestId||!['image','context','reply','dieter_round','video_frames'].includes(body.operation)||!['gpt-6-luna','gpt-6.1-terra'].includes(body.model)||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request',contract:'dieter-tools-v1',request_id_present:Boolean(body.requestId),operation_supported:['image','context','reply','dieter_round','video_frames'].includes(body.operation),model_supported:['gpt-6-luna','gpt-6.1-terra'].includes(body.model)},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const cacheKey='result:'+body.requestId;const previous=await this.ctx.storage.get(cacheKey);
   if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}
@@ -75,6 +75,7 @@ export class CodexRunner extends Container {
    delete result.privateEvents;result.auditArtifact=artifact;
   }
   if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
+  if(body.operation==='video_frames')return Response.json(result); // Large private frames never enter durable result cache.
   await this.ctx.storage.put(cacheKey,{fingerprint,result,at:Date.now()});
   const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
   return Response.json(result);

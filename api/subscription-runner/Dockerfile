@@ -4,7 +4,7 @@ RUN python3 -m venv /opt/media && /opt/media/bin/pip install --no-cache-dir 'yt-
 ENV PATH=/opt/media/bin:$PATH
 RUN npm install --global @openai/codex@0.165.0
 WORKDIR /app
-COPY native.mjs server.mjs dieter.mjs ./
+COPY native.mjs server.mjs dieter.mjs video-frames.mjs ./
 RUN node -e "require('fs').writeFileSync('/app/ca.pem', require('tls').rootCertificates.join('\n'))"
 ENV SSL_CERT_FILE=/app/ca.pem
 ENV DIANA_STATE_DIR=/home/node/diana-state

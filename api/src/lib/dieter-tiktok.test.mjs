@@ -41,7 +41,7 @@ function fixture(t,options={}){
    if(options.cycle)return reply({videos:[],has_more:true,cursor:20});
    if(options.paged&&!url.searchParams.has('cursor'))return reply({videos:[{item_id:'123',caption:'unrelated'}],has_more:true,cursor:20});
    if(options.paged)assert.equal(url.searchParams.get('cursor'),'20');
-   return reply({videos:posted?[{item_id:videoId,caption:caption.replace(/ /g,'\n'),share_url:publicUrl}]:options.existing?[{item_id:'123',caption:'creator_fixture another source'}]:[],has_more:false,cursor:0});
+   return reply({videos:posted?[{item_id:videoId,caption:caption.replace(/ /g,'\n'),share_url:publicUrl,video_duration:options.duration??13.11}]:options.existing?[{item_id:'123',caption:'creator_fixture another source'}]:[],has_more:false,cursor:0});
   }
   if(url.pathname.endsWith('/business/video/publish/')){
    posts++;assert.equal(ledger().state,'publish_requested');const body=JSON.parse(init.body);
@@ -59,7 +59,7 @@ function fixture(t,options={}){
 }
 test('one exact Business POST, accepted ID persisted before readback, prior proofs preserved',async t=>{
  const f=fixture(t,{paged:true});const result=await f.run();assert.equal(result.status,'verified',JSON.stringify(result));assert.equal(f.stats().posts,1);assert.equal(f.ledger().state,'verified');
- const proofs=JSON.parse(f.db.prepare('SELECT publications FROM ugc_reel_jobs').get().publications);assert.deepEqual(proofs[0],f.prior[0]);assert.equal(proofs[1].url,publicUrl);
+ const proofs=JSON.parse(f.db.prepare('SELECT publications FROM ugc_reel_jobs').get().publications);assert.deepEqual(proofs[0],f.prior[0]);assert.equal(proofs[1].url,publicUrl);assert.match(proofs[1].evidence,/returned duration 13.11s vs original 13s/);
  assert.equal((await f.run('reconcile')).status,'verified');assert.equal(f.stats().posts,1);
  assert.ok(!JSON.stringify(f.ledger()).includes('fixture-token-not-real'));assert.ok(!JSON.stringify(result).includes('fixture-token-not-real'));
 });
@@ -95,6 +95,10 @@ test('a crash after reservation but before intent can safely resume one first PO
 test('proof CAS failure preserves verified provider receipt and resumes without republishing',async t=>{
  const options={proofConflict:true},f=fixture(t,options);assert.equal((await f.run()).code,'tiktok_proof_cas_conflict_read_only_resume');assert.equal(f.ledger().state,'verified');assert.equal(f.stats().posts,1);
  options.proofConflict=false;assert.equal((await f.run('reconcile')).status,'verified');assert.equal(f.stats().posts,1);
+});
+for(const duration of [0,1,16,'13'])test('invalid/truncated provider duration '+duration+' cannot become verified or cause resending',async t=>{
+ const options={duration},f=fixture(t,options);assert.equal((await f.run()).code,'tiktok_original_duration_readback_mismatch');assert.equal(f.ledger().state,'accepted');assert.equal(f.ledger().shareId,'v_pub_url~fixture');assert.equal(f.stats().posts,1);
+ options.duration=13.11;assert.equal((await f.run('reconcile')).status,'verified');assert.equal(f.stats().posts,1);
 });
 test('canonical source hosting uses exact Drive bytes and org/assets R2 mapping, then public SHA readback',async()=>{
  let hosted=false,puts=0;const env={DIETER_PRIVATE_FILES:JSON.stringify({'google-drive-api.json':{client_id:'fixture-client',client_secret:'fixture-secret',refresh_token:'fixture-refresh'}}),ORG_ASSETS:{async put(key,value,options){puts++;assert.equal(key,`org/assets/ugc/${sha}/original.mp4`);assert.equal(options.httpMetadata.contentType,'video/mp4');assert.deepEqual(new Uint8Array(value),bytes);hosted=true;}}};

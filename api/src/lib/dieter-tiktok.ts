@@ -167,10 +167,14 @@ export async function runDieterTikTokApi(env:Env,args:TikTokSource,mode:Mode,opt
   if(status.post_ids.length!==1||!id(status.post_ids[0]))stop('tiktok_unexpected_post_ids');
   const postId=status.post_ids[0],videos=await inventory(api),matches=videos.filter(v=>v.item_id===postId);
   if(matches.length!==1||normalize(matches[0].caption)!==normalize(caption))stop('tiktok_exact_post_or_caption_readback_failed');
+  // Match the existing Facebook helper's accepted container/audio duration
+  // window; comparing the actual post catches truncated provider deliveries.
+  const duration=matches[0].video_duration;
+  if(typeof duration!=='number'||!Number.isFinite(duration)||duration<=0||Math.abs(duration-args.sourceDurationSeconds)>1.5)stop('tiktok_original_duration_readback_mismatch');
   let publicUrl:URL;try{publicUrl=new URL(matches[0].share_url);}catch{stop('tiktok_public_share_url_missing');}
   if(publicUrl.protocol!=='https:'||!['www.tiktok.com','tiktok.com'].includes(publicUrl.hostname)||publicUrl.pathname!==`/@${ACCOUNT}/video/${postId}`||publicUrl.username||publicUrl.password)stop('tiktok_public_share_url_mismatch');
   publicUrl.search='';publicUrl.hash='';
-  const proof={platform:'tiktok',url:publicUrl.toString(),account:ACCOUNT,verified:true,evidence:'TikTok Business API PUBLISH_COMPLETE with one exact post ID; complete video/list confirms account, caption and provider share URL; original SHA256 '+args.sourceSha256,verified_at:new Date(now()).toISOString(),provider_video_id:postId,verification_method:'tiktok_business_api',source_sha256:args.sourceSha256};
+  const proof={platform:'tiktok',url:publicUrl.toString(),account:ACCOUNT,verified:true,evidence:`TikTok Business API PUBLISH_COMPLETE with one exact post ID; complete video/list confirms account, caption and provider share URL; returned duration ${duration}s vs original ${args.sourceDurationSeconds}s; original SHA256 ${args.sourceSha256}`,verified_at:new Date(now()).toISOString(),provider_video_id:postId,verification_method:'tiktok_business_api',source_sha256:args.sourceSha256,video_duration:duration};
   // Persist provider IDs/proof before ERP's proof CAS, so a crash resumes GET-only.
   const verified={...ledger,state:'verified',postIds:[postId],proof,verifiedAt:now()};
   if(!await cas(stored.value,verified))stop('tiktok_verified_ledger_conflict_read_only_resume');

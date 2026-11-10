@@ -26,7 +26,7 @@ import {publicationLinks} from './ugc-publication-links.mjs';
 import {dianaWorkWindow} from './diana-work-window.mjs';
 
 export type DianaCloudEvent = { cid: string; message_id: string; event_id: string; handle?: string; at: string; dryRun?: boolean;
-  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';recovery?:boolean;recoveryKind?:'video'|'text'|'unsupported';recoveryAttempt?:number;mediaRetried?:boolean;payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
+  task?:'payout_paid_notice'|'payout_failed_notice'|'round'|'owner_choice';recovery?:boolean;recoveryKind?:'video'|'text'|'unsupported';recoveryAttempt?:number;mediaRetried?:boolean;skipPayout?:boolean;payout_id?:string;round_slot?:string;creator_id?:string;question_id?:string };
 const PAGE = '1697038263872226', BRAND = '17841466350261166';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const PREFIX = 'diana/cloud-direct/v1/';
@@ -397,7 +397,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
   const draft=await get(env,key), source=await get(env,draft.sourceKey), decision=draft.decision;
   await modeCheck(env,source.event);
   if(source.event.recovery&&(source.event.recoveryKind==='text'||source.event.recoveryKind==='unsupported'&&draft.textRecovery)){
-    if(!draft.textRecovery||decision.sendCards||decision.sendOzonPhoto||decision.agreed||decision.refused)return {status:'needs_review',reason:'text_recovery_requires_separate_review'};
+    if(!draft.textRecovery||decision.sendCards||decision.sendOzonPhoto||decision.refused)return {status:'needs_review',reason:'text_recovery_requires_separate_review'};
   }else if(source.event.recovery&&source.event.recoveryKind==='unsupported'&&draft.partialReceiptReply){
     if(decision.reply!=='Спасибо! Передали реквизиты в обработку.'||decision.parts?.length!==1||decision.parts[0]!==decision.reply||decision.sendCards||decision.sendOzonPhoto)return {status:'needs_review',reason:'partial_receipt_reply_not_verified'};
   }else if(source.event.recovery&&source.event.recoveryKind==='unsupported'&&draft.restoredMedia&&!draft.unreadableMedia){
@@ -462,7 +462,7 @@ export async function deliverCloudDecision(env: Env, key: string, now:()=>number
 export async function handoffCloudPayout(env: Env, key: string) {
   const draft=await get(env,key), source=await get(env,draft.sourceKey), r=draft.decision.requisites;
   await modeCheck(env,source.event);
-  if (source.event.dryRun || source.event.task || draft.decision.refused)
+  if (source.event.dryRun || source.event.task || source.event.skipPayout || (source.event.recovery && await stateRead(env,'diana_recovery_skip_payout:'+source.event.event_id)) || draft.decision.refused)
     return {status:'not_applicable'};
   if(draft.reconciliationPending||draft.senderQuestion)return {status:'not_applicable'}; // Never retry a disputed prior transfer.
   if(draft.unreadableMedia)return {status:'partial'}; // Unknown media may contain corrections; no transfer.

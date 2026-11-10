@@ -1,5 +1,6 @@
 import type { Env } from '../types';
 import { pendingDianaMessages } from './diana-alarm';
+import { igDeliveryKey } from './ig-dm-delivery';
 import { dianaWorkWindow } from './diana-work-window.mjs';
 import { readDianaCloudLock, releaseDianaCloud, reserveDianaCloud, recoverDianaCloudLock } from './diana-cloud-lock';
 
@@ -84,7 +85,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
   for(const event of waiting){
     if(recoveryOnly&&event.event_id!==priorityEventId)continue;
     const known=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_cloud_event:'+event.event_id).first<{value:string}>();
-    let deferred=false,mediaResume=false,mediaRetryAt=0,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryFailureRetry=false,recoveryPrevious='',recoveryId='';let recoveryAttempt=1;let recoveryKind:'video'|'text'|'unsupported'|null=null;
+    let deferred=false,mediaResume=false,mediaRetryAt=0,videoRecovery=false,recoveryCandidate=false,recoveryResume=false,recoveryRetry=false,recoveryFailureRetry=false,dataGuardRetry=false,recoveryPrevious='',recoveryId='';let recoveryAttempt=1;let recoveryKind:'video'|'text'|'unsupported'|null=null;
     if(known){try{const prior=JSON.parse(known.value);deferred=prior?.status==='deferred';
       if(prior?.status==='media_wait'&&Number.isFinite(Number(prior.retry_at))){mediaRetryAt=Number(prior.retry_at);if(now>=mediaRetryAt)mediaResume=true;else mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);}
       recoveryCandidate=String(event.queue_key).startsWith('diana_round_alarm:')&&prior?.status==='needs_review';
@@ -115,6 +116,16 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
         if(data?.status==='media_wait'&&Number.isFinite(Number(data.retry_at))){mediaRetryAt=Number(data.retry_at);if(now<mediaRetryAt){mediaNext=mediaNext===null?mediaRetryAt:Math.min(mediaNext,mediaRetryAt);continue;}mediaResume=true;recoveryResume=true;}
         else if(data?.status==='create_missing'&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){recoveryRetry=true;recoveryId=data.workflow_id;}
         else if(data?.status==='deferred'&&Number.isFinite(Number(data.at))&&dianaWorkWindow(Number(data.at)).date<dianaWorkWindow(now).date)recoveryResume=true;
+        else if(data?.status==='needs_review'&&data.reason==='text_recovery_requires_separate_review'&&recoveryKind==='text'&&previousAttempt===1&&!data.deliveryKey){
+          // This specific legacy guard returned before creating an outbox. The
+          // original must still be latest, and any delivery or done marker stops replay.
+          const delivery=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(igDeliveryKey(event.cid,new Date(event.at).toISOString())).first();
+          const done=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_event_done:'+event.event_id).first();
+          if(delivery||done)continue;
+          const oldHash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('video-recovery:'+event.event_id)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+          try{const status=await(await env.DIANA_CLOUD.get('direct-v1-'+oldHash)).status();if(status.status!=='complete')continue;}catch{continue;}
+          recoveryFailureRetry=true;dataGuardRetry=true;recoveryAttempt=2;
+        }
         else if(data?.status==='failed'&&data.reason==='recovery_technical_retryable'&&previousAttempt<3&&Number.isFinite(Number(data.at))&&now-Number(data.at)>=180_000&&/^direct-v1-[a-f0-9]{64}$/.test(String(data.workflow_id??''))){
           try{const status=await(await env.DIANA_CLOUD.get(data.workflow_id)).status();if(!['complete','errored','terminated'].includes(status.status))continue;}catch{continue;}
           recoveryFailureRetry=true;recoveryAttempt=previousAttempt+1;
@@ -141,6 +152,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
       }
     }
     if(videoRecovery){
+      if(dataGuardRetry)await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_recovery_skip_payout:'+event.event_id,'1',Date.now()).run();
       const marker=JSON.stringify({status:'queued',event_id:event.event_id,workflow_id:id,recovery:true,recovery_attempt:recoveryAttempt,at:Date.now()});
       const inserted=recoveryResume||recoveryRetry||recoveryFailureRetry
         ?await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND value=?4').bind('diana_video_recovery_result:'+event.event_id,marker,Date.now(),recoveryPrevious).run()
@@ -152,7 +164,7 @@ export async function dispatchDianaCloud(env:Env,priorityEventId?:string, now=Da
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('diana_cloud_active',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
       .bind(id,Date.now()).run();
     try { await env.DIANA_CLOUD.create({id,params:{cid:event.cid,message_id:event.message_id,event_id:event.event_id,handle:event.handle,at:event.at,
-      ...(mediaResume?{mediaRetried:true}:{}),...(videoRecovery?{recovery:true,recoveryKind,recoveryAttempt}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
+      ...(mediaResume?{mediaRetried:true}:{}),...(videoRecovery?{recovery:true,recoveryKind,recoveryAttempt,...(dataGuardRetry?{skipPayout:true}:{})}:financial(event)?{task:event.task,payout_id:event.payout_id}:ownerChoice(event)?{task:'owner_choice',question_id:String(event.question_id)}:{})}}); }
     catch(error){
       // A nonexistent instance is a real failed create, and leaves the pending
       // metadata untouched. A duplicate-ID response resolves to the same work.

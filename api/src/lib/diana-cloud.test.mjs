@@ -644,3 +644,22 @@ test('readable text on the same unsupported message is answered without the medi
  const {draft}=await f.prepare(event);assert.equal(f.state('diana_media_retry:'+event.event_id),undefined);assert.ok(f.state('diana_unreadable_media:incoming'));
  const sent=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(sent.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что сообщили!');
 });
+
+test('recovery may acknowledge a receipt despite agreed flag without duplicate delivery or stage regression',async t=>{
+ const f=fixture(t); f.originals[0].message='Забрала';f.db.prepare("UPDATE ugc_creators SET lifecycle_stage='creation' WHERE id='creator-id'").run();
+ const event={...f.event,recovery:true,recoveryKind:'text'}; f.env.decision={...f.env.decision,reply:'Спасибо, что сообщили!',replies:['Спасибо, что сообщили!'],agreed:true};
+ const {draft}=await f.prepare(event);const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');await cloud.completeCloudEvent(f.env,event,out);
+ assert.equal(f.db.prepare("SELECT lifecycle_stage FROM ugc_creators WHERE id='creator-id'").get().lifecycle_stage,'creation');await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);
+});
+test('legacy text guard retries once only with completed workflow and absent delivery, without payout',async t=>{
+ for(const blocked of ['none','delivery','done','running']){
+  const f=fixture(t),created=[]; f.originals[0].message='Забрала';f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'old review'});
+  f.set('diana_video_recovery_result:'+f.event.event_id,{status:'needs_review',reason:'text_recovery_requires_separate_review'});
+  if(blocked==='delivery')f.set('ig_reply_delivery:chat:'+f.event.at,{status:'complete'});if(blocked==='done')f.set('diana_event_done:'+f.event.event_id,{verified:true});
+  f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return {status:blocked==='running'?'running':'complete'}}}}};
+  const out=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:10:00+03:00'));
+  assert.equal(out.dispatched,blocked==='none');if(blocked!=='none'){assert.equal(created.length,0);continue;}
+  assert.equal(created[0].params.skipPayout,true);assert.equal(created[0].params.recoveryAttempt,2);assert.equal(f.state('diana_recovery_skip_payout:'+f.event.event_id),'1');
+  const event={...f.event,recovery:true,recoveryKind:'text',skipPayout:true};const {draft}=await f.prepare(event);assert.equal((await cloud.handoffCloudPayout(f.env,draft.key)).status,'not_applicable');assert.equal(f.env.executedPayout,undefined);
+ }
+});

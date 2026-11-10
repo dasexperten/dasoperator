@@ -11,7 +11,7 @@ import {subscriptionInfer} from './diana-subscription.mjs';
 const PAGE='1697038263872226', IG='17841466350261166';
 const BANK_LABELS:Record<string,string>={'100000000111':'Сбербанк','100000000004':'Т-Банк','100000000005':'ВТБ','100000000273':'Озон Банк','100000000008':'Альфа-Банк','100000000007':'Райффайзенбанк','100000000001':'Газпромбанк','100000000013':'Совкомбанк','100000000017':'МТС Банк','100000000016':'Почта Банк','100000000012':'Росбанк','100000000150':'Яндекс Банк','100000000015':'Открытие','100000000026':'Уралсиб','100000000020':'Россельхозбанк'};
 // Original-message intake with subscription image review; no replies, read marks or payment calls.
-export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number;video?:boolean;image?:boolean;originals:{id:string;direction:string;text:string}[]}){
+export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:string;message_id:string;phone:string;bank:string;first_name:string;amount_minor:number;video?:boolean;image?:boolean;recovery?:boolean;originals:{id:string;direction:string;text:string}[]}){
  const token=(env as unknown as {META_IG_MESSAGING_TOKEN?:string}).META_IG_MESSAGING_TOKEN;
  if(!token)throw Error('payment_source_token_missing');
  async function graph(path:string,key:string):Promise<any>{
@@ -42,7 +42,7 @@ export async function ingestCreatorPayouts(env:Env, target?:{conversation_id:str
    const archived=await env.DB.prepare(`SELECT id,direction,text,created_at,from_username,attachments_json FROM ugc_ig_messages WHERE conversation_id=?1 AND created_at>=?2 ORDER BY created_at DESC LIMIT 500`).bind(c.id,new Date(since).toISOString()).all<any>();
    const messages=archived.results??[];let r:any=latestRequisites(messages);let videoAmount:number|null=null;
    if(target?.video){
-    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('message:'+target.message_id));
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode((target.recovery?'video-recovery:':'')+'message:'+target.message_id));
     const hash=[...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('');
     const prefix='diana/cloud-direct/v1/'+hash+'/';
     const firstObject=await env.DOCS.get(prefix+'video-evidence.json'),secondObject=await env.DOCS.get(prefix+'video-recheck.json');

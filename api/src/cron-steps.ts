@@ -59,20 +59,14 @@ export const STEPS: Record<string, Step> = {
   // No message body, generation, image interpretation, reply or model client in ERP Direct.
   'erp-ugc-direct': async (env) => {
     const { detectDianaMessages } = await import('./lib/diana-alarm');
-    const { startDailyVideoReminders } = await import('./lib/diana-video-reminder-schedule');
-    const batch = await startDailyVideoReminders(env).catch((error) => ({error: ugcStepError('video reminder batch', error)}));
-    return JSON.stringify({ ...(await detectDianaMessages(env)), video_reminder_batch: batch });
+    return JSON.stringify(await detectDianaMessages(env));
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
   'erp-ugc-payouts': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-    const { ingestCreatorPayouts } = await import('./lib/ugc-payout-source');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
-      let registered=0,intakeError:unknown;
-      try{registered=await ingestCreatorPayouts(e);}catch(error){intakeError=error;}
-      const refreshed = registered + await ugcPayoutSweep(e);
-      if(intakeError)throw intakeError;
+      const refreshed = await ugcPayoutSweep(e);
       // Owner 2026-11-08: retired the legacy hourly incident_control escalation.
       // Creator post links and metrics belong to erp-ugc-postlink, not this payout lane.
       const failures: string[] = [];

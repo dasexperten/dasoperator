@@ -416,6 +416,10 @@ export async function handleScheduled(
   // Each lane runs only when due — 3 min after activity, then 15, then 30.
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
+    try {
+      const {scheduleDianaRound}=await import('./lib/diana-cloud-round-schedule');
+      await scheduleDianaRound(env,event.scheduledTime || Date.now());
+    } catch(e) {recordFailure(e);console.error('[diana-cloud-round] scheduling failed');}
     // Owner 2026-11-07: ERP owns erp-ugc-diter; the local tool-capable
     // diter-ugc-round receives the exact accepted job from a live consumer.
     try {
@@ -428,7 +432,9 @@ export async function handleScheduled(
     // the 3 / 15 / 30 state is one row per lane, so a step never runs twice in a slot.
     try {
       const { STEPS } = await import('./cron-steps');
+      const { dianaWorkWindow } = await import('./lib/diana-work-window.mjs');
       for (const w of ['erp-ugc-direct', 'erp-ugc-payouts']) {
+        if (w === 'erp-ugc-direct' && !dianaWorkWindow(event.scheduledTime || Date.now()).direct) continue;
         // Owner 09.11: payout fallback shares the fixed ten-minute clock.
         if (w === 'erp-ugc-payouts' && new Date(event.scheduledTime || Date.now()).getUTCMinutes() % 10 !== 0) continue;
         const fresh = await env.DB.prepare(

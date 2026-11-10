@@ -94,7 +94,7 @@ jobs:
         run: node --test api/src/lib/mail-images.test.mjs
 
       - name: Test Diana cloud execution and delivery recovery
-        run: node --test api/src/lib/diana-cloud.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-subscription-transport.test.mjs
+        run: node --test api/src/lib/diana-cloud*.test.mjs api/src/lib/diana-round*.test.mjs api/src/lib/diana-work-window.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-subscription-transport.test.mjs
 
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs workers/erp-site-sales-rebuild/src/index.test.mjs
@@ -155,7 +155,7 @@ jobs:
       # Konsol payouts (Owner 2026-10-14): limits, own RUB = balance − overdraft,
       # one payment per row, callback status mapping. Money code does not ship red.
       - name: Test UGC payouts and Konsol money rules
-        run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs web/lib/ugc-payout-cell.test.mjs web/lib/ugc-payout-badge.test.mjs
+        run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs api/src/lib/ugc-payout-claim.test.mjs api/src/routes/ugc-requisites-lock.test.mjs web/lib/ugc-payout-cell.test.mjs web/lib/ugc-payout-badge.test.mjs
 
       - name: Test save-only UGC amount review and atomic holds
         run: node --test api/src/lib/ugc-amount-review.test.mjs api/src/lib/ugc-payout-patch.test.mjs api/src/lib/ugc-amount-review.d1.test.mjs web/lib/ugc-amount-review.test.mjs web/components/ugc/AmountReviewModal.test.mjs

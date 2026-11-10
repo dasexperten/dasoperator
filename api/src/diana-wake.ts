@@ -1,6 +1,7 @@
 import type { Env } from './types';
 import { pendingDianaMessages } from './lib/diana-alarm';
 import { dispatchDianaCloud } from './lib/diana-cloud-dispatch';
+import {scheduleDianaRound} from './lib/diana-cloud-round-schedule';
 
 // Owner 2026-11-07: ERP never hands Diana text or the whole queue. One dispatch carries at most 50 identifiers
 // (oldest first); Diana reads the originals herself, and the rest follow on the next dispatch.
@@ -27,6 +28,14 @@ export class DianaWake {
   constructor(private state: DurableObjectState, private env: Env) {}
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/cloud-released') {
+      // Workflows are still reported as running during their final step. A
+      // durable alarm retries promptly after that step returns, without waiting
+      // for the next metadata scan. Multiple completions coalesce.
+      await this.state.storage.put('cloud_release_attempts',0);
+      await this.state.storage.setAlarm(Date.now()+1000);
+      return Response.json({queued:true});
+    }
     if (url.pathname === '/connect') {
       const role = url.searchParams.get('role') ?? '';
       if (!RANK.includes(role)) return new Response('', { status: 400 });
@@ -43,6 +52,18 @@ export class DianaWake {
     let priorityEventId:string|undefined;
     try{const body=await request.json() as {priority_event_id?:unknown};if(typeof body.priority_event_id==='string')priorityEventId=body.priority_event_id;}catch{}
     return Response.json(await this.dispatch(priorityEventId));
+  }
+  async alarm() {
+    const attempts=Number(await this.state.storage.get('cloud_release_attempts')??0)+1;
+    let retry=false;
+    try {
+      const round=await scheduleDianaRound(this.env,Date.now());
+      if(round.scheduled)return;
+      const result=await this.dispatch();
+      retry=['diana_cloud_working','diana_cloud_locked','diana_machine_finishing'].includes(String((result as any)?.reason??''));
+    } catch { retry=true; }
+    if(retry&&attempts<3){await this.state.storage.put('cloud_release_attempts',attempts);await this.state.storage.setAlarm(Date.now()+2000);}
+    else await this.state.storage.delete('cloud_release_attempts');
   }
   private async roundClaim(){
     const row=await this.env.DB.prepare("SELECT updated_at FROM crm_sync_state WHERE key='diana_round_claim'").first<{updated_at:number}>();

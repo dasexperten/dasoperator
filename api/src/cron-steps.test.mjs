@@ -49,15 +49,15 @@ async function failsOnPayoutClock(t, worker, overrides, pattern) {
 }
 test('Direct only detects metadata; it never reads bodies, calls a reply model or changes adaptive cadence', async t => {
   const f = fixture(t, { detect: { detected: 3, dispatched: true } });
-  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true, video_reminder_batch: {due:false} });
-  assert.deepEqual(f.calls, ['video_batch', 'detect']); assert.equal(f.state, null);
+  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)), { detected: 3, dispatched: true });
+  assert.deepEqual(f.calls, ['detect']); assert.equal(f.state, null);
   const g = fixture(t, { detect: new Error('metadata unavailable') });
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
-  assert.deepEqual(g.calls, ['video_batch', 'detect']);
+  assert.deepEqual(g.calls, ['detect']);
 });
-test('payout timer ingests originals before sweeping payouts without legacy incident escalation, creator links or metrics', async t => {
+test('payout timer reconciles existing payments without independently searching creator chats', async t => {
   const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);
-  assert.deepEqual(f.calls, ['intake', 'payout']);
+  assert.deepEqual(f.calls, ['payout']);
 });
 test('payout idle is success; sweep exception is failure', async t => {
   const f = fixture(t); assert.match(await STEPS['erp-ugc-payouts'](f.env), /"ok":true/); assert.equal(JSON.parse(f.state).delay_min, 10);
@@ -70,8 +70,4 @@ test('required waiting and payout count reads cannot report unknown as zero and 
 test('removed timer jobs have no executable ERP step', () => {
   assert.equal(STEPS['erp-promo-refill'], undefined);
   assert.equal(STEPS['erp-ugc-payout-summary'], undefined);
-});
-
-test('recognition outage still refreshes existing payouts before reporting failed intake',async t=>{
- const f=await failsOnPayoutClock(t,'erp-ugc-payouts',{intake:new Error('cart_recognition_pending')},/cart_recognition_pending/);assert.deepEqual(f.calls,['intake','payout']);
 });

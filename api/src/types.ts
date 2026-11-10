@@ -3,10 +3,11 @@
 // =============================================================================
 
 export interface Env {
+  DIANA_ROUND: Workflow<{id:string;scheduled_at:number}>;
   DIETER_CLOUD: Workflow<{content_id:string;claim_id:string}>;
   DIETER_WAKE: DurableObjectNamespace;
   DIETER_SUBSCRIPTION: Fetcher;
-  DIANA_CLOUD: Workflow<{cid:string;message_id:string;event_id:string;at:string;handle?:string;dryRun?:boolean;task?:'payout_paid_notice'|'payout_failed_notice';payout_id?:string}>;
+  DIANA_CLOUD: Workflow<{cid:string;message_id:string;event_id:string;at:string;handle?:string;dryRun?:boolean;task?:'payout_paid_notice'|'payout_failed_notice'|'owner_choice';payout_id?:string;question_id?:string}>;
   // Selective bounded fallback; absent budget/token disables paid requests.
   APIFY_TOKEN?: string;
   APIFY_DAILY_BUDGET_USD?: string;

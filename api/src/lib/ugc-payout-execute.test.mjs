@@ -20,8 +20,11 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
     sameDayMinor: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
     handedToday: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && r.id !== exclude && isCommittedPayout(r)).length,
     dayTotalMinor: async (day, exclude) => [...db.values()].filter((r) => committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
-    claim: async (id, token, at) => {
+    claim: async (id, token, at, snapshot) => {
       const r = db.get(id);
+      const current = requisites.get(id);
+      if (r.amount_minor !== snapshot.row.amount_minor || r.fps_bank_member_id !== snapshot.row.fps_bank_member_id ||
+          JSON.stringify(current)!==JSON.stringify(snapshot.requisites)) return false;
       if (r.execute_claim || r.konsol_payment_id) return false;
       const other = [...db.values()].filter((p) => p.id !== id && isCommittedPayout(p) && committedPayoutDay(p) === DAY);
       const same = other.filter((p) => p.creator_id === r.creator_id);
@@ -49,6 +52,21 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
   const deps = { store, konsol, notifyOwner, now: NOW, claimToken: 'tok' };
   return { db, deps, calls };
 }
+
+test('a newer source or changed amount before claim cannot send a payout', async () => {
+  const w=world({rows:[{id:'p1',amount_minor:45300}]});
+  w.deps.preClaim=async()=>false;
+  assert.equal((await executePayout('p1',w.deps)).code,'source_changed');assert.equal(w.calls.payments.length,0);
+  const changed=world({rows:[{id:'p1',amount_minor:45300}]});
+  changed.deps.preClaim=async()=>{changed.db.get('p1').amount_minor=45400;return true};
+  assert.equal((await executePayout('p1',changed.deps)).ok,false);assert.equal(changed.calls.payments.length,0);
+});
+test('a payout that reaches closing time before provider submission is deferred without sending',async()=>{
+ const w=world({rows:[{id:'p1',amount_minor:45300}]});let checks=0;
+ w.deps.beforeSend=async()=>++checks===1;
+ assert.equal((await executePayout('p1',w.deps)).code,'outside_direct_hours');
+ assert.equal(w.calls.payments.length,0);assert.equal(w.db.get('p1').execute_claim,null);
+});
 
 test('own RUB is balance minus the 1 905 000 ₽ overdraft, never the overdraft figure', () => {
   assert.deepEqual(ownRubMinor({ collection: [{ balance: '1936615.38' }] }), { ok: true, own_minor: 3161538 });

@@ -5,13 +5,13 @@
 import type { Env } from '../types';
 import { HARD_ASK } from './ig-dm-reply-guard.mjs';
 import { sendOwnerQuestion } from './owner-telegram';
-import { dianaCompose } from './diana-compose';
+import { queueDianaAction } from './diana-compose';
 
 export const HARD_REASON = 'return or money back, Owner decides';
 const QUESTION_KEY = (messageId: number) => `ig_hard:${messageId}`;
 const SELF = 'Напишу сам';
 
-type Question = { cid: string; handle: string; at: string; options: Record<string, string[] | null>; answered_at?: string; choice?: string };
+type Question = { cid: string; handle: string; at: string; options: Record<string, string[] | null>; answered_at?: string; choice?: string;decision_at?:string };
 
 const rub = (minor: number) => `${Math.round(minor / 100)} ₽`;
 
@@ -57,12 +57,13 @@ export async function askOwnerHardQuestion(env: Env, w: { cid: string; h: string
 }
 
 /** A button tap from Telegram. Unknown message → not ours, the bot chats as usual. */
-export async function answerHardQuestion(env: Env, messageId: number, choice: string): Promise<{ handled: boolean; note?: string }> {
+export async function answerHardQuestion(env: Env, messageId: number, choice: string): Promise<{ handled: boolean; note?: string;event_id?:string }> {
   const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(QUESTION_KEY(messageId)).first<{ value: string }>();
   if (!row) return { handled: false };
   const q = JSON.parse(row.value) as Question;
   if (q.answered_at) return { handled: true, note: `@${q.handle}: уже ответила (${q.choice}).` };
   if (!(choice in q.options)) return { handled: true, note: `@${q.handle}: не поняла выбор, ответ не отправлен.` };
+  if(q.choice&&q.choice!==choice)return {handled:true,note:'Другой выбор уже сохранён; требуется проверка.'};
   const parts = q.options[choice];
   const save = async () => {
     q.answered_at = new Date().toISOString(); q.choice = choice;
@@ -70,11 +71,15 @@ export async function answerHardQuestion(env: Env, messageId: number, choice: st
   };
   if (!parts) { await save(); return { handled: true, note: `@${q.handle}: ничего не отправляю, разговор ждёт вас в ERP.` }; }
   // Store only the Owner's selection. Native Diana reads it and writes the reply herself.
-  const decision = { ...q, choice, decision_at: new Date().toISOString() };
-  await env.DB.prepare(`UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1`)
-    .bind(QUESTION_KEY(messageId), JSON.stringify(decision), Date.now()).run();
-  await dianaCompose(env, q.handle, '', `owner:${messageId}:${choice}`);
-  return { handled: true, note: `@${q.handle}: ??????? ????????? ? ???????? ?????. ???????? ??? ?? ????????????.` };
+  if(!q.decision_at){
+    const decision = { ...q, choice, decision_at: new Date().toISOString() };
+    const changed=await env.DB.prepare(`UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND value=?4`)
+      .bind(QUESTION_KEY(messageId), JSON.stringify(decision), Date.now(),row.value).run();
+    if(Number(changed.meta.changes)!==1)return {handled:true,note:'Решение изменилось во время обработки; требуется повторная проверка.'};
+  }
+  const queued=await queueDianaAction(env,q.handle,'',`owner:${messageId}:${choice}`,{task:'owner_choice',question_id:String(messageId)});
+  if(!queued.ok)return {handled:true,note:'Решение сохранено; исходная переписка не найдена, действие не поставлено в очередь.'};
+  return { handled: true,event_id:queued.eventId, note: `@${q.handle}: решение сохранено и передано Диане; отправка ещё не подтверждена.` };
 }
 
 // Owner 2026-11-05: «Где мультиопцион?» — an open incident waiting for the Owner (Diana does not know what to

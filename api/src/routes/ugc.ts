@@ -1346,9 +1346,10 @@ ugc.put('/payouts/:id/requisites', async (c) => {
     return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
   }
   const id = c.req.param('id');
-  const current = await c.env.DB.prepare(`SELECT id, konsol_payment_id FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  const current = await c.env.DB.prepare(`SELECT id, konsol_payment_id, execute_claim FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
   if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
   if (current.konsol_payment_id) return fail(c, 409, [{ code: 'already_sent', message: 'Payout already handed to Konsol' }]);
+  if (current.execute_claim) return fail(c, 409, [{ code: 'payout_in_progress', message: 'Payout is already being processed' }]);
   const phone = konsolPhone(body.phone ?? body.fps_mobile_phone);
   if (!phone) return fail(c, 422, [{ code: 'invalid_phone', message: 'Russian mobile number required (+79…)' }]);
   const bankId = textValue(body.fps_bank_member_id, 20);
@@ -1357,17 +1358,27 @@ ugc.put('/payouts/:id/requisites', async (c) => {
   const lastName = textValue(body.last_name, 120);
   if (!firstName) return fail(c, 422, [{ code: 'name_required', message: 'first_name required' }]);
   const now = Date.now();
-  await c.env.DB.batch([
+  const writes=await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE ugc_payouts SET phone_masked=?2, fps_bank_member_id=?3, bank_ref=COALESCE(?4, bank_ref), updated_at=?5
+       WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL`
+    ).bind(id, maskPhoneWide(phone), bankId, textValue(body.bank_ref, 200), now),
     c.env.DB.prepare(
       `INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6 WHERE EXISTS
+         (SELECT 1 FROM ugc_payouts WHERE id=?1 AND konsol_payment_id IS NULL AND execute_claim IS NULL AND updated_at=?6)
        ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone, first_name=excluded.first_name,
          last_name=excluded.last_name, patronymic=excluded.patronymic, updated_at=excluded.updated_at`
     ).bind(id, phone, firstName, lastName, textValue(body.patronymic, 120), now),
-    c.env.DB.prepare(
-      `UPDATE ugc_payouts SET phone_masked=?2, fps_bank_member_id=?3, bank_ref=COALESCE(?4, bank_ref), updated_at=?5 WHERE id=?1`
-    ).bind(id, maskPhoneWide(phone), bankId, textValue(body.bank_ref, 200), now),
+    c.env.DB.prepare(`SELECT p.fps_bank_member_id,r.fps_mobile_phone,r.first_name,r.last_name,r.patronymic
+      FROM ugc_payouts p JOIN ugc_payout_requisites r ON r.payout_id=p.id WHERE p.id=?1`).bind(id),
   ]);
+  const saved=writes[2]?.results?.[0] as Record<string,unknown>|undefined;
+  if(Number(writes[0]?.meta?.changes??0)!==1 || Number(writes[1]?.meta?.changes??0)!==1)
+    return fail(c, 409, [{ code: 'payout_in_progress', message: 'Payout changed while saving requisites' }]);
+  if(!saved || saved.fps_bank_member_id!==bankId || saved.fps_mobile_phone!==phone || saved.first_name!==firstName ||
+     saved.last_name!==lastName || saved.patronymic!==textValue(body.patronymic,120))
+    return fail(c,503,[{code:'requisites_readback_failed',message:'Saved requisites could not be verified'}]);
   return ok(c, { id, phone_masked: maskPhoneWide(phone), fps_bank_member_id: bankId, updated_at: now });
 });
 

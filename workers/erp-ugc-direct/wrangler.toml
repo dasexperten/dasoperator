@@ -1,4 +1,4 @@
-# Metadata-only alarm: every three minutes, 06:00?02:00 Asia/Yerevan. No model or text processing.
+# Metadata-only alarm: every three minutes, 08:00 through 23:27 Moscow.
 name = "erp-ugc-direct"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -16,4 +16,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["*/3 2-21 * * *"]
+crons = ["*/3 5-19 * * *", "0-27/3 20 * * *"]

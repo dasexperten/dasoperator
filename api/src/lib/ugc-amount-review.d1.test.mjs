@@ -33,7 +33,10 @@ export default {async fetch(request,env){
  let result;
  if(body.action==='read')result=await readAmountReview(DB,'p',body.requestId??null);
  else if(body.action==='save')result=await saveAmountReview(DB,body.input);
- else if(body.action==='claim')result=await payoutStore({DB}).claim('p','synthetic-claim','2026-11-09T12:00:00Z');
+ else if(body.action==='claim'){
+  const store=payoutStore({DB}),row=await store.getPayout('p'),requisites=await store.getRequisites('p');
+  result=row&&requisites?await store.claim('p','synthetic-claim','2026-11-09T12:00:00Z',{row,requisites}):false;
+ }
  else if(body.action==='route'){
   const response=await route.request('https://synthetic.test'+body.path,{method:body.method,
    headers:{'content-type':'application/json',...(body.user?{Authorization:'Bearer '+body.user+'-test-session-token'}:{})},

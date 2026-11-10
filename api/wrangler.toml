@@ -345,6 +345,11 @@ binding = "DIANA_CLOUD"
 name = "diana-cloud-direct"
 class_name = "DianaCloudWorkflow"
 
+[[workflows]]
+binding = "DIANA_ROUND"
+name = "diana-cloud-round"
+class_name = "DianaCloudRoundWorkflow"
+
 [[migrations]]
 tag = "diana-wake-v1"
 new_sqlite_classes = ["DianaWake"]

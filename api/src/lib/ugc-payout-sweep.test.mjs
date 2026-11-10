@@ -89,10 +89,10 @@ test('successful progress retains the numeric interface; no registry match is no
   assert.equal(await ugcPayoutSweep(f.env), 1); assert.deepEqual(f.applied, ['good']); assert.deepEqual([...f.claims], []);
 });
 
-test('explicit registry failure or throw and thrown reminders are aggregated after other progress', async t => {
+test('registry failures are reported after other progress without running reminders', async t => {
   for (const registryResult of [{ ok: false, error: 'list unavailable' }, new Error('list unavailable')]) {
     const f = fixture(t, { registry: [{ id: 'legacy' }], registryResult, pending: ['good'], reminderError: new Error('D1 reminders unavailable') });
-    await assert.rejects(ugcPayoutSweep(f.env), error => /registry=1/.test(error.message) && /reminders=1/.test(error.message));
+    await assert.rejects(ugcPayoutSweep(f.env), error => /registry=1/.test(error.message) && !/reminders=/.test(error.message));
     assert.deepEqual(f.applied, ['good']);
   }
 });

@@ -12,7 +12,7 @@ const dir = mkdtempSync(join(tmpdir(), 'ugc-cron-'));
 const outfile = join(dir, 'steps.mjs');
 await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', outfile,
   plugins: [{ name: 'no-external-effects', setup(b) {
-    b.onResolve({ filter: /^\./ }, a => a.importer.endsWith('cron-steps.ts') && a.path !== './lib/adaptive-runner' ? { path: a.path, namespace: 'mock' } : undefined);
+    b.onResolve({ filter: /^\./ }, a => a.importer.endsWith('cron-steps.ts') && !['./lib/adaptive-runner','./lib/diana-work-window.mjs'].includes(a.path) ? { path: a.path, namespace: 'mock' } : undefined);
     b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `
       const call = name => globalThis.__ugcCron.call(name);
       export const cronPollPerfReports=()=>call('unused');
@@ -27,8 +27,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./cron-steps.ts', import.meta
   } }] });
 const { STEPS } = await import(pathToFileURL(outfile)); rmSync(dir, { recursive: true });
 
-function fixture(t, overrides = {}, initial = null) {
-  const now = 1_000_000;
+function fixture(t, overrides = {}, initial = null, now = Date.parse('2026-11-10T12:00:00+03:00')) {
   t.mock.method(Date, 'now', () => now);
   t.mock.method(globalThis, 'setInterval', () => 1); t.mock.method(globalThis, 'clearInterval', () => {});
   const f = { state: initial ? JSON.stringify(initial) : null, calls: [], result: {
@@ -54,6 +53,11 @@ test('Direct only detects metadata; it never reads bodies, calls a reply model o
   const g = fixture(t, { detect: new Error('metadata unavailable') });
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
   assert.deepEqual(g.calls, ['detect']);
+});
+test('a stale external Direct signal outside Moscow hours cannot scan or dispatch', async t => {
+  const f=fixture(t,{},null,Date.parse('2026-11-10T23:30:00+03:00'));
+  assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)),{skipped:true,reason:'outside_direct_hours'});
+  assert.deepEqual(f.calls,[]);
 });
 test('payout timer reconciles existing payments without independently searching creator chats', async t => {
   const f = fixture(t); await STEPS['erp-ugc-payouts'](f.env);

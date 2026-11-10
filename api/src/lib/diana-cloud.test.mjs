@@ -685,3 +685,21 @@ test('legacy video review retries once only when original and completed workflow
   assert.equal(f.sends.length,0);assert.equal(f.env.executedPayout,undefined);
  }
 });
+
+test('seller answer after later screenshots continues without claiming unverified seller or payment',async t=>{
+ const f=fixture(t);t.after(()=>delete globalThis.__imageFixture);
+ f.originals=[{id:'answer',from:{id:'person',username:'creator'},message:'Das Experten Eurasia Ltd.\nСкрины из карточки',created_time:'2026-11-09T09:03:00Z'},
+ {id:'question',from:{id:'17841466350261166'},message:'Подскажите, пожалуйста, как называется именно продавец в карточке товара?',created_time:'2026-11-09T09:02:00Z'},
+ {id:'later',from:{id:'person',username:'creator'},message:'',created_time:'2026-11-09T09:01:00Z'},
+ {id:'basket',from:{id:'person',username:'creator'},message:'Вот корзина',created_time:'2026-11-09T09:00:00Z'}];
+ f.env.screenshots={images:[{mediaType:'image/jpeg',data:'ZmFrZQ==',label:'fixture'}],unreadable:0,currentUnavailable:false,omitted:0};
+ globalThis.__imageFixture={status:'unknown',checks:[{kind:'basket',product:'yes',amount:'yes',seller:'unknown',unresolved_required:['seller'],observed:{price:'453'},label:'Скриншот из входящего сообщения 2026-11-09T09:00:00.000Z, вложение 1.'},{kind:'other',product:'unknown',amount:'unknown',seller:'unknown',unresolved_required:['seller'],observed:{},label:'later'}]};
+ f.env.decision={...f.env.decision,reply:null,replies:null,escalate:true,reason:'Продавца надо подтвердить по реестру'};
+ const event={...f.event,message_id:'answer',event_id:'message:answer',at:'2026-11-09T09:03:00.000Z',recovery:true,recoveryKind:'text'};f.set('diana_round_alarm:chat',event);
+ const {draft}=await f.prepare(event);const out=await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(out.status,'delivered');assert.equal(f.sends[0].text,'Спасибо, что уточнили!');await cloud.completeCloudEvent(f.env,event,out);
+ await cloud.deliverCloudDecision(f.env,draft.key);assert.equal(f.sends.length,1);assert.equal(f.env.executedPayout,undefined);
+});
+test('legacy seller verification review retries once only after prior workflow and absent delivery',async t=>{
+ const f=fixture(t),created=[];f.originals[0].message='Das Experten Eurasia Ltd.';f.set('diana_cloud_event:'+f.event.event_id,{status:'needs_review',reason:'old review'});f.set('diana_video_recovery_result:'+f.event.event_id,{status:'needs_review',reason:'Продавца нельзя подтвердить без сверки с реестром'});
+ f.env.DIANA_CLOUD={async create(x){created.push(x)},async get(){return{async status(){return {status:'complete'}}}}};const out=await dispatchDianaCloud(f.env,undefined,Date.parse('2026-11-11T08:10:00+03:00'));assert.equal(out.dispatched,true);assert.equal(created[0].params.skipPayout,true);assert.equal(created[0].params.recoveryAttempt,2);assert.equal(f.sends.length,0);
+});

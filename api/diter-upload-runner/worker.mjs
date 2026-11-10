@@ -17,6 +17,28 @@ export class DieterRunner extends Container {
    return Response.json({version:'dieter-only-stdin-v1',tools_ready:true,dieter_stdin_safe:true,process_alive:true,container_health_after:true,model_invocations:0});
   }catch{return Response.json({error:'runtime_check_failed'},{status:503});}
  });}
+ async finishResult(requestId,fingerprint,result){
+  delete result.auth;delete result.subscriptionDoorKey;
+  if(result.privateEvents){
+   const artifact='dieter/cloud-round/'+requestId+'/events.jsonl';
+   await this.env.AUDIT.put(artifact,result.privateEvents,{httpMetadata:{contentType:'application/x-ndjson'}});
+   delete result.privateEvents;result.auditArtifact=artifact;
+  }
+  if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
+  await this.ctx.storage.put('result:'+requestId,{fingerprint,result,at:Date.now()});
+  const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
+  return Response.json(result);
+ }
+ async readResult(requestId){return this.serial(async()=>{
+  if(typeof requestId!=='string'||!requestId||requestId.length>512)return Response.json({error:'invalid_request'},{status:400});
+  const previous=await this.ctx.storage.get('result:'+requestId);if(previous)return Response.json(previous.result);
+  const intent=await this.ctx.storage.get('dieter-intent:'+requestId);
+  if(!intent)return Response.json({error:'dieter_result_not_accepted'},{status:404});
+  const response=await this.cachedContainerResult(requestId);if(!response)return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
+  let result;try{result=await response.json();}catch{return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'parse_request',code:'invalid_json'}},{status:503});}
+  result.receipt={...result.receipt,container_health_verified:true};
+  return this.finishResult(requestId,intent.fingerprint,result);
+ });}
  async cachedContainerResult(requestId){
   const budgetKey='result-read-budget:'+requestId;const used=await this.ctx.storage.get(budgetKey)||0;
   if(used>=3)return null;await this.ctx.storage.put(budgetKey,used+1);
@@ -69,22 +91,14 @@ export class DieterRunner extends Container {
   let result;try{result=await response.json();}catch{const cached=await this.cachedContainerResult(body.requestId);if(!cached)return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'container_proxy',code:'http_unavailable'}},{status:503});try{result=await cached.json();}catch{return Response.json({error:'native_runner_unavailable',diagnostic:{phase:'parse_request',code:'invalid_json'}},{status:503});}}
   if(containerReady)result.receipt={...result.receipt,container_health_verified:true};
   log(result.error?'error':'ok',result.error?{error:result.error,diagnostic:result.diagnostic}:{});
-  delete result.auth;delete result.subscriptionDoorKey;
-  if(result.privateEvents){
-   const artifact='dieter/cloud-round/'+body.requestId+'/events.jsonl';
-   await this.env.AUDIT.put(artifact,result.privateEvents,{httpMetadata:{contentType:'application/x-ndjson'}});
-   delete result.privateEvents;result.auditArtifact=artifact;
-  }
-  if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
-  await this.ctx.storage.put(cacheKey,{fingerprint,result,at:Date.now()});
-  const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
-  return Response.json(result);
+  return this.finishResult(body.requestId,fingerprint,result);
  });}
 }
 export class DieterExecutionService extends WorkerEntrypoint {
  async fetch(request){
   const runner=this.env.RUNNER.getByName('subscription-singleton');
   if(request.method==='GET'&&new URL(request.url).pathname==='/contract')return Response.json(await runner.contract());
+  if(request.method==='GET'){const match=new URL(request.url).pathname.match(/^\/result\/([^/]+)$/);if(match){let id;try{id=decodeURIComponent(match[1]);}catch{return Response.json({error:'invalid_request'},{status:400});}return runner.readResult(id);}}
   if(request.method!=='POST')return new Response('',{status:405});
   const body=await request.json();if(body.operation!=='dieter_round')return Response.json({error:'dieter_operation_required'},{status:400});
   return runner.infer(body);

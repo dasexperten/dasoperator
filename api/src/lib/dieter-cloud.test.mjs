@@ -34,6 +34,9 @@ test('preflight container recovery stops after three calls; auth failures are no
  const f=fixture(t);let calls=0;
  f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;return Response.json({error:'native_runner_unavailable'},{status:503});};
  await assert.rejects(preflightDieter(f.env,async()=>{}),/native_runner_unavailable/);assert.equal(calls,3);
+ await assert.rejects(preflightDieter(f.env,async()=>{}),/blocked_after_three/);assert.equal(calls,3);
+ assert.equal((await(await f.wake.fetch(f.request())).json()).note,'preflight_blocked_after_three_failures');assert.equal(calls,3);
+ f.db.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").run();
  calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;return Response.json({error:'subscription_auth_not_seeded'},{status:503});};
  await assert.rejects(preflightDieter(f.env,async()=>{}),/subscription_auth_not_seeded/);assert.equal(calls,1);
  assert.equal(f.created.length,0);

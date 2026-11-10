@@ -15,12 +15,20 @@ async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
  return result;
 }
 export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))){
+ if(await env.DB.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").first())throw Error('dieter_preflight_blocked_after_three_failures');
  let result:any;
  // This read-only tool/source probe may recover a transient container HTTP
  // failure. Never apply this retry to a work/reconciliation call.
  for(let attempt=0;attempt<3;attempt++){
   try{result=await infer(env,'dieter-preflight-'+crypto.randomUUID(),{mode:'preflight'});break;}
-  catch(error){if(attempt===2||!String((error as Error).message).includes('"error":"native_runner_unavailable"'))throw error;await pause(1000);}
+  catch(error){
+   if(!String((error as Error).message).includes('"error":"native_runner_unavailable"'))throw error;
+   if(attempt===2){
+    await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('dieter_cloud_preflight_blocked',?1,?2) ON CONFLICT(key) DO NOTHING").bind(JSON.stringify({reason:'native_runner_unavailable',failed_attempts:3,at:new Date().toISOString(),automatic_retry:false}),Date.now()).run();
+    throw error;
+   }
+   await pause(1000);
+  }
  }
  const readiness=JSON.parse(result.text);if(readiness.ready!==true)throw Error('dieter_runtime_not_ready');
  const receipt={...readiness,receipt:result.receipt,checked_at:new Date().toISOString()};
@@ -39,6 +47,7 @@ export class DieterWake {
   if(url.pathname==='/preflight')return Response.json({ok:true,...await preflightDieter(this.env)});
   if(url.pathname!=='/dispatch')return new Response('',{status:404});
   if(!await mode(this.env))return Response.json({ok:true,accepted:false,note:'cloud_disabled'});
+  if(await this.env.DB.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").first())return Response.json({ok:true,accepted:false,note:'preflight_blocked_after_three_failures'});
   const {now:inputNow,contentId=null}=await request.json() as {now?:number;contentId?:string|null};const now=inputNow??Date.now();
   if(!diterWindow(now))return Response.json({ok:true,accepted:false,note:'outside_window'});
   const busy=await this.env.DB.prepare("SELECT content_id,claim_id,consumer_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first<any>();

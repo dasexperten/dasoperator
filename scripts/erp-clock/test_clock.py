@@ -22,6 +22,15 @@ class ClockTests(unittest.TestCase):
         self.futures.append(future)
         return future
 
+    def test_vps_direct_window_and_single_expression(self):
+        from pathlib import Path
+        schedules = json.loads(Path(__file__).with_name("schedules-vps-17f196ac.json").read_text())
+        config = schedules["erp-ugc-direct"]
+        for hour, minute, expected in [(4, 57, False), (5, 0, True), (20, 27, True), (20, 30, False)]:
+            instant = datetime(2026, 11, 10, hour, minute, tzinfo=timezone.utc)
+            due = clock.due_crons(config, instant.timestamp() * 1000)
+            self.assertEqual(len(due), int(expected))
+
     def test_current_minute_only_and_no_catchup_after_jump(self):
         c = clock.Clock(self.submit, lambda *_: None, schedules=self.schedules)
         with contextlib.redirect_stdout(io.StringIO()):

@@ -8,14 +8,13 @@ export type IgDeliveryPlan = {
   parts: string[];
   cards?: string[];
   humanAgent?: boolean;
-  exactPlan?: boolean;
   completion?: { creatorId: string; expectedStage: string | null; expectedUpdatedAt: number | null };
 };
 export type IgDeliverySender = (env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string }) => Promise<{
   ok: boolean; messageId?: string; error?: string; delivery?: 'not_sent' | 'unknown';
 }>;
 type Item = { text?: string; imageUrl?: string; status: 'pending' | 'sending' | 'sent'; messageId?: string };
-type State = Omit<IgDeliveryPlan, 'parts' | 'cards' | 'exactPlan'> & {
+type State = Omit<IgDeliveryPlan, 'parts' | 'cards'> & {
   version: 1; items: Item[]; completedAt?: number; status: 'pending' | 'ambiguous' | 'complete' | 'superseded' | 'browser';
   leaseToken?: string | undefined; leaseUntil?: number | undefined; error?: string | undefined; acknowledgedAt?: number; browserQueue?: boolean;
 };
@@ -55,12 +54,6 @@ export async function deliverIgReply(env: Env, plan: IgDeliveryPlan, send: IgDel
     .bind(key, JSON.stringify(state), Date.now()).run();
   const stored = await read(env, key);
   if (!stored) throw new Error('Instagram delivery plan was not persisted');
-  if(plan.exactPlan){
-    const existing=decode(stored);
-    const strip=(item:Item)=>({text:item.text??null,imageUrl:item.imageUrl??null});
-    if(existing.handle!==state.handle||JSON.stringify(existing.items.map(strip))!==JSON.stringify(state.items.map(strip)))
-      return result(key,{...existing,error:'recovery_existing_plan_differs'},'ambiguous');
-  }
   return advance(env, key, stored, send);
 }
 

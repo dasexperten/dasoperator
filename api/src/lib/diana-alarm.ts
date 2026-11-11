@@ -93,8 +93,22 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan_cursor'").run();
   } // Existing durable signals still reach Diana; invalid cursors are retried from the newest page.
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_metadata_scan' AND value=?1").bind(owner).run();
+  // Owner 2026-11-11: the Gold signal is part of UGC Direct. Every tick, a blogger newly
+  // marked Gold (by any path) wakes Diana once for her personal Gold welcome.
+  let gold_signals = 0;
+  try {
+    const fresh = (await env.DB.prepare(`SELECT c.id, p.normalized_handle h FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id AND p.platform='instagram'
+      WHERE c.lifecycle_stage='gold' AND NOT EXISTS (SELECT 1 FROM crm_sync_state s WHERE s.key='diana_gold_seen:'||c.id) LIMIT 10`).all<{ id: string; h: string }>()).results ?? [];
+    for (const g of fresh) {
+      const marked = await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_gold_seen:' + g.id, 'signalled', Date.now()).run();
+      if (!marked.meta.changes) continue;
+      const { queueDianaAction } = await import('./diana-compose');
+      const q = await queueDianaAction(env, g.h, '', `gold:${g.id}`, { task: 'gold_welcome' });
+      if (q.ok) gold_signals++; else await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind('diana_gold_seen:' + g.id).run();
+    }
+  } catch { errors++; }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

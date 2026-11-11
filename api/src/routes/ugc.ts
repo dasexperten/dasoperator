@@ -852,7 +852,10 @@ ugc.patch('/creators/:id', async (c) => {
   if (nextStage === 'gold' && current.lifecycle_stage !== 'gold') {
     try {
       const h = await c.env.DB.prepare(`SELECT normalized_handle FROM ugc_creator_platforms WHERE creator_id=?1 AND platform='instagram' LIMIT 1`).bind(id).first<{ normalized_handle: string }>();
-      if (h?.normalized_handle) { const { queueDianaAction } = await import('../lib/diana-compose'); await queueDianaAction(c.env as any, h.normalized_handle, '', `gold:${id}`, { task: 'gold_welcome' }); }
+      if (h?.normalized_handle) {
+        const seen = await c.env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)').bind('diana_gold_seen:' + id, 'signalled', Date.now()).run();
+        if (seen.meta.changes) { const { queueDianaAction } = await import('../lib/diana-compose'); await queueDianaAction(c.env as any, h.normalized_handle, '', `gold:${id}`, { task: 'gold_welcome' }); }
+      }
     } catch { /* The stage change stands; the signal can be re-sent. */ }
   }
   return ok(c, { id, updated_at: updatedAt });

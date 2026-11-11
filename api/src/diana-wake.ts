@@ -58,8 +58,8 @@ export class DianaWake {
     const attempts=Number(await this.state.storage.get('cloud_release_attempts')??0)+1;
     let retry=false;
     try {
-      const round=await scheduleDianaRound(this.env,Date.now());
-      if(round.scheduled)return;
+      // Owner 2026-11-11: the round is a separate process; Direct keeps answering meanwhile.
+      await scheduleDianaRound(this.env,Date.now()).catch(()=>null);
       const result=await this.dispatch();
       if((result as any)?.reason==='media_retry_waiting'&&Number.isFinite(Number((result as any)?.retry_at))){
         await this.state.storage.delete('cloud_release_attempts');await this.state.storage.setAlarm(Math.max(Date.now()+1000,Number((result as any).retry_at)));return;

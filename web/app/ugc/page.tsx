@@ -161,6 +161,7 @@ type Creator = {
   accepted_at?: number | null;
   manual_stage?: { from: string; to: string; by: string | null; at: number; reviewed_at: number | null } | null;
   delivery?: { status: 'undelivered' | 'expired'; until: string; last_in: string } | null;
+  missing_button?: { since: string } | null;
   attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
@@ -358,7 +359,16 @@ function GoldAward({ creator }: { creator: Creator }) {
 
 function CreatorStatus({ creator }: { creator: Creator }) {
   const stalled = stalledDays(creator);
-  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}<DeliveryMark creator={creator} /></span>;
+  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}<DeliveryMark creator={creator} /><MissingButtonMark creator={creator} /></span>;
+}
+
+// Owner 2026-11-11: phone, bank and name are in the chat, but no payout button exists.
+function MissingButtonMark({ creator }: { creator: Creator }) {
+  const m = creator.missing_button;
+  if (!m) return null;
+  const day = new Date(m.since).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  const title = `Блогер прислала телефон, банк и имя ${day}, а кнопки выплаты нет. Проверяется каждый час.`;
+  return <span className="ugc-delivery-mark" data-delivery="no-button" title={title} aria-label={title}>реквизиты без кнопки</span>;
 }
 
 // Owner 2026-11-11: Diana's answer that never reached the chat is shown, not hidden as unknown.

@@ -469,6 +469,17 @@ ugc.get('/', async (c) => {
     const { undeliveredChats } = await import('../lib/diana-delivery-expiry.mjs');
     for (const chat of await undeliveredChats(c.env.DB)) if (chat.handle) deliveryByHandle.set(chat.handle, { status: chat.status, until: chat.until, last_in: chat.last_in });
   } catch { /* the list never fails over a mark */ }
+  // Owner 2026-11-11: details in the chat without a button — rechecked live so a button made
+  // since the hourly watch clears the mark at once.
+  const missingButtonByHandle = new Map<string, { since: string }>();
+  try {
+    const watch = await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_button_watch'").first<{ value: string }>();
+    for (const m of (watch ? JSON.parse(watch.value).missing ?? [] : [])) {
+      const made = await c.env.DB.prepare(`SELECT 1 AS present FROM ugc_payouts p LEFT JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id AND cp.platform='instagram'
+        WHERE (lower(p.handle)=?1 OR cp.normalized_handle=?1) AND p.created_at >= ?2 LIMIT 1`).bind(m.handle, Date.parse(m.since) - 3 * 86_400_000).first();
+      if (!made) missingButtonByHandle.set(m.handle, { since: m.since });
+    }
+  } catch { /* the list never fails over a mark */ }
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -524,6 +535,7 @@ ugc.get('/', async (c) => {
       attention: attentionByCreator.get(creatorId) ?? null,
       manual_stage: manualStageByCreator.get(creatorId) ?? null,
       delivery: deliveryByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? null,
+      missing_button: missingButtonByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,

@@ -7,6 +7,7 @@ import {loadInstagramImage} from './lib/ig-dm-image-cache';
 // @ts-expect-error plain JS module
 import {readDirectOriginal} from './lib/diana-direct-original.mjs';
 import {applyShares} from './lib/ig-share-webhook.mjs';
+import {latestRequisites} from './lib/ugc-latest-requisites.mjs';
 // @ts-expect-error plain JS module
 import {directThink} from './lib/diana-direct-think.mjs';
 // @ts-expect-error plain JS module
@@ -68,7 +69,14 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        if(!name)return false;
        const row=await this.env.DB.prepare("SELECT 1 AS present FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.amount_minor=1 AND p.status IN ('awaiting_approval','approved') AND p.konsol_payment_id IS NULL AND p.execute_claim IS NULL LIMIT 1").bind(name).first<any>();
-       return Boolean(row);
+       if(row)return true;
+       // Owner 2026-11-11 (_bikmatinki, medisamiasi): phone, bank and name in the chat make the
+       // button before any reply, whatever the model chose. «Реквизиты получила» is then true.
+       const rows=(source.messages??[]).map((m:any)=>({id:String(m.id),direction:['1697038263872226','17841466350261166'].includes(String(m.from?.id??''))?'out':'in',text:typeof m.message==='string'?m.message:'',created_at:new Date(Date.parse(m.created_time)||0).toISOString()}));
+       let req:any=null;try{req=latestRequisites(rows);}catch{}
+       if(!req)return false;
+       const paid=await this.env.DB.prepare("SELECT 1 AS present FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 LIMIT 1").bind(name,Number(req.source_at)-3*86400000).first<any>();
+       return !paid;
       },
       deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN}),
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},

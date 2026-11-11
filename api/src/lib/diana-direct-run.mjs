@@ -29,9 +29,14 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   }
   // Owner 11.11.2026: a button waiting for its amount is filled the moment the
   // creator writes it, before Diana's ordinary reply. Silent; never a transfer.
+  let backed=null;
   if(decision.action==='reply'&&!event.dryRun&&typeof handoffPayout==='function'&&typeof pendingAmount==='function'&&await pendingAmount(source)){
-    try{await handoffPayout({event,source});}catch{}
+    try{const h=await handoffPayout({event,source});backed=['registered','registered_without_amount'].includes(h?.status);}catch{backed=false;}
   }
+  // Owner 2026-11-11: Diana never says the details are received or the transfer is being
+  // prepared while no button stands. The chat stays visible instead of a false promise.
+  if(decision.action==='reply'&&backed===false&&/реквизит\S*\s+получ|оформ\S*\s+перевод|переводим|перевед[её]м/i.test(String(decision.reply??'')))
+    return {status:'pending',reason:'unbacked_payment_claim'};
   if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{}),image_trace:decision.receipt?.image_trace??[]};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});
   if(delivery.status==='preview')return {status:'preview',images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null};

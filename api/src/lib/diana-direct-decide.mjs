@@ -78,6 +78,14 @@ export async function decideDirect({source,prepareContext,infer,readImage,env,fa
   let decision;try{decision=JSON.parse(result.text);}catch{throw Error('direct_decision_invalid');}
   if(!decision||Object.keys(decision).some(k=>!['action','reply'].includes(k))||!DIRECTIONS.has(decision.action)||!(decision.reply===null||typeof decision.reply==='string'))throw Error('direct_decision_invalid');
   if(decision.action==='reply'&&!decision.reply?.trim())throw Error('direct_decision_invalid');
+  // Owner 2026-11-11 (medisamiasi): never thank for or describe a photo that was not read.
+  const photoClaim=t=>/спасибо\s+за\s+(?:фото|скрин)|вижу\s+(?:на\s+)?(?:фото|скрин|цен)|на\s+(?:фото|скрине)\s+(?:видно|вижу)/i.test(String(t??''));
+  if(decision.action==='reply'&&vision.length===0&&unavailableImages>0&&photoClaim(decision.reply)){
+    const again=await infer([{role:'system',content:instructions},{role:'user',content:JSON.stringify({conversation:history,image_text:[],unavailable_images:unavailableImages,verified_erp_facts:facts})},{role:'assistant',content:JSON.stringify(decision)},{role:'user',content:'The photo was NOT read: you cannot see it. Rewrite without thanking for the photo or describing it. Ask for what is missing in text.'}],{model:'gpt-6.1-terra',schema});
+    let fixed=null;try{fixed=JSON.parse(again.text);}catch{}
+    if(!fixed||fixed.action!=='reply'||!fixed.reply||photoClaim(fixed.reply))return {action:'wait',reason:'unbacked_photo_claim'};
+    decision.reply=fixed.reply;
+  }
   if(decision.action==='payout')return {action:'payout',reason:'payout_handoff_pending',amountQuestion:decision.reply?.trim()||null,recipientId:String(newest.from.id),receipt:{images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};
   if(decision.action!=='reply')return {action:decision.action,reason:decision.action==='payout'?'payout_handoff_pending':'diana_wait',receipt:{images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};
   return {action:'reply',reply:decision.reply.trim(),recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};

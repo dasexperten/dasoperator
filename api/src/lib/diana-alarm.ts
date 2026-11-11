@@ -111,8 +111,12 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   let delivery_closed = 0;
   try { const { expireUndelivered } = await import('./diana-delivery-expiry.mjs'); delivery_closed = await expireUndelivered(env.DB, now); }
   catch { /* bookkeeping only; retried next tick */ }
+  // Owner 2026-11-11: hourly watch — details in the chat but no button in the ERP.
+  let buttons_missing: number | null = null;
+  try { const { runButtonWatch } = await import('./diana-button-watch.mjs'); buttons_missing = await runButtonWatch(env.DB, now); }
+  catch { /* the watch never disturbs the message scan */ }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, gold_signals, delivery_closed, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, delivery_closed, buttons_missing, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

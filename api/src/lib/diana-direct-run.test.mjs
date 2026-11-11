@@ -36,3 +36,12 @@ test('Owner 11.11: a reply after the amount fills the waiting button first',asyn
   deliver:async()=>({status:'verified',outgoingId:'o'}),saveProof:async()=>{},acknowledge:async()=>true});
  assert.equal(filled,1);assert.equal(r.status,'complete');
 });
+test('Owner 2026-11-11: no «реквизиты получила» while the button could not be made; an honest reply still goes',async()=>{
+ const f=fixture();f.options.pendingAmount=async()=>true;f.options.handoffPayout=async()=>({status:'pending',reason:'payout_original_changed'});
+ f.options.decide=async()=>({action:'reply',reply:'Оксана, спасибо, реквизиты получила 🌷',recipientId:'person'});
+ f.options.deliver=async()=>assert.fail('false promise must not be sent');
+ assert.deepEqual(await runDirect(f.options),{status:'pending',reason:'unbacked_payment_claim'});
+ const g=fixture();g.options.pendingAmount=async()=>true;g.options.handoffPayout=async()=>({status:'registered',payout_id:'p',amount_minor:41000});
+ g.options.decide=async()=>({action:'reply',reply:'Оксана, спасибо, реквизиты получила 🌷',recipientId:'person'});
+ assert.equal((await runDirect(g.options)).status,'complete');
+});

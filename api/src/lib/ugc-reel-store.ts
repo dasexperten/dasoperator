@@ -13,9 +13,15 @@ export async function tickDiterAlarm(env: Env, now = Date.now(), contentId: stri
   if(cloud?.value==='enabled'){
     const response=await env.DIETER_WAKE.get(env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({now,contentId})}));
     if(!response.ok)throw Error('dieter_cloud_dispatch_unconfirmed');
-    return response.json<{ok:boolean;accepted:boolean;note:string;content_id?:string}>();
+    const result=await response.json<{ok:boolean;accepted:boolean;note?:string;content_id?:string}>();
+    // Viktor 11.11.2026: the cloud branch left erp-ugc-diter frozen at the last
+    // legacy tick, so a fired slot looked like a silent one. Journal every slot.
+    await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+      .bind(ALARM,JSON.stringify({name:ALARM,target:ROUND,checked_at:new Date(now).toISOString(),state:result.accepted?'accepted':(result.note??'unknown'),transport:'cloudflare_workflow',content_id:result.content_id??null}),now).run();
+    return result;
   }
-  const pending = await env.DB.prepare("SELECT content_id,required_destinations FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<{content_id:string;required_destinations:string}>();
+  const pending = await env.DB.prepare("SELECT content_id,required_destinations FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND (?1 IS NULL OR content_id=?1) ORDER BY attempts,requested_at,content_id LIMIT 1").bind(contentId).first<{content_id:string;required_destinations:string}>();
   const state = await env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const working = await env.DB.prepare("SELECT content_id FROM ugc_reel_jobs WHERE status='working' LIMIT 1").first<{content_id:string}>();
   let scopeNote:string|null=null;

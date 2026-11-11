@@ -160,7 +160,7 @@ export class DieterWake {
    }
    return Response.json({ok:true,accepted:false,note:'working_job_exists'});
   }
-  const pending=await this.env.DB.prepare("SELECT * FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key='dieter_cloud_execution_hold:'||ugc_reel_jobs.content_id) AND (?1 IS NULL OR content_id=?1) ORDER BY requested_at,content_id LIMIT 1").bind(contentId).first<any>();
+  const pending=await this.env.DB.prepare("SELECT * FROM ugc_reel_jobs WHERE status='queued' AND attempts<3 AND NOT EXISTS(SELECT 1 FROM crm_sync_state WHERE key='dieter_cloud_execution_hold:'||ugc_reel_jobs.content_id) AND (?1 IS NULL OR content_id=?1) ORDER BY attempts,requested_at,content_id LIMIT 1").bind(contentId).first<any>();
   if(!pending)return Response.json({ok:true,accepted:false,note:'empty'});
   const verifiedRetry=manual&&once?.verified_retry_key?await verifiedPreProviderRetry(this.env,pending,once):null;
   if(manual&&once?.verified_retry_key&&!verifiedRetry)return Response.json({ok:true,accepted:false,note:'verified_retry_not_authorized'});

@@ -13,6 +13,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   source_message_ids: string[]; amount_minor: number; phone: string; first_name?: string | null;
   fps_bank_member_id: string; bank_ref: string;
   cart_review?: {source_message_id:string;amount_minor:number;source_kind?:'checkout';evidence?:string;reviewer?:string};
+  amount_later?: boolean; text_amount?: {source_message_id:string;amount_minor:number};
 }, now = Date.now(), evidenceCapability?: object) {
   const evidence = payoutEvidenceReader(env,input.conversation_id,evidenceCapability,undefined,input.cycle_message_id);
   const handle = String(input.handle ?? '').replace(/^@/, '').toLowerCase();
@@ -108,13 +109,30 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     }
     cartAmount=review.amount_minor;
   }
+  // The Direct handoff found the amount unconfirmed (e.g. unknown media after it): never
+  // let an older cart receipt override that; the amount is asked from the creator.
+  if(input.amount_later===true)cartAmount=null;
+  // Owner 11.11.2026: the creator's own text is a full amount source. The cited
+  // message must be her original incoming text and must contain that figure.
+  if(input.text_amount&&cartAmount==null){
+    const t=input.text_amount, source=await evidence.source(t.source_message_id);
+    const rub=Math.trunc(t.amount_minor/100);
+    if(!Number.isSafeInteger(t.amount_minor)||t.amount_minor<5000||t.amount_minor>99900||!source||source.direction!=='in'||source.from_username?.toLowerCase()!==handle||!String(source.text??'').includes(String(rub)))throw Error('invalid_text_amount');
+    cartAmount=t.amount_minor;
+  }
   // Never create a financial row from the one-kopeck 'unknown' sentinel.
   // Preserve an existing Owner amount; current-cart review remains the existing
   // amount authority. A raw observed/parser number is not a replacement for it.
   if(evidenceCapability!==undefined&&open&&open.amount_minor>=5000&&cartAmount!==open.amount_minor)throw Error('payout_existing_amount_conflict');
   const amount = open && Number.isSafeInteger(open.amount_minor) && open.amount_minor >= 5000
     ? open.amount_minor : cartAmount;
-  if (amount == null || !Number.isSafeInteger(amount) || amount < 5000) missing.unshift('amount_minor');
+  let finalAmount = amount;
+  if (amount == null || !Number.isSafeInteger(amount) || amount < 5000) {
+    // Owner 11.11.2026: phone, bank and name are enough for the button; the amount
+    // is asked once in text and filled in later. The 1-kopeck sentinel is never payable.
+    if (input.amount_later === true && !missing.length && (!open || open.amount_minor < 5000)) finalAmount = 1;
+    else missing.unshift('amount_minor');
+  }
   if (missing.length) {
     // Durable, deduplicated metadata for review. This is NOT a sent message or
     // an executable Diana task: the consumer must re-read originals before asking.
@@ -136,7 +154,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,
-    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart??(previousProof?.verified_cart?.amount_minor===amount?previousProof.verified_cart:null),reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
+    observed_amount_minor:input.amount_minor===1?null:input.amount_minor,verified_cart:input.cart_review??structuredCart??(previousProof?.verified_cart?.amount_minor===finalAmount?previousProof.verified_cart:null),reviewer:'diana-helios',checked_at:new Date(now).toISOString()});
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_creators(id,normalized_handle,lifecycle_stage,created_at,updated_at)
       VALUES(?1,?2,'agreed',?3,?3) ON CONFLICT(id) DO NOTHING`).bind(creatorId,handle,now),
@@ -148,11 +166,11 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       VALUES(?1,?2,?3,'instagram',?4,?10,'RUB','awaiting_approval',?5,'ozon',?6,?7,?8,
       'TERMO 39°','Реквизиты проверены по исходной переписке. Ожидает одобрения Владельца.','diana-helios',?9,?9)
       ON CONFLICT(id) DO NOTHING`).bind(id,creatorId,profileId,handle,
-        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,amount),
+        new Date(now+4*3600_000).toISOString().slice(0,10),maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,finalAmount),
     env.DB.prepare(`UPDATE ugc_payouts SET phone_masked=?2,bank_ref=?3,fps_bank_member_id=?4,
       amount_minor=CASE WHEN amount_minor=1 THEN ?6 ELSE amount_minor END,product='TERMO 39°',status='awaiting_approval',approved_at=NULL,approved_by=NULL,updated_at=?5
       WHERE id=?1 AND status IN ('awaiting_approval','approved') AND konsol_payment_id IS NULL AND execute_claim IS NULL`)
-      .bind(id,maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,amount),
+      .bind(id,maskPhoneWide(phone!),input.bank_ref,input.fps_bank_member_id,now,finalAmount),
     env.DB.prepare(`INSERT INTO ugc_payout_requisites(payout_id,fps_mobile_phone,first_name,last_name,patronymic,created_at,updated_at)
       SELECT ?1,?2,?3,NULL,NULL,?4,?4 WHERE EXISTS(SELECT 1 FROM ugc_payouts WHERE id=?1 AND status='awaiting_approval' AND konsol_payment_id IS NULL AND execute_claim IS NULL)
       ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone,first_name=excluded.first_name,
@@ -167,7 +185,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   const saved = await env.DB.prepare(`SELECT p.id,p.status,p.amount_minor,p.phone_masked,p.bank_ref,
     r.first_name,r.fps_mobile_phone FROM ugc_payouts p JOIN ugc_payout_requisites r ON r.payout_id=p.id WHERE p.id=?1`)
     .bind(id).first<Record<string,unknown>>();
-  if (!saved || saved.status !== 'awaiting_approval' || saved.amount_minor !== amount ||
+  if (!saved || saved.status !== 'awaiting_approval' || saved.amount_minor !== finalAmount ||
       saved.fps_mobile_phone !== phone || saved.bank_ref !== input.bank_ref ||
       saved.first_name !== (input.first_name?.trim() || null)) throw Error('payout_intake_readback_failed');
   const {fps_mobile_phone: _privatePhone, ...display} = saved;

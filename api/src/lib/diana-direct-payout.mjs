@@ -21,6 +21,25 @@ function normalize(source,event){
  });
  return{messages,handle,recipient};
 }
+// Owner 11.11.2026: the creator's own text is a full amount source. Accept a short
+// incoming text with one 50–999 ₽ figure that is either marked as roubles or
+// answers our question about the amount. The latest such answer wins.
+export function textAmount(messages){
+ let found=null,asked=false;
+ for(const m of messages){
+  const text=String(m.text??'').trim();
+  if(m.direction==='out'){if(/сумм/i.test(text))asked=true;continue;}
+  if(!text||text.length>80||/(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(text))continue;
+  const nums=text.match(/\d+(?:[.,]\d{1,2})?/g)??[];
+  if(nums.length!==1)continue;
+  const marked=/₽|руб|\d\s*р\b|\dр$|сумм|итог|к оплате/i.test(text);
+  if(!marked&&!asked)continue;
+  const [rub,kop='']=nums[0].replace(',','.').split('.');
+  const minor=Number(rub)*100+Number(kop.padEnd(2,'0'));
+  if(Number.isSafeInteger(minor)&&minor>=5000&&minor<=99900)found={amount_minor:minor,source_message_id:m.id};
+ }
+ return found;
+}
 export async function handoffDirectPayout({env,event,source,refreshOriginal,infer,readImage,reviewCart=reviewPayoutCart,savePayout=prepareCreatorPayout}){
  if(event?.dryRun)return{status:'pending',reason:'payout_preview_no_write'};
  if(typeof refreshOriginal!=='function'||typeof infer!=='function')throw Error('payout_trusted_dependencies_required');
@@ -34,25 +53,36 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  const unresolvedSince=at=>initial.messages.some(m=>m.direction==='in'&&Date.parse(m.created_at)>=at&&(m.unsupported||m.attachments.some(a=>a.video_data||String(a.mime_type??'').startsWith('video/'))));
  if(unresolvedSince(evidenceAt))return{status:'pending',reason:'payout_original_media_unresolved'};
  const cart=await reviewCart(env,event.cid,initial.messages,{transient:true,readOnly:true,infer,readImage,handle:initial.handle});
- if(cart?.status!=='confirmed'||!Number.isSafeInteger(cart.amount_minor)||cart.amount_minor<5000||cart.amount_minor>99900)return{status:'incomplete',missing_fields:['amount_minor'],reason:'payout_amount_unconfirmed'};
- const amountIds=[cart.source_message_id,cart.quote?.source_message_id].filter(Boolean);
- const amountTimes=amountIds.map(id=>Date.parse(initial.messages.find(m=>m.id===id)?.created_at??''));
- if(!amountTimes.length||amountTimes.some(at=>!Number.isFinite(at)))throw Error('payout_amount_source_missing');
- if(unresolvedSince(Math.min(evidenceAt,...amountTimes)))return{status:'pending',reason:'payout_original_media_unresolved'};
+ const cartOk=cart?.status==='confirmed'&&Number.isSafeInteger(cart.amount_minor)&&cart.amount_minor>=5000&&cart.amount_minor<=99900;
+ const typed=cartOk?null:textAmount(initial.messages);
+ let amount=cartOk?cart.amount_minor:typed?.amount_minor??null;
+ if(amount!==null){
+  const amountIds=cartOk?[cart.source_message_id,cart.quote?.source_message_id].filter(Boolean):[typed.source_message_id];
+  const amountTimes=amountIds.map(id=>Date.parse(initial.messages.find(m=>m.id===id)?.created_at??''));
+  if(!amountTimes.length||amountTimes.some(at=>!Number.isFinite(at)))throw Error('payout_amount_source_missing');
+  // Unknown media after the amount could amend it: keep the button, ask the amount.
+  if(unresolvedSince(Math.min(evidenceAt,...amountTimes)))amount=null;
+ }
  // Full fresh read, not only matching last ID: catch edited older requisites/cart.
  const fresh=normalize(await refreshOriginal({conversationId:event.cid,messageId:event.message_id}),event);
  if(fresh.recipient!==initial.recipient||fresh.handle!==initial.handle||JSON.stringify(fresh.messages)!==JSON.stringify(initial.messages))return{status:'pending',reason:'payout_original_changed'};
  const existing=await env.DB.prepare("SELECT p.id,p.status,p.amount_minor,p.konsol_payment_id,p.execute_claim FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1").bind(initial.handle,Date.now()-60*86400000).first();
  if(existing&&(existing.konsol_payment_id||existing.execute_claim||!['awaiting_approval','approved'].includes(existing.status)))return{status:'pending',reason:'payout_cycle_already_processed'};
- if(existing?.amount_minor>=5000&&existing.amount_minor!==cart.amount_minor)return{status:'pending',reason:'payout_existing_amount_conflict'};
- const raw=JSON.stringify({version:1,complete_history:true,conversation_id:event.cid,event_id:event.event_id,cycle_message_id:r.cycle_message_id,messages:fresh.messages,cart});
+ if(amount!==null&&existing?.amount_minor>=5000&&existing.amount_minor!==amount)return{status:'pending',reason:'payout_existing_amount_conflict'};
+ const raw=JSON.stringify({version:1,complete_history:true,conversation_id:event.cid,event_id:event.event_id,cycle_message_id:r.cycle_message_id,messages:fresh.messages,cart,typed});
  const sha256=await digest(raw);
  // Resolver and hash are ephemeral in this process; never write raw to ERP/R2.
  const capability=await createDianaPayoutEvidence(async()=>raw,{conversation_id:event.cid,event_id:event.event_id,source_key:'transient:'+sha256,sha256});
- const result=await savePayout(env,{verified:true,handle:initial.handle,conversation_id:event.cid,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:cart.amount_minor,phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:r.bank},Date.now(),capability);
+ const result=await savePayout(env,{verified:true,handle:initial.handle,conversation_id:event.cid,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:amount??1,amount_later:amount===null,...(typed&&amount!==null?{text_amount:typed}:{}),phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:r.bank},Date.now(),capability);
  if(result?.registered===false)return{status:'incomplete',missing_fields:['recipient_details'],reason:'payout_intake_incomplete'};
  if(!result?.id)throw Error('payout_intake_receipt_missing');
  const row=await env.DB.prepare('SELECT id,status,amount_minor,konsol_payment_id,execute_claim FROM ugc_payouts WHERE id=?1').bind(result.id).first();
- if(!row||row.status!=='awaiting_approval'||row.konsol_payment_id||row.execute_claim||row.amount_minor!==cart.amount_minor)throw Error('payout_approval_readback_failed');
+ if(!row||row.status!=='awaiting_approval'||row.konsol_payment_id||row.execute_claim)throw Error('payout_approval_readback_failed');
+ if(amount===null){
+  if(row.amount_minor>=5000)return{status:'registered',payout_id:row.id,amount_minor:row.amount_minor};
+  if(row.amount_minor!==1)throw Error('payout_approval_readback_failed');
+  return{status:'registered_without_amount',payout_id:row.id};
+ }
+ if(row.amount_minor!==amount)throw Error('payout_approval_readback_failed');
  return{status:'registered',payout_id:row.id,amount_minor:row.amount_minor};
 }

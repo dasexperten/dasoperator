@@ -20,3 +20,19 @@ test('incomplete or invalid payout preparation cannot claim an approval or payme
  const f=fixture();f.options.decide=async()=>({action:'payout'});f.options.deliver=async()=>assert.fail('no unsolicited payment claim');f.options.handoffPayout=async()=>({status:'incomplete',missing_fields:['amount']});assert.deepEqual(await runDirect(f.options),{status:'pending',reason:'payout_missing_fields'});
  f.options.handoffPayout=async()=>({status:'registered',payout_id:'p1',amount_minor:0});await assert.rejects(runDirect(f.options),/receipt_invalid/);
 });
+test('Owner 11.11: button without amount sends Diana one amount question and closes the event',async()=>{
+ const sent=[];let proof=null;
+ const r=await runDirect({event:{cid:'c',message_id:'m',event_id:'message:m'},readOriginal:async()=>({status:'ready',messages:[]}),
+  decide:async()=>({action:'payout',amountQuestion:'Подскажите, пожалуйста, сумму к оплате текстом?',recipientId:'u'}),
+  handoffPayout:async()=>({status:'registered_without_amount',payout_id:'p1'}),
+  deliver:async(x)=>{sent.push(x.text);return{status:'verified',outgoingId:'o1'};},saveProof:async(p)=>{proof=p;},acknowledge:async()=>true});
+ assert.equal(r.status,'complete');assert.equal(r.reason,'payout_button_amount_asked');assert.deepEqual(sent,['Подскажите, пожалуйста, сумму к оплате текстом?']);assert.equal(proof.payout_id,'p1');
+});
+test('Owner 11.11: a reply after the amount fills the waiting button first',async()=>{
+ let filled=0;
+ const r=await runDirect({event:{cid:'c',message_id:'m',event_id:'message:m'},readOriginal:async()=>({status:'ready',messages:[]}),
+  decide:async()=>({action:'reply',reply:'Спасибо!',recipientId:'u'}),pendingAmount:async()=>true,
+  handoffPayout:async()=>{filled++;return{status:'registered',payout_id:'p1',amount_minor:43200};},
+  deliver:async()=>({status:'verified',outgoingId:'o'}),saveProof:async()=>{},acknowledge:async()=>true});
+ assert.equal(filled,1);assert.equal(r.status,'complete');
+});

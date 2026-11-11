@@ -7,6 +7,11 @@ import {prepareCreatorPayout} from './ugc-payout-intake';
 import {reviewPayoutCart} from './ugc-cart-review';
 const BRAND=new Set(['1697038263872226','17841466350261166']);
 const digest=async raw=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw)))].map(n=>n.toString(16).padStart(2,'0')).join('');
+// Owner 2026-11-11 (nazilya__85): Meta re-signs every image link on each read, so the
+// raw JSON of two reads never matches. Compare what a person would see: text, sender,
+// time and which picture (asset id), never the expiring signature.
+const assetOf=a=>{const u=String(a?.image_data?.url??a?.video_data?.url??a?.file_url??'');try{const x=new URL(u);return x.searchParams.get('asset_id')||x.origin+x.pathname;}catch{return u;}};
+export function stable(messages){return JSON.stringify((messages??[]).map(m=>({id:m.id,direction:m.direction,from_id:m.from_id,text:m.text,created_at:m.created_at,unsupported:m.unsupported,attachments:(m.attachments??[]).map(a=>[String(a?.mime_type??''),assetOf(a),Boolean(a?.video_data)])})));}
 function normalize(source,event){
  if(source?.status!=='ready'||source.conversationId!==event.cid||source.messageId!==event.message_id||event.event_id!=='message:'+event.message_id||!Array.isArray(source.messages)||!source.messages.length||source.messages.length>5000)throw Error('payout_original_invalid');
  const seen=new Set(),now=Date.now(),latest=source.messages.at(-1),recipient=String(latest?.from?.id??'');
@@ -24,17 +29,23 @@ function normalize(source,event){
 // Owner 11.11.2026: the creator's own text is a full amount source. Accept a short
 // incoming text with one 50–999 ₽ figure that is either marked as roubles or
 // answers our question about the amount. The latest such answer wins.
-export function textAmount(messages){
+export function textAmount(messages,since=-Infinity){
+ // Owner 2026-11-11 (nazilya__85): only the current cycle counts (an old «500» from
+ // February is not today's cart), and «Термо 39 Цена 445 р» means 445, not «two numbers».
  let found=null,asked=false;
  for(const m of messages){
   const text=String(m.text??'').trim();
-  if(m.direction==='out'){if(/сумм|цен[ауые]|стоимост/i.test(text))asked=true;continue;}
+  if(Date.parse(m.created_at)<since)continue;
+  if(m.direction==='out'){if(/сумм|цен[ауые]|стоимост|сколько.*стоит/i.test(text))asked=true;continue;}
   if(!text||text.length>80||/(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(text))continue;
   const nums=text.match(/\d+(?:[.,]\d{1,2})?/g)??[];
-  if(nums.length!==1)continue;
-  const marked=/₽|руб|\d\s*р\b|\dр$|сумм|итог|к оплате/i.test(text);
+  if(!nums.length)continue;
+  const near=[...text.matchAll(/(?:цен[аы]|сумм[аы]|итог\w*|к оплате)\s*:?\s*(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s*(?:₽|руб|р\b|р\.|р$)/gi)].map(x=>x[1]??x[2]);
+  const pick=near.length===1?near[0]:nums.length===1?nums[0]:null;
+  if(!pick)continue;
+  const marked=near.length===1||/сумм|итог|к оплате/i.test(text);
   if(!marked&&!asked)continue;
-  const [rub,kop='']=nums[0].replace(',','.').split('.');
+  const [rub,kop='']=pick.replace(',','.').split('.');
   const minor=Number(rub)*100+Number(kop.padEnd(2,'0'));
   if(Number.isSafeInteger(minor)&&minor>=5000&&minor<=99900)found={amount_minor:minor,source_message_id:m.id};
  }
@@ -51,21 +62,24 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  if(!sourceTimes.length||sourceTimes.some(at=>!Number.isFinite(at)))throw Error('payout_requisite_source_missing');
  const evidenceAt=Math.min(...sourceTimes);
  const unresolvedSince=at=>initial.messages.some(m=>m.direction==='in'&&Date.parse(m.created_at)>=at&&(m.unsupported||m.attachments.some(a=>a.video_data||String(a.mime_type??'').startsWith('video/'))));
- if(unresolvedSince(evidenceAt))return{status:'pending',reason:'payout_original_media_unresolved'};
+ // Owner 2026-11-11 (elwira.karimova2013): phone, bank and name make the button. Unknown
+ // media after them (a contact card, a forward) never blocks it; at most the amount waits.
+ const mediaAfterRequisites=unresolvedSince(evidenceAt);
  const cart=await reviewCart(env,event.cid,initial.messages,{transient:true,readOnly:true,infer,readImage,handle:initial.handle});
  const cartOk=cart?.status==='confirmed'&&Number.isSafeInteger(cart.amount_minor)&&cart.amount_minor>=5000&&cart.amount_minor<=99900;
- const typed=cartOk?null:textAmount(initial.messages);
+ const typed=cartOk?null:textAmount(initial.messages,evidenceAt-7*86400000);
  let amount=cartOk?cart.amount_minor:typed?.amount_minor??null;
  if(amount!==null){
   const amountIds=cartOk?[cart.source_message_id,cart.quote?.source_message_id].filter(Boolean):[typed.source_message_id];
   const amountTimes=amountIds.map(id=>Date.parse(initial.messages.find(m=>m.id===id)?.created_at??''));
   if(!amountTimes.length||amountTimes.some(at=>!Number.isFinite(at)))throw Error('payout_amount_source_missing');
   // Unknown media after the amount could amend it: keep the button, ask the amount.
-  if(unresolvedSince(Math.min(evidenceAt,...amountTimes)))amount=null;
+  // The creator's own typed amount stands (text is a full source); a screen amount waits.
+  if(!typed&&(mediaAfterRequisites||unresolvedSince(Math.min(evidenceAt,...amountTimes))))amount=null;
  }
  // Full fresh read, not only matching last ID: catch edited older requisites/cart.
  const fresh=normalize(await refreshOriginal({conversationId:event.cid,messageId:event.message_id}),event);
- if(fresh.recipient!==initial.recipient||fresh.handle!==initial.handle||JSON.stringify(fresh.messages)!==JSON.stringify(initial.messages))return{status:'pending',reason:'payout_original_changed'};
+ if(fresh.recipient!==initial.recipient||fresh.handle!==initial.handle||stable(fresh.messages)!==stable(initial.messages))return{status:'pending',reason:'payout_original_changed'};
  const existing=await env.DB.prepare("SELECT p.id,p.status,p.amount_minor,p.konsol_payment_id,p.execute_claim FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1").bind(initial.handle,Date.now()-60*86400000).first();
  if(existing&&(existing.konsol_payment_id||existing.execute_claim||!['awaiting_approval','approved'].includes(existing.status)))return{status:'pending',reason:'payout_cycle_already_processed'};
  if(amount!==null&&existing?.amount_minor>=5000&&existing.amount_minor!==amount)return{status:'pending',reason:'payout_existing_amount_conflict'};

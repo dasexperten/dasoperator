@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {createRequire} from 'node:module';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 const dir=mkdtempSync(join(tmpdir(),'direct-payout-'));
 await createRequire(import.meta.url)('esbuild').build({entryPoints:[fileURLToPath(new URL('./diana-direct-payout.mjs',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:join(dir,'handoff.mjs'),plugins:[{name:'forbid-effects',setup(b){b.onResolve({filter:/(?:ig-dm-image-cache|ig-dm-watch|diana-subscription\.mjs)$/},()=>({path:'effects',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const imageUrls=s=>JSON.parse(s||"[]").filter(x=>x.image_data).map(x=>x.image_data.url);export const loadInstagramImage=async()=>{throw Error("unexpected image read")};export const refreshIgAttachments=async()=>{throw Error("archive repair forbidden")};export const subscriptionInfer=()=>{throw Error("legacy model runner forbidden")};'}));}}]});
-const {handoffDirectPayout,textAmount}=await import(pathToFileURL(join(dir,'handoff.mjs')));rmSync(dir,{recursive:true});
+const {handoffDirectPayout,textAmount,stable}=await import(pathToFileURL(join(dir,'handoff.mjs')));rmSync(dir,{recursive:true});
 function fixture(){
  const db=new DatabaseSync(':memory:');
  db.exec(`CREATE TABLE ugc_creators(id TEXT PRIMARY KEY,normalized_handle TEXT,lifecycle_stage TEXT,created_at INTEGER,updated_at INTEGER);
@@ -30,12 +30,12 @@ test('image cart is independently read transiently, no image cache/archive or le
  assert.ok(!f.db.prepare('SELECT value FROM crm_sync_state').all().some(x=>x.value.includes('visible_text')));
  }finally{f.db.close();}});
 
-test('unknown image between relied amount and phone blocks; unrelated earlier unknown allowed',async()=>{
+test('Owner 2026-11-11: unknown media after the details never blocks the button; a screen amount waits',async()=>{
  for(const earlier of [false,true]){const f=setup();try{
  const unknown={id:'unknown',from:{id:'person',username:'alice'},is_unsupported:true,message:'',created_time:earlier?'2026-11-09T09:00:00Z':'2026-11-09T10:00:30Z'};
  f.source.messages.splice(earlier?0:1,0,unknown);
- const result=await handoffDirectPayout(f.args);assert.equal(result.status,earlier?'registered':'pending');
- assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,earlier?1:0);
+ const result=await handoffDirectPayout(f.args);assert.equal(result.status,earlier?'registered':'registered_without_amount');
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,1);
  }finally{f.db.close();}}
 });
 test('older selected amount extends unreadable guard beyond short requisites cluster',async()=>{
@@ -66,4 +66,22 @@ test('Owner 11.11: the creator text amount is read after our amount question or 
  assert.equal(textAmount([{id:'a',direction:'in',text:'Мне 25 лет'}]),null);
  assert.equal(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'+7 999 123 45 67 Сбер Анна'}]),null);
  assert.equal(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'1500'}]),null);
+});
+
+test('Meta re-signing image links between two reads is not a change of the conversation',async()=>{
+ const m=sig=>[{id:'1',direction:'in',from_id:'p',text:'',created_at:'t',unsupported:false,attachments:[{mime_type:'image/jpeg',image_data:{url:'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=111&signature='+sig}}]}];
+ assert.equal(stable(m('a')),stable(m('b')));
+ const other=m('a');other[0].attachments[0].image_data.url='https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=222&signature=a';
+ assert.notEqual(stable(m('a')),stable(other));
+});
+test('Owner 2026-11-11 (nazilya__85): text amount reads the marked price and ignores an old cycle',()=>{
+ const at=s=>new Date(s).toISOString();
+ const msgs=[
+  {id:'old',direction:'in',text:'500',created_at:at('2026-02-24T09:51:08Z')},
+  {id:'q',direction:'out',text:'Подскажите, какая паста у вас в корзине и сколько она стоит?',created_at:at('2026-11-11T07:39:00Z')},
+  {id:'new',direction:'in',text:'Термо 39 \nЦена 445 р',created_at:at('2026-11-11T08:10:06Z')},
+ ];
+ assert.deepEqual(textAmount(msgs,Date.parse('2026-11-11T09:22:31Z')-7*86400000),{amount_minor:44500,source_message_id:'new'});
+ assert.equal(textAmount(msgs.slice(0,1),Date.parse('2026-11-11T09:22:31Z')-7*86400000),null);
+ assert.deepEqual(textAmount([{id:'a',direction:'in',text:'447',created_at:at('2026-11-08T12:00:00Z')},{id:'b',direction:'in',text:'Рублей',created_at:at('2026-11-08T12:00:05Z')}].map((m,i)=>i?m:{...m}),-Infinity),null); // bare 447 without a question stays unmarked
 });

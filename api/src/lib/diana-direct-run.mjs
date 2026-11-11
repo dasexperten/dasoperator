@@ -32,13 +32,13 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   if(decision.action==='reply'&&!event.dryRun&&typeof handoffPayout==='function'&&typeof pendingAmount==='function'&&await pendingAmount(source)){
     try{await handoffPayout({event,source});}catch{}
   }
-  if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{})};
+  if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{}),image_trace:decision.receipt?.image_trace??[]};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});
   if(delivery.status==='preview')return {status:'preview',images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null};
   if(delivery.status!=='verified')return {status:'pending',reason:'delivery_'+delivery.status};
   const proof={event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:delivery.outgoingId,executor:'diana_direct_workflow'};
   await saveProof(proof);
   const acknowledged=await acknowledge(event);
-  return acknowledged?{status:'complete',outgoing_id:delivery.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+  return acknowledged?{status:'complete',outgoing_id:delivery.outgoingId,image_trace:decision.receipt?.image_trace??[]}:{status:'pending',reason:'newer_event_preserved'};
 }
 

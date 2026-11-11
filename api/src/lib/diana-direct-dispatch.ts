@@ -36,8 +36,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
   let revisit=false;
   if(state){
    // Owner 2026-11-11: a parked chat is never left alone. Once, 10 minutes after
-   // parking, Diana looks again and must answer or ask; if she still cannot (or a send
-   // had an unknown result, never replayed), Aram gets it in Telegram with buttons.
+   // parking, Diana looks again and must answer or ask. An unknown send is never replayed.
    const parked=state.status==='needs_review'||(state.status==='pending'&&Number(state.attempt??1)>=3);
    if(parked){
     const unknownSend=/delivery_unknown|delivery_unconfirmed/.test(String(state.reason??''));
@@ -45,10 +44,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
      if(now-Number(state.review_since_ms??0)<600000){earliest=Math.min(earliest,Number(state.review_since_ms??0)+600000);continue;}
      revisit=true;
     }else{
-     if(!state.owner_asked&&String(item.queue_key).startsWith('diana_round_alarm:')){
-      const marked=await env.DB.prepare("UPDATE crm_sync_state SET value=json_set(value,'$.owner_asked',1),updated_at=?2 WHERE key=?1 AND json_extract(value,'$.owner_asked') IS NULL").bind('diana_direct_event:'+item.event_id,now).run();
-      if(marked.meta.changes){try{const {askOwnerIncident}=await import('./ugc-hard-question');await askOwnerIncident(env,{cid:String(item.cid),handle:String(item.handle??''),at:String(item.at??'')},String(state.reason??'needs_review'),'');}catch{}}
-     }
+     // Owner 2026-11-11: no Telegram for parked chats; it stays visible in the ERP.
      continue;
     }
    }else{

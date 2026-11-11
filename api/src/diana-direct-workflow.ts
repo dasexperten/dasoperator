@@ -19,7 +19,7 @@ import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
-import {runPayoutNotice,runOwnerChoice,NOTICE_TASKS,OWNER_CHOICE_TASK} from './lib/diana-direct-notice.mjs';
+import {runPayoutNotice,runOwnerChoice,runGoldWelcome,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK} from './lib/diana-direct-notice.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
@@ -38,9 +38,9 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
     const processOne=async(signal:DianaDirectSignal)=>{
     try{
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
-     if(signal.task&&(NOTICE_TASKS.has(signal.task)||signal.task===OWNER_CHOICE_TASK)){
+     if(signal.task&&(NOTICE_TASKS.has(signal.task)||signal.task===OWNER_CHOICE_TASK||signal.task===GOLD_TASK)){
       if(signal.dryRun)return {status:'preview',reason:'task_preview_no_send'};
-      const run=signal.task===OWNER_CHOICE_TASK?runOwnerChoice:runPayoutNotice;
+      const run=signal.task===OWNER_CHOICE_TASK?runOwnerChoice:signal.task===GOLD_TASK?runGoldWelcome:runPayoutNotice;
       const result=await run({env:this.env,event:signal,token:this.env.META_IG_MESSAGING_TOKEN,infer,prepareContext:prepareDianaContext});
       if(result.status==='complete'){
        await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify({event_id:signal.event_id,cid:signal.cid,message_id:signal.message_id??null,verified:true,proof:'Original Meta outgoing payout notice read back',outgoing_id:result.outgoing_id??null,executor:'diana_direct_workflow'}),Date.now()).run();

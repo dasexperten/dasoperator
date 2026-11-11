@@ -847,6 +847,14 @@ ugc.patch('/creators/:id', async (c) => {
       await c.env.DB.prepare(BQ_UPSERT).bind(manualStageKey(id), JSON.stringify(change), updatedAt).run();
     }
   }
+  // Owner 2026-11-11: marking a blogger Gold is an immediate signal to Diana Direct; she
+  // writes her a personal Gold welcome (closed circle, a gift, never the same text). Once per blogger.
+  if (nextStage === 'gold' && current.lifecycle_stage !== 'gold') {
+    try {
+      const h = await c.env.DB.prepare(`SELECT normalized_handle FROM ugc_creator_platforms WHERE creator_id=?1 AND platform='instagram' LIMIT 1`).bind(id).first<{ normalized_handle: string }>();
+      if (h?.normalized_handle) { const { queueDianaAction } = await import('../lib/diana-compose'); await queueDianaAction(c.env as any, h.normalized_handle, '', `gold:${id}`, { task: 'gold_welcome' }); }
+    } catch { /* The stage change stands; the signal can be re-sent. */ }
+  }
   return ok(c, { id, updated_at: updatedAt });
 });
 

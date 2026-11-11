@@ -97,7 +97,7 @@ test('seven required API destinations defer unverified Wibes/Ozon and preserve r
 
 test('assignment includes verified identity, canonical keyword provenance and ERP plan before provider intent',()=>{
  const text=reelTaskText({content_id:'caption-source',claim_id:'plan-test-claim',content_url:'https://youtube.com/watch?v=abc',handle:'actual_creator',required_destinations:['facebook']},'https://erp.test');
- for(const value of ['product_keyword_pools.source_ref','body_keyword_realizations','source SHA256','missing_pool','editorial priorities','39°C measurement','/reel-jobs/caption-source/caption-plan','verified_products','Jurgen','required_search_tokens_enabled','required_search_token_evidence','#termo','не увеличивает утверждённые platform counts']) assert.ok(text.includes(value),value);
+ for(const value of ['product_keyword_pools.source_ref','body_keyword_realizations','source SHA256','missing_pool','editorial priorities','39 °C и +40% запрещены','/reel-jobs/caption-source/caption-plan','verified_products','Jurgen','required_search_tokens_enabled','required_search_token_evidence','#termo','не увеличивает утверждённые platform counts']) assert.ok(text.includes(value),value);
  assert.match(text,/не переноси имя Юлия/);assert.match(text,/без ручного approval gate/);
 });
 

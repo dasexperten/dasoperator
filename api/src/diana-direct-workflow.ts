@@ -19,16 +19,18 @@ import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
+import {runPayoutNotice,NOTICE_TASKS} from './lib/diana-direct-notice.mjs';
+// @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
-export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number};
+export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number;task?:string;payout_id?:string};
 
 export type DianaDirectPayload=DianaDirectSignal|{events:DianaDirectSignal[]};
 export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPayload>{
  async run(event:WorkflowEvent<DianaDirectPayload>,step:WorkflowStep){
   const payload=event.payload;
   const signals='events' in payload?payload.events:[payload];
-  if(!Array.isArray(signals)||!signals.length||signals.length>4||signals.some(x=>!x?.cid||!x?.message_id||!x?.event_id))throw Error('direct_invalid_signals');
+  if(!Array.isArray(signals)||!signals.length||signals.length>4||signals.some(x=>!x?.cid||(!x?.message_id&&!x?.task)||!x?.event_id))throw Error('direct_invalid_signals');
   const dryRun=signals.every(x=>x.dryRun===true);
   if(!dryRun&&signals.some(x=>x.dryRun))throw Error('direct_mixed_preview');
   try{
@@ -36,6 +38,16 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
     const processOne=async(signal:DianaDirectSignal)=>{
     try{
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
+     if(signal.task&&NOTICE_TASKS.has(signal.task)){
+      if(signal.dryRun)return {status:'preview',reason:'notice_preview_no_send'};
+      const result=await runPayoutNotice({env:this.env,event:signal,token:this.env.META_IG_MESSAGING_TOKEN,infer,prepareContext:prepareDianaContext});
+      if(result.status==='complete'){
+       await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify({event_id:signal.event_id,cid:signal.cid,message_id:signal.message_id??null,verified:true,proof:'Original Meta outgoing payout notice read back',outgoing_id:result.outgoing_id??null,executor:'diana_direct_workflow'}),Date.now()).run();
+       await acknowledgeDianaEvent(this.env,signal as any);
+      }
+      const saved=directOutcomeState(result,signal.attempt??1);await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();
+      return result;
+     }
      const result=await runDirect({event:signal,
       readOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
       decide:async(source:any)=>{
@@ -44,9 +56,12 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const payouts=creator?.id?(await this.env.DB.prepare('SELECT status,amount_minor,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY updated_at DESC LIMIT 5').bind(creator.id).all<any>()).results:[];
        return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3});
       },
-      handoffPayout:({event:input,source}:any)=>handoffDirectPayout({env:this.env,event:input,source,
+      handoffPayout:async({event:input,source}:any)=>{const out=await handoffDirectPayout({env:this.env,event:input,source,
        refreshOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
-       infer,readImage:loadInstagramImage}),
+       infer,readImage:loadInstagramImage});
+       // Owner 2026-11-11: the payment message must find this chat later; keep only its id.
+       if(out?.payout_id)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_payout_cid:'+out.payout_id,JSON.stringify({cid:String(input.cid),message_id:String(input.message_id),handle:String(input.handle??'')}),Date.now()).run();
+       return out;},
       pendingAmount:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        if(!name)return false;

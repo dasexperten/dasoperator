@@ -21,9 +21,11 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
   await releaseDianaCloud(env,{kind:'direct',id:active.value});
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(active.value).run();
  }
- const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>
+ // Owner 2026-11-11: payment messages (paid / bank declined) are Diana Direct's first job.
+ const notice=(e:any)=>['payout_paid_notice','payout_failed_notice'].includes(e.task)&&typeof e.payout_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
+ const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>notice(e)||
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
- pending.sort((a:any,b:any)=>Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
+ pending.sort((a:any,b:any)=>Number(notice(b))-Number(notice(a))||Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
  const ready:{item:any;attempt:number}[]=[];let earliest=Infinity;
  for(const item of pending){
   let nextAttempt=1;
@@ -47,7 +49,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
   .bind('diana_direct_instance:'+id,JSON.stringify({event_ids:ready.map(({item})=>item.event_id),created_at:now}),now).run();
  try{
-  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt})=>({cid:String(item.cid),message_id:item.message_id,event_id:item.event_id,handle:item.handle,attempt}))}});
+  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt})=>({cid:String(item.cid),message_id:item.message_id??null,event_id:item.event_id,handle:item.handle,attempt,...(notice(item)?{task:item.task,payout_id:item.payout_id}:{})}))}});
  }catch{
   // An uncertain create cannot be replayed blindly; preserve claim and lock.
   return {dispatched:false,reason:'workflow_creation_unknown'};

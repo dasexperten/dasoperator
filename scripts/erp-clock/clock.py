@@ -131,6 +131,8 @@ class Clock:
             return
         self.last_slot = slot
         for worker, config in self.schedules.items():
+            if config.get("transport") == "cloudflare":
+                continue
             crons = due_crons(config, slot)
             if not crons:
                 continue

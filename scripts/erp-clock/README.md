@@ -23,6 +23,12 @@ execution ownership. Existing WB cross-slot locking remains in force.
 
 Only workers with this ownership contract may use `/scheduled`. Local workers
 require the explicit local claim path; adding a name alone is insufficient.
+Cloudflare-timer only (Owner 2026-11-11): `erp-blogger-id` and `erp-ugc-postlink`
+carry `"transport": "cloudflare"`. They run 4–12 minutes; on 10 and 11 November the
+held clock connection dropped at about one minute and both jobs died unfinished. The
+clock skips them, their `/scheduled` door answers 409 `cloudflareOnly`, and the native
+Cloudflare cron (15-minute budget, no client connection) claims and runs the slot.
+A clock release built before this change still knocks; the door refusal makes that harmless.
 Removed by the Owner on 2026-11-08: `erp-promo-refill` and `erp-ugc-payout-summary`.
 Excluded: provider-disabled `erp-vn-einvoice` and the independently scheduled
 read-only monitor `erp-promozon`. They are not added to this transport.

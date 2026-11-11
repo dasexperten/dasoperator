@@ -129,6 +129,14 @@ class ClockTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.calls[0][-1], "0 * * * *")
 
+    def test_cloudflare_only_job_is_never_dispatched(self):
+        schedules = {"erp-ugc-postlink": {"crons": ["0 0 * * *"], "execution": "local", "transport": "cloudflare"},
+                     "erp-auto-delivery": {"crons": ["0 */4 * * *"]}}
+        c = clock.Clock(self.submit, lambda *_: None, schedules=schedules)
+        with contextlib.redirect_stdout(io.StringIO()):
+            c.tick(datetime(2026, 11, 12, 0, 0, tzinfo=timezone.utc).timestamp())
+        self.assertEqual([call[0] for call in self.calls], ["erp-auto-delivery"])
+
     def test_steps_ranges_lists_and_day_or(self):
         stamp = datetime(2026, 11, 4, 6, 5, tzinfo=timezone.utc)
         self.assertTrue(clock.cron_matches("5,12 */6 * * *", stamp))

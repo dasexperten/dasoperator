@@ -3,13 +3,16 @@ import { parseCron, matches } from '../../api/src/lib/cron-expect';
 
 // Every enabled lane claims durable API or local ownership before business effects.
 // A stable journal key alone is not a lock for unregistered self-contained workers.
-type Schedule = { crons: string[]; gate?: string; execution?: string };
+type Schedule = { crons: string[]; gate?: string; execution?: string; transport?: string };
 const schedules: Record<string, Schedule> = registry;
 const parsed = new Map(Object.values(schedules).flatMap(schedule => schedule.crons).map(cron => [cron, parseCron(cron)]));
 export const MINUTE_CRON = '* * * * *';
 export type TriggerSource = 'cloudflare' | 'external_clock' | 'manual';
 export const minuteSlot = (time: number): number => Math.floor(time / 60_000) * 60_000;
 export const hasScheduledDoor = (worker: string): boolean => Object.hasOwn(schedules, worker);
+// Long nightly jobs run only on Cloudflare's own cron: a held clock connection that
+// drops mid-run kills the job (Owner 2026-11-11, erp-blogger-id / erp-ugc-postlink).
+export const cloudflareOnly = (worker: string): boolean => hasScheduledDoor(worker) && schedules[worker]!.transport === 'cloudflare';
 export const isLocalScheduledWorker = (worker: string): boolean => hasScheduledDoor(worker) && schedules[worker]!.execution === 'local';
 export const hasStableSlot = (worker: string, _cron: string, time?: number): boolean =>
   hasScheduledDoor(worker) && time !== undefined;

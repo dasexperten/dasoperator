@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url), { build } = require('esbuild');
 const dir = mkdtempSync(join(tmpdir(), 'erp-schedule-slot-'));
 await build({ stdin: { contents: `export * from './run-slot'; export * from './run'; export * from './run-journal'; export * from './trigger-erp';`,
   resolveDir: fileURLToPath(new URL('.', import.meta.url)), loader: 'ts' }, bundle: true, platform: 'node', format: 'esm', outfile: join(dir, 'slots.mjs') });
-const { slotRunKey, minuteSlot, currentHttpSlot, currentHttpSchedule, dueScheduledSlot, matchesScheduledCron, hasScheduledDoor,
+const { cloudflareOnly, slotRunKey, minuteSlot, currentHttpSlot, currentHttpSchedule, dueScheduledSlot, matchesScheduledCron, hasScheduledDoor,
   isLocalScheduledWorker, erpTriggerWorker, erpWorker, runLogged, runApiStep, claimLocalRun, finishTimerRun } = await import(pathToFileURL(join(dir, 'slots.mjs')));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 const workerName = 'erp-ugc-payouts', cron = '*/10 * * * *', now = Date.parse('2026-10-23T20:00:30Z'), slot = minuteSlot(now);
@@ -167,17 +167,20 @@ test('broader registry includes API-backed lanes but excludes disabled and retir
   for (const name of ['erp-ugc-payout-summary', 'erp-promo-refill', 'erp-promozon', 'erp-vn-einvoice', 'erp-fbo-sync']) assert.equal(hasScheduledDoor(name), false);
 });
 
-test('blogger HTTP requires configured04:00Yerevan cron and current due minute, then dedupes CF', async t => {
+for (const name of ['erp-blogger-id', 'erp-ugc-postlink']) test(`${name} is Cloudflare-timer only: the clock door refuses, the CF cron runs it once`, async t => {
   const now = Date.parse('2026-11-07T00:00:30Z'), slot = minuteSlot(now);
-  const f = fixture(t, { name: 'erp-blogger-id', at: now });
-  assert.equal((await f.http()).status, 400); // Missing cron is backward compatible only for minute UGC lanes.
-  assert.equal((await f.http({ scheduledTime: slot, cron })).status, 400);
+  const f = fixture(t, { name, at: now });
+  assert.equal(cloudflareOnly(name), true);
   const scheduled = { scheduledTime: slot, cron: '0 0 * * *' };
-  assert.equal((await f.http(scheduled)).status, 200);
+  const refused = await f.http(scheduled);
+  assert.equal(refused.status, 409); assert.equal((await refused.json()).cloudflareOnly, true);
+  assert.equal(f.sql('SELECT count(*) n FROM erp_cron_runs').results[0].n, 0);
+  await f.cf(now, scheduled.cron);
   await f.cf(now, scheduled.cron);
   assert.equal(f.effects, 1);
-  assert.equal(f.sql('SELECT count(*) n FROM erp_cron_runs').results[0].n, 1);
-  assert.equal(currentHttpSchedule('erp-blogger-id', { ...scheduled, scheduledTime: slot + 60_000 }, slot + 60_000), null);
+  const rows = f.sql('SELECT trigger_source,ok FROM erp_cron_runs').results;
+  assert.deepEqual(rows, [{ trigger_source: 'cloudflare', ok: 1 }]);
+  assert.equal(cloudflareOnly('erp-ugc-payouts'), false);
 });
 
 test('CF rejects the old hourly expression or non-due time for blogger refresh', async t => {

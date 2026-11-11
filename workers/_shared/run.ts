@@ -1,5 +1,5 @@
 import { journalWrite, finishTimerRun, readRun, terminalOutcome, claimLocalRun, ApiStepPendingError } from './run-journal';
-import { hasStableSlot, hasScheduledDoor, isLocalScheduledWorker, slotRunKey, minuteSlot, currentHttpSchedule, dueScheduledSlot, matchesScheduledCron, type TriggerSource } from './run-slot';
+import { hasStableSlot, hasScheduledDoor, isLocalScheduledWorker, cloudflareOnly, slotRunKey, minuteSlot, currentHttpSchedule, dueScheduledSlot, matchesScheduledCron, type TriggerSource } from './run-slot';
 
 // Every erp-* worker is one action on one timer. This wrapper gives each of them the
 // same run log (D1 erp_cron_runs), the same /health, and the same guarded manual /run.
@@ -256,6 +256,7 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
         const given = (req.headers.get('authorization') ?? '').replace(/^Bearer /, '');
         if (!secret || !sameSecret(given, secret)) return new Response('unauthorized', { status: 401 });
         if (!hasScheduledDoor(worker)) return Response.json({ ok: false, error: 'Scheduled HTTP transport is not enabled for this worker' }, { status: 404 });
+        if (cloudflareOnly(worker)) return Response.json({ ok: false, cloudflareOnly: true, error: 'This long job runs on the Cloudflare timer only' }, { status: 409 });
         const schedule = currentHttpSchedule(worker, await req.json().catch(() => null), Date.now());
         if (schedule === null) return Response.json({ ok: false, error: 'Expected a configured cron due in the current UTC minute' }, { status: 400 });
         const report = await runLogged(env, worker, schedule.cron, job, schedule.scheduledTime, 'external_clock');

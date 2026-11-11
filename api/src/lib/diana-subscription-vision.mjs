@@ -21,7 +21,9 @@ export function escalationReasons(result) {
  const reported=result.unresolved_required.map(k=>`required_${k}_unresolved`);
  if(result.kind==='other')return reported;
  if(result.kind==='unknown') return ['kind_unknown',...reported];
- return ['product','amount','seller'].filter(k=>result[k]==='unknown').map(k=>`${k}_unknown/${result.kind}`).concat(reported);
+ // Owner 2026-11-11: a cart never shows the seller; that is not a reason to escalate.
+ const fields=result.kind==='basket'?['product','amount']:['product','amount','seller'];
+ return fields.filter(k=>result[k]==='unknown').map(k=>`${k}_unknown/${result.kind}`).concat(reported.filter(r=>!(result.kind==='basket'&&r==='required_seller_unresolved')));
 }
 export function needsTerra(result) { return escalationReasons(result).length>0; }
 export async function checkSubscriptionImages({images,policy,task,infer}) {
@@ -50,7 +52,7 @@ export async function checkSubscriptionImages({images,policy,task,infer}) {
   checks.push({...result,label:image.label,attempts});
  }
  const summary=summarizeImageChecks(checks);
- const latest=checks.at(-1);const unresolved=latest?.unresolved_required??[];
+ const latest=checks.at(-1);const unresolved=(latest?.unresolved_required??[]).filter(k=>!(latest?.kind==='basket'&&k==='seller'));
  if(summary.status==='yes'&&unresolved.length)return {...summary,status:'unknown',reasons:unresolved.map(k=>`required_${k}_unresolved`)};
  return summary;
 }

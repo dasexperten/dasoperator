@@ -22,26 +22,41 @@ export function incomingAmount(messages){
  }
  return result;
 }
+// Owner 2026-10-18/2026-11-11: a marketplace cart never shows the seller; only a
+// visible different seller (seller==='no') stops it. Slight difference between the
+// screenshot and the creator's typed amount (marketplace prices move): take the larger.
+const NEAR=0.15;
+const near=(a,b)=>Math.abs(a-b)<=Math.max(a,b)*NEAR;
 export function decideCart(checks,quote){
- // New seller-only screens do not replace a basket. A new uncertain image does.
  const ordered=[...checks].sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at)||a.attachment_index-b.attachment_index);
  let basket=null,blocked=false;
  for(const c of ordered){
   if(['other','product_photo'].includes(c.kind))continue;
   basket=c;blocked=true;
-  if(c.kind==='basket'&&c.product==='yes'&&c.amount==='yes'&&(c.seller==='yes'||c.seller==='unknown'&&c.seller_evidence==='creator_answer'&&!!c.seller_source?.answer_id)&&!(c.unresolved_required??[]).length){
+  const unresolved=(c.unresolved_required??[]).filter(v=>v!=='seller');
+  if(c.kind==='basket'&&c.product==='yes'&&c.amount==='yes'&&c.seller!=='no'&&!unresolved.length){
    const minor=rubMinor(c.observed?.price,c.observed?.currency??'');
    if(minor){basket={...c,amount_minor:minor};blocked=false;}
   }
  }
- const currentQuote=quote&&(!basket||Date.parse(quote.created_at)>=Date.parse(basket.created_at))?quote:null;
- if(basket?.kind==='basket'&&basket.seller!=='yes'&&!(basket.seller==='unknown'&&basket.seller_evidence==='creator_answer'&&basket.seller_source?.answer_id))return {status:'pending',reason:'seller_unconfirmed',source_message_id:basket.source_message_id,amount_minor:null};
- if(currentQuote?.explicit&&currentQuote.amount_minor&&(!basket||Date.parse(currentQuote.created_at)>Date.parse(basket.created_at)))return{status:'confirmed',authority:'incoming_text',source_message_id:currentQuote.source_message_id,amount_minor:currentQuote.amount_minor};
+ if(basket?.kind==='basket'&&basket.seller==='no')return {status:'pending',reason:'seller_different',source_message_id:basket.source_message_id,amount_minor:null};
+ const typed=quote?.explicit&&quote.amount_minor?quote:null;
+ // A later unclear price question from the creator ("Можно 492руб?") is answered, never guessed.
+ const unclearLater=quote&&!typed&&basket&&Date.parse(quote.created_at)>Date.parse(basket.created_at);
+ if(basket&&!blocked&&unclearLater)return{status:'pending',reason:'amount_conflict',source_message_id:basket.source_message_id,amount_minor:null,quote};
  if(basket&&!blocked){
-  if(currentQuote&&(currentQuote.amount_minor!==basket.amount_minor))return{status:'pending',reason:'amount_conflict',source_message_id:basket.source_message_id,amount_minor:null,quote:currentQuote};
+  if(typed){
+   if(typed.amount_minor===basket.amount_minor||near(typed.amount_minor,basket.amount_minor)){
+    const larger=Math.max(typed.amount_minor,basket.amount_minor);
+    return larger===basket.amount_minor
+     ?{status:'confirmed',authority:'image',source_message_id:basket.source_message_id,attachment_index:basket.attachment_index,amount_minor:larger}
+     :{status:'confirmed',authority:'incoming_text',source_message_id:typed.source_message_id,amount_minor:larger};
+   }
+   return{status:'pending',reason:'amount_conflict',source_message_id:basket.source_message_id,amount_minor:null,quote:typed};
+  }
   return{status:'confirmed',authority:'image',source_message_id:basket.source_message_id,attachment_index:basket.attachment_index,amount_minor:basket.amount_minor};
  }
+ if(typed)return{status:'confirmed',authority:'incoming_text',source_message_id:typed.source_message_id,amount_minor:typed.amount_minor};
  if(blocked)return{status:'pending',reason:'current_image_unresolved',amount_minor:null};
- if(currentQuote?.explicit&&currentQuote.amount_minor)return{status:'confirmed',authority:'incoming_text',source_message_id:currentQuote.source_message_id,amount_minor:currentQuote.amount_minor};
  return{status:'pending',reason:'amount_unconfirmed',amount_minor:null};
 }

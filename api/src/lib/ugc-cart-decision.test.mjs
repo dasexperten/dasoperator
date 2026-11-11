@@ -11,9 +11,11 @@ test('seller-only image preserves preceding verified basket, new unresolved bask
  assert.equal(decideCart([cart,{...cart,created_at:later,kind:'basket',amount:'unknown'}],null).status,'pending');
  assert.equal(decideCart([{...cart,observed:{price:'453',currency:null}}],null).status,'pending');
 });
-test('later incoming explicit price is usable; incoming conflicting text stays pending',()=>{
+test('later incoming explicit price is usable; slight difference takes the larger (Owner 2026-11-11)',()=>{
  for(const text of ['Сумма 453 руб','Сумма 453руб, когда оплатите?','453руб, на Сбер или Озон?'])assert.equal(decideCart([],incomingAmount([m(text)])).amount_minor,45300,text);
- assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount([{...m('453руб'),created_at:at}])).reason,'amount_conflict');
+ assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount([{...m('453руб'),created_at:at}])).amount_minor,45300);
+ assert.equal(decideCart([{...cart,observed:{price:'460',currency:'RUB'}}],incomingAmount([m('453руб')])).amount_minor,46000);
+ assert.equal(decideCart([{...cart,observed:{price:'453',currency:'RUB'}}],incomingAmount([m('250руб')])).reason,'amount_conflict');
  assert.equal(decideCart([{...cart,observed:{price:'429',currency:'RUB'}}],incomingAmount([m('492р')])).amount_minor,49200);
  const asked=[{id:'question',direction:'out',text:'Подскажите артикул пасты и итоговую сумму при оформлении?',created_at:at},m('123456789012\n\n453')];
  assert.equal(decideCart([{...cart,observed:{price:'447',currency:'RUB'}}],incomingAmount(asked)).amount_minor,45300);
@@ -26,8 +28,8 @@ test('questions, alternatives, competing prices, arbitrary digits and outgoing c
 });
 
 
-test('basket without a seller stays pending until an author answer is linked',()=>{
- const missing={...cart,seller:'unknown'};assert.equal(decideCart([missing],null).reason,'seller_unconfirmed');
- assert.equal(decideCart([missing],incomingAmount([m('453 руб')])).reason,'seller_unconfirmed');
- const answered={...missing,seller_evidence:'creator_answer',seller_source:{answer_id:'seller-answer'}};assert.equal(decideCart([answered],null).amount_minor,45300);
+test('a cart never shows the seller: unknown seller passes, a visible different seller stops it (Owner 2026-10-18, 2026-11-11)',()=>{
+ const missing={...cart,seller:'unknown',unresolved_required:['seller']};assert.equal(decideCart([missing],null).amount_minor,45300);
+ assert.equal(decideCart([missing],incomingAmount([m('453 руб')])).amount_minor,45300);
+ assert.equal(decideCart([{...cart,seller:'no'}],null).reason,'seller_different');
 });

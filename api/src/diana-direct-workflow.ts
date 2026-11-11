@@ -19,11 +19,11 @@ import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
-import {runPayoutNotice,NOTICE_TASKS} from './lib/diana-direct-notice.mjs';
+import {runPayoutNotice,runOwnerChoice,NOTICE_TASKS,OWNER_CHOICE_TASK} from './lib/diana-direct-notice.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
-export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number;task?:string;payout_id?:string};
+export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number;task?:string;payout_id?:string;question_id?:string;revisit?:boolean};
 
 export type DianaDirectPayload=DianaDirectSignal|{events:DianaDirectSignal[]};
 export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPayload>{
@@ -38,9 +38,10 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
     const processOne=async(signal:DianaDirectSignal)=>{
     try{
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
-     if(signal.task&&NOTICE_TASKS.has(signal.task)){
-      if(signal.dryRun)return {status:'preview',reason:'notice_preview_no_send'};
-      const result=await runPayoutNotice({env:this.env,event:signal,token:this.env.META_IG_MESSAGING_TOKEN,infer,prepareContext:prepareDianaContext});
+     if(signal.task&&(NOTICE_TASKS.has(signal.task)||signal.task===OWNER_CHOICE_TASK)){
+      if(signal.dryRun)return {status:'preview',reason:'task_preview_no_send'};
+      const run=signal.task===OWNER_CHOICE_TASK?runOwnerChoice:runPayoutNotice;
+      const result=await run({env:this.env,event:signal,token:this.env.META_IG_MESSAGING_TOKEN,infer,prepareContext:prepareDianaContext});
       if(result.status==='complete'){
        await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify({event_id:signal.event_id,cid:signal.cid,message_id:signal.message_id??null,verified:true,proof:'Original Meta outgoing payout notice read back',outgoing_id:result.outgoing_id??null,executor:'diana_direct_workflow'}),Date.now()).run();
        await acknowledgeDianaEvent(this.env,signal as any);
@@ -54,7 +55,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        const creator=name?await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>():null;
        const payouts=creator?.id?(await this.env.DB.prepare('SELECT status,amount_minor,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY updated_at DESC LIMIT 5').bind(creator.id).all<any>()).results:[];
-       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3});
+       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true});
       },
       handoffPayout:async({event:input,source}:any)=>{const out=await handoffDirectPayout({env:this.env,event:input,source,
        refreshOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
@@ -72,7 +73,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });
-     if(!signal.dryRun){const saved=directOutcomeState(result,signal.attempt??1);await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
+     if(!signal.dryRun){const saved={...directOutcomeState(result,signal.attempt??1),...(signal.revisit?{revisited:true}:{})};await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
      return result;
     }catch{
      // Never persist exceptions: upstream errors can contain private content.

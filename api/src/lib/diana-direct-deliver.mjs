@@ -35,9 +35,13 @@ export async function deliverDirectReply({db,conversationId,messageId,recipientI
         .bind(key,JSON.stringify({status:'superseded',conversation_id:conversationId,incoming_id:messageId,at:now}),Date.now()).run();
       return {status:'superseded'};
     }
-    const response=await fetchImpl(ROOT+`${PAGE}/messages`,{method:'POST',headers:{...headers,authorization:`Bearer ${page.access_token}`,'content-type':'application/json'},
-      body:JSON.stringify({recipient:{id:String(recipientId)},message:{text},messaging_type:'RESPONSE'}),signal:AbortSignal.timeout(20000)});
-    const payload=await response.json().catch(()=>null);
+    const post=extra=>fetchImpl(ROOT+`${PAGE}/messages`,{method:'POST',headers:{...headers,authorization:`Bearer ${page.access_token}`,'content-type':'application/json'},
+      body:JSON.stringify({recipient:{id:String(recipientId)},message:{text},...extra}),signal:AbortSignal.timeout(20000)});
+    let response=await post({messaging_type:'RESPONSE'});
+    let payload=await response.json().catch(()=>null);
+    // Owner 2026-11-11: no chat stays unanswered. Past Instagram's 24-hour window a
+    // human-agent tagged reply is allowed for 7 days; Meta itself refuses beyond that.
+    if(!response.ok&&[400,403].includes(response.status)){response=await post({messaging_type:'MESSAGE_TAG',tag:'HUMAN_AGENT'});payload=await response.json().catch(()=>null);}
     if(!response.ok||!payload?.message_id)throw Error('direct_delivery_unconfirmed');
     outgoing=String(payload.message_id);
     const proof=await get(`${encodeURIComponent(outgoing)}?fields=id,message,from`,page.access_token);

@@ -58,7 +58,7 @@ export async function recoverDianaCloudLock(env:Env, now=Date.now()) {
     .bind(receiptKey,JSON.stringify({owner,reason,...(status?{status}:{}),checked_at:now}),now).run();
   let status:string;
   try {
-    const workflow=owner.kind==='direct'?env.DIANA_CLOUD:env.DIANA_ROUND;
+    const workflow=owner.kind==='direct'?env.DIANA_DIRECT:env.DIANA_ROUND; // Owner 2026-11-11: Diana Cloud is gone; Direct runs as diana-direct.
     status=String((await(await workflow.get(owner.id)).status()).status);
   } catch {await save('workflow_status_unavailable');return {released:false,reason:'workflow_status_unavailable',owner};}
   if(!['complete','errored','terminated'].includes(status)){

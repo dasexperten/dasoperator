@@ -22,10 +22,13 @@ test('terminal workflow without receipt is held for review and releases only its
  const f=fixture(t);await dispatchDianaDirect(f.env,undefined,at);const id=f.created[0].id;
  f.env.DIANA_DIRECT.get=async()=>({status:async()=>({status:'errored'})});
  const result=await dispatchDianaDirect(f.env,undefined,at+181000);
- assert.equal(result.reason,'no_direct_signal_ready');assert.equal(f.created.length,1);
+ assert.equal(result.reason,'media_retry_waiting');assert.equal(f.created.length,1);
  const review=JSON.parse(f.sql.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_direct_event:message:m1').value);
  assert.equal(review.reason,'terminal_workflow_without_verified_receipt');assert.equal(review.review_owner,'diana-helios');
  assert.equal(f.sql.prepare("SELECT value FROM crm_sync_state WHERE key='diana_direct_active'").get(),undefined);
+ // Owner 2026-11-11: parked once, revisited 10 minutes later with a forced answer; never left alone.
+ const again=await dispatchDianaDirect(f.env,undefined,at+181000+600000);
+ assert.equal(again.dispatched,true);assert.equal(f.created.at(-1).params.events[0].revisit,true);
 });
 test('unreachable workflow never releases an uncertain lock by age alone',async t=>{
  const f=fixture(t);await dispatchDianaDirect(f.env,undefined,at);f.env.DIANA_DIRECT.get=async()=>{throw Error('unavailable')};

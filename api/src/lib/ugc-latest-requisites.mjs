@@ -20,7 +20,11 @@ export function latestRequisites(messages){
   const selected=cluster.filter(m=>{const p=m.text.match(PHONE)?.[0].replace(/\D/g,'').replace(/^8/,'7');return !p||p===phone;});
   const text=selected.map(m=>m.text).join('\n');
   if(!singleBank(text))continue;
+  // Owner 2026-11-11 (elwira.karimova2013): «Каримова эльвира васфирахмановна» — a name
+  // typed in lowercase is still a name. Capitalise Cyrillic words before reading names.
+  const cased=t=>t.replace(/(^|[\s,.;:])([а-яё])([а-яё]{2,})/g,(_,a,b,c)=>a+b.toUpperCase()+c);
   let r=detectRequisites(selected.map(m=>m.text));
+  if(!r?.first_name)r=detectRequisites(selected.map(m=>cased(m.text)))??r;
   // Owner 2026-11-11: Russian names often come surname first («Улубегова Севда»). A first
   // name that looks like a surname swaps with the other word; only the first name is kept.
   const surnameLike=v=>String(v??'').length>4&&/(?:ова|ева|ёва|ина|ская|цкая|ов|ев|ин)$/i.test(String(v??''));

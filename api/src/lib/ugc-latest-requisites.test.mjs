@@ -20,3 +20,9 @@ test('new ambiguous phone never falls back to older bank or recipient details',(
  assert.equal(latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 Сбер или ТБанк Елена','20')]),null);
  const r=latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 ТБанк Елена','01')]);assert.equal(r.phone,'+79991111111');assert.equal(r.first_name,'Елена');
 });
+
+test('Owner 2026-11-11 (elwira.karimova2013): a lowercase first name after the surname is still read', () => {
+  const r = latestRequisites([{ id: '2', direction: 'in', text: '89177969694 сбербанк\nКаримова эльвира васфирахмановна', created_at: '2026-11-08T14:07:00Z' }]);
+  assert.equal(r.first_name, 'Эльвира');
+  assert.equal(r.phone, '+79177969694');
+});

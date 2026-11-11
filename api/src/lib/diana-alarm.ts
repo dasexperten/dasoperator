@@ -106,7 +106,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       const q = await queueDianaAction(env, g.h, '', `gold:${g.id}`, { task: 'gold_welcome' });
       if (q.ok) gold_signals++; else await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind('diana_gold_seen:' + g.id).run();
     }
-  } catch { errors++; }
+  } catch { /* Gold check never disturbs the message scan; retried next tick. */ }
   const pushed = await dispatch();
   return { inspected, detected, errors, early_dispatched, gold_signals, ...pushed };
 }

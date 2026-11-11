@@ -7,5 +7,8 @@ test('an Ozon basket without a visible seller passes; a different seller still s
   assert.equal(summarizeImageChecks([basket]).status, 'yes');
   assert.equal(summarizeImageChecks([{ ...basket, seller: 'no' }]).status, 'no');
   assert.equal(summarizeImageChecks([{ ...basket, product: 'unknown' }]).status, 'unknown');
-  assert.equal(summarizeImageChecks([{ ...basket, kind: 'order' }]).status, 'unknown');
+  // Owner 2026-11-11: any marketplace screen with our product line and price counts.
+  assert.equal(summarizeImageChecks([{ ...basket, kind: 'order' }]).status, 'yes');
+  assert.equal(summarizeImageChecks([{ ...basket, kind: 'listing' }]).status, 'yes');
+  assert.equal(summarizeImageChecks([{ ...basket, kind: 'other' }]).status, 'unknown');
 });

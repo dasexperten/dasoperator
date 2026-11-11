@@ -7,7 +7,7 @@ import {decideCart,incomingAmount} from './ugc-cart-decision.mjs';
 import {sellerAnswerForBasket} from './ugc-seller-followup.mjs';
 export type CartMessage={id:string;direction:string;text?:string;created_at:string;from_username?:string|null;attachments_json?:string|null};
 type Policy={sha:string;policy:any};
-const RECOGNITION_VERSION='ugc-cart-numeric-v3';
+const RECOGNITION_VERSION='ugc-cart-numeric-v4';
 async function digest(value:string){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');}
 export async function payoutImagePolicy(env:Env):Promise<Policy>{
  const token=(env as unknown as {GITHUB_TOKEN?:string}).GITHUB_TOKEN;
@@ -46,7 +46,7 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
      }
      const hash=await digest(image.data);
      const result=await checkSubscriptionImages({images:[{...image,label:`Скриншот из входящего сообщения ${m.created_at}, вложение ${index+1}.`}],policy:policy.policy,
-      task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Other unselected goods and their totals are not our reimbursement. The price is the large bold current price on the line of the programme product named in the policy (Ozon, Wildberries or any marketplace): never the crossed-out price, never the cart total, never other products. If the line shows another, smaller price as well, ignore it: only the large bold one counts. A cart never shows the seller: seller unknown is normal there. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:options.infer??subscriptionInfer(env,'image')});
+      task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Any marketplace screen (cart, checkout, search results, product card, order) on Ozon, Wildberries or another marketplace counts when it shows the programme product line with its price. Other unselected goods and their totals are not our reimbursement. The price is the large bold current price on the line of the programme product named in the policy (Ozon, Wildberries or any marketplace): never the crossed-out price, never the cart total, never other products. If the line shows another, smaller price as well, ignore it: only the large bold one counts. A cart never shows the seller: seller unknown is normal there. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:options.infer??subscriptionInfer(env,'image')});
      const c=result.checks[0]!;
      check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,encoded_image_sha256:hash,policy_sha:policy.sha,recognition_version:RECOGNITION_VERSION,kind:c.kind,source_kind:(c as any).source_kind??c.kind,product:c.product,seller:c.seller,amount:c.amount,observed:c.observed,unresolved_required:(c as any).unresolved_required??[],attempts:c.attempts,checked_at:now};
     }catch{check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,kind:'unknown',product:'unknown',seller:'unknown',amount:'unknown',reason:'recognition_pending',retry_at:now+5*60000};}
@@ -57,7 +57,7 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
   // A recognised latest basket is sufficient; older pictures cannot supply a different price.
   if(checks.some(c=>c.source_message_id===m.id&&['basket','order','unknown'].includes(c.kind)))break;
  }
- if(!latestExplicit&&imageMessages.length>6&&!checks.some(c=>c.kind==='basket'))omitted=true;
+ if(!latestExplicit&&imageMessages.length>6&&!checks.some(c=>['basket','checkout','order','listing'].includes(c.kind)))omitted=true;
  for(const check of checks){
   if(check.kind!=='basket'||check.seller==='yes'||check.seller==='no')continue;
   policy??=await (options.policy?.()??payoutImagePolicy(env));

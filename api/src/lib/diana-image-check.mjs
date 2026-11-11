@@ -9,14 +9,14 @@ function verdict(data, key) {
 }
 export function summarizeImageChecks(checks) {
   const latest = checks.at(-1);
-  if (!latest || !['basket', 'order', 'product_photo'].includes(latest.kind)) return { status: 'unknown', reasons: ['image_purpose_unclear'], checks };
+  if (!latest || !['basket', 'checkout', 'order', 'listing', 'product_photo'].includes(latest.kind)) return { status: 'unknown', reasons: ['image_purpose_unclear'], checks };
   const reasons = [];
   // Owner 2026-11-11 (restores 2026-10-18, replaces 2026-11-10): a cart never shows
   // the seller; unknown seller is normal and Diana never asks for it. Only a visible
   // different seller stops it.
   for (const field of ['product', 'seller', 'amount']) {
     if (latest[field] === 'yes') continue;
-    if (field === 'seller' && latest.seller === 'unknown' && latest.kind === 'basket') continue;
+    if (field === 'seller' && latest.seller === 'unknown' && ['basket','checkout','order','listing'].includes(latest.kind)) continue;
     reasons.push(`${field}_${latest[field]}`);
   }
   return { status: reasons.length ? (['product', 'seller'].some(f => latest[f] === 'no') ? 'no' : 'unknown') : 'yes', reasons, checks };

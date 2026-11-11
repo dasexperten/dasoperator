@@ -84,7 +84,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
       if(proof.version===1&&proof.conversation_id===input.conversation_id&&sameTime(proof.latest_image_at,latestImage?.at)&&sameTime(proof.latest_incoming_at,latestIncoming?.at)&&decision.status==='confirmed'&&decision.amount_minor===proof.amount_minor){
         const source=await evidence.source(decision.source_message_id);
         let sellerValid=true;
-        const selected=[...(proof.checks??[])].filter((c:any)=>c.kind==='basket').sort((a:any,b:any)=>Date.parse(a.created_at)-Date.parse(b.created_at)).at(-1);
+        const selected=[...(proof.checks??[])].filter((c:any)=>['basket','checkout','order','listing'].includes(c.kind)).sort((a:any,b:any)=>Date.parse(a.created_at)-Date.parse(b.created_at)).at(-1);
         if(selected?.seller_evidence==='creator_answer'){
           const ref=selected.seller_source;
           const q=ref?.question_id?await evidence.source(ref.question_id,true):null;

@@ -26,6 +26,7 @@ export function incomingAmount(messages){
 // visible different seller (seller==='no') stops it. Slight difference between the
 // screenshot and the creator's typed amount (marketplace prices move): take the larger.
 const NEAR=0.15;
+const AMOUNT_KINDS=new Set(['basket','checkout','order','listing']);
 const near=(a,b)=>Math.abs(a-b)<=Math.max(a,b)*NEAR;
 export function decideCart(checks,quote){
  const ordered=[...checks].sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at)||a.attachment_index-b.attachment_index);
@@ -34,12 +35,12 @@ export function decideCart(checks,quote){
   if(['other','product_photo'].includes(c.kind))continue;
   basket=c;blocked=true;
   const unresolved=(c.unresolved_required??[]).filter(v=>v!=='seller');
-  if(c.kind==='basket'&&c.product==='yes'&&c.amount==='yes'&&c.seller!=='no'&&!unresolved.length){
+  if(AMOUNT_KINDS.has(c.kind)&&c.product==='yes'&&c.amount==='yes'&&c.seller!=='no'&&!unresolved.length){
    const minor=rubMinor(c.observed?.price,c.observed?.currency??'');
    if(minor){basket={...c,amount_minor:minor};blocked=false;}
   }
  }
- if(basket?.kind==='basket'&&basket.seller==='no')return {status:'pending',reason:'seller_different',source_message_id:basket.source_message_id,amount_minor:null};
+ if(AMOUNT_KINDS.has(basket?.kind)&&basket.seller==='no')return {status:'pending',reason:'seller_different',source_message_id:basket.source_message_id,amount_minor:null};
  const typed=quote?.explicit&&quote.amount_minor?quote:null;
  // A later unclear price question from the creator ("Можно 492руб?") is answered, never guessed.
  const unclearLater=quote&&!typed&&basket&&Date.parse(quote.created_at)>Date.parse(basket.created_at);

@@ -498,6 +498,12 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-stall-days { color: #F0D6AE; } }
 :root[data-theme="dark"] .ugc-stall-days { color: #F0D6AE; }
 
+/* Owner 2026-11-11: undelivered answer. Solid plate, white heavy text, zero tracking. */
+.ugc-delivery-mark { display: block; flex-basis: 100%; width: fit-content; margin-left: auto; padding: 1px 6px; border-radius: 4px; font-size: 12px; line-height: 16px; font-weight: 800; letter-spacing: 0; white-space: nowrap; background: #B42318; color: #FFFFFF; }
+.ugc-delivery-mark[data-delivery="expired"] { background: #2B2B2B; color: #FFFFFF; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-delivery-mark[data-delivery="expired"] { background: #E7E5E4; color: #1A1519; } }
+:root[data-theme="dark"] .ugc-delivery-mark[data-delivery="expired"] { background: #E7E5E4; color: #1A1519; }
+
 /* Owner 2026-11-04: ready decisions on a business exclamation mark. Heavy weight, zero tracking, solid ink on a solid plate. */
 .ugc-decision-head { display: block; font-size: 12px; font-weight: 700; color: #1A1519; margin: 0 0 4px; letter-spacing: 0; }
 .ugc-decision-wait { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #4A4238; margin: 0 0 8px; letter-spacing: 0; }

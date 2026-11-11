@@ -463,6 +463,12 @@ ugc.get('/', async (c) => {
     const parsed = parseManualStage(row.value);
     if (parsed) manualStageByCreator.set(String(row.key).slice(MANUAL_STAGE_PREFIX.length), parsed);
   }
+  // Owner 2026-11-11: an answer that never reached the chat is a visible mark, not a silent unknown.
+  const deliveryByHandle = new Map<string, { status: string; until: string; last_in: string }>();
+  try {
+    const { undeliveredChats } = await import('../lib/diana-delivery-expiry.mjs');
+    for (const chat of await undeliveredChats(c.env.DB)) if (chat.handle) deliveryByHandle.set(chat.handle, { status: chat.status, until: chat.until, last_in: chat.last_in });
+  } catch { /* the list never fails over a mark */ }
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -517,6 +523,7 @@ ugc.get('/', async (c) => {
       city: row.city ?? null,
       attention: attentionByCreator.get(creatorId) ?? null,
       manual_stage: manualStageByCreator.get(creatorId) ?? null,
+      delivery: deliveryByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,

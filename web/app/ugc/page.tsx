@@ -160,6 +160,7 @@ type Creator = {
   last_activity_at?: number | null;
   accepted_at?: number | null;
   manual_stage?: { from: string; to: string; by: string | null; at: number; reviewed_at: number | null } | null;
+  delivery?: { status: 'undelivered' | 'expired'; until: string; last_in: string } | null;
   attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
@@ -357,7 +358,20 @@ function GoldAward({ creator }: { creator: Creator }) {
 
 function CreatorStatus({ creator }: { creator: Creator }) {
   const stalled = stalledDays(creator);
-  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}</span>;
+  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}<DeliveryMark creator={creator} /></span>;
+}
+
+// Owner 2026-11-11: Diana's answer that never reached the chat is shown, not hidden as unknown.
+function DeliveryMark({ creator }: { creator: Creator }) {
+  const d = creator.delivery;
+  if (!d) return null;
+  const day = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  const expired = d.status === 'expired';
+  const text = expired ? 'окно истекло' : `ответ не дошёл · до ${day(d.until)}`;
+  const title = expired
+    ? `Ответ Дианы не дошёл. Окно Instagram закрылось ${day(d.until)}: ответ невозможен, пока блогер не напишет снова.`
+    : `Ответ Дианы не дошёл до чата. Блогер писала ${day(d.last_in)}; Instagram позволяет ответить до ${day(d.until)}.`;
+  return <span className="ugc-delivery-mark" data-delivery={d.status} title={title} aria-label={title}>{text}</span>;
 }
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {

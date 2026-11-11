@@ -107,8 +107,12 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       if (q.ok) gold_signals++; else await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind('diana_gold_seen:' + g.id).run();
     }
   } catch { /* Gold check never disturbs the message scan; retried next tick. */ }
+  // Owner 2026-11-11: an undelivered answer past the Instagram window gets its final record.
+  let delivery_closed = 0;
+  try { const { expireUndelivered } = await import('./diana-delivery-expiry.mjs'); delivery_closed = await expireUndelivered(env.DB, now); }
+  catch { /* bookkeeping only; retried next tick */ }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, gold_signals, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, delivery_closed, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

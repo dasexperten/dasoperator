@@ -20,8 +20,12 @@ export function latestRequisites(messages){
   const selected=cluster.filter(m=>{const p=m.text.match(PHONE)?.[0].replace(/\D/g,'').replace(/^8/,'7');return !p||p===phone;});
   const text=selected.map(m=>m.text).join('\n');
   if(!singleBank(text))continue;
-  const r=detectRequisites(selected.map(m=>m.text));
-  if(r && !(r.first_name.length>4 && /(?:ова|ева|ская|цкая)$/i.test(r.first_name)))result={...r,source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
+  let r=detectRequisites(selected.map(m=>m.text));
+  // Owner 2026-11-11: Russian names often come surname first («Улубегова Севда»). A first
+  // name that looks like a surname swaps with the other word; only the first name is kept.
+  const surnameLike=v=>String(v??'').length>4&&/(?:ова|ева|ёва|ина|ская|цкая|ов|ев|ин)$/i.test(String(v??''));
+  if(r&&surnameLike(r.first_name)&&/^[А-ЯЁ][а-яё]{2,}$/.test(String(r.last_name??''))&&!surnameLike(r.last_name))r={...r,first_name:r.last_name,last_name:null};
+  if(r && !surnameLike(r.first_name))result={...r,source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
  }
  if(!result)return null;
  for(const row of rows){

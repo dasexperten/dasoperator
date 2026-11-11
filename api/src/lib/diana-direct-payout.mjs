@@ -28,7 +28,7 @@ export function textAmount(messages){
  let found=null,asked=false;
  for(const m of messages){
   const text=String(m.text??'').trim();
-  if(m.direction==='out'){if(/сумм/i.test(text))asked=true;continue;}
+  if(m.direction==='out'){if(/сумм|цен[ауые]|стоимост/i.test(text))asked=true;continue;}
   if(!text||text.length>80||/(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}/.test(text))continue;
   const nums=text.match(/\d+(?:[.,]\d{1,2})?/g)??[];
   if(nums.length!==1)continue;

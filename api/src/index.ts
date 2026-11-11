@@ -35,6 +35,7 @@ import operationsRoutes from './routes/operations';
 import operationsImportRoutes from './routes/operations-import';
 import operationDocsRoutes from './routes/operation-docs';
 import geoPriceRoutes from './routes/geo-price';
+import metaInstagramWebhook from './routes/meta-instagram-webhook';
 import pricingMatrixRoutes from './routes/pricing-matrix';
 import fxRoutes from './routes/fx';
 import contractsRoutes from './routes/contracts';
@@ -215,7 +216,8 @@ app.route('/internal/cron', internalCronRoutes);  // erp-* timer workers start t
 app.route('/internal/diana', dianaWakeRoutes);
 app.route('/internal/wb', internalWbRoutes); // protected read-only return reports
 app.route('/internal/ugc', internalUgcRoutes); // Diana hard-question buttons from Telegram (Owner 2026-10-17)
-app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
+app.route('/geo-price', geoPriceRoutes);
+app.route('/meta/instagram', metaInstagramWebhook);  // public: Meta webhook for forwarded reels (Owner 2026-11-11), DasWA signature required  // public zonal price feed for dasexperten.com storefront
 app.route('/api/pricing', pricingMatrixRoutes);  // ERP: zonal pricing matrix for /crm
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price

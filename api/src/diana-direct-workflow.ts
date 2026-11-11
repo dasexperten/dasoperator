@@ -6,6 +6,7 @@ import {loadInstagramImage} from './lib/ig-dm-image-cache';
 // These modules deliberately keep message content in one step's memory only.
 // @ts-expect-error plain JS module
 import {readDirectOriginal} from './lib/diana-direct-original.mjs';
+import {applyShares} from './lib/ig-share-webhook.mjs';
 // @ts-expect-error plain JS module
 import {directThink} from './lib/diana-direct-think.mjs';
 // @ts-expect-error plain JS module
@@ -50,7 +51,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       return result;
      }
      const result=await runDirect({event:signal,
-      readOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
+      readOriginal:async({conversationId,messageId}:any)=>{const source:any=await readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN});if(source?.status==='ready')await applyShares(this.env.DB,source.messages).catch(()=>0);return source;},
       decide:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        const creator=name?await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>():null;
@@ -58,7 +59,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true});
       },
       handoffPayout:async({event:input,source}:any)=>{const out=await handoffDirectPayout({env:this.env,event:input,source,
-       refreshOriginal:({conversationId,messageId}:any)=>readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN}),
+       refreshOriginal:async({conversationId,messageId}:any)=>{const source:any=await readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN});if(source?.status==='ready')await applyShares(this.env.DB,source.messages).catch(()=>0);return source;},
        infer,readImage:loadInstagramImage});
        // Owner 2026-11-11: the payment message must find this chat later; keep only its id.
        if(out?.payout_id)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_payout_cid:'+out.payout_id,JSON.stringify({cid:String(input.cid),message_id:String(input.message_id),handle:String(input.handle??'')}),Date.now()).run();

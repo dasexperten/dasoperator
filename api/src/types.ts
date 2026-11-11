@@ -104,7 +104,9 @@ export interface Env {
   ORGANIZATION?: Fetcher;   // authenticated @dasexpertenbot delivery through organizacia
   /** Konsol Payment Service key — UGC payouts over SBP (card SECRETS/konsol.md). Never logged. */
   KONSOL_API_KEY?: string;
-  META_IG_MESSAGING_TOKEN?: string;  // SECRETS/instagram.md — Instagram Direct for Diana
+  META_IG_MESSAGING_TOKEN?: string;
+  META_IG_APP_SECRET?: string;  // SECRETS/meta-app-daswa.md — signs Instagram webhook deliveries
+  META_IG_VERIFY_TOKEN?: string;  // SECRETS/meta-app-daswa.md — webhook subscription handshake  // SECRETS/instagram.md — Instagram Direct for Diana
 
   // GitHub read token for dasexperten/organizacia — the knowledge graph's only
   // input. organizacia is a private repo, so without this the graph cannot

@@ -19,7 +19,7 @@ export async function archiveIgMessage(env: Env, conversationId: string, message
   let inserted = false, repaired = false;
   if (fresh) {
     const result = await env.DB.prepare(`INSERT OR IGNORE INTO ugc_ig_messages (id, conversation_id, direction, from_id, from_username, text, attachments_json, created_at, seen_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
+      VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(NULLIF(?6,''), (SELECT json_extract(value,'$.url') FROM crm_sync_state WHERE key='ig_share:'||?1)), ?7, ?8, ?9)`)
       .bind(String(message.id), conversationId, outgoing ? 'out' : 'in', message.from?.id ?? null, message.from?.username ?? null,
         // Owner 2026-10-20 (_umm_abdu.llah_blog «Вот»): a shared reel or post arrives as shares{link}, not text.
         (typeof message.message === 'string' && message.message ? message.message.slice(0, 4000) : (message.shares?.data?.[0]?.link ? String(message.shares.data[0].link) : (typeof message.message === 'string' ? message.message : null))), attachmentJson,

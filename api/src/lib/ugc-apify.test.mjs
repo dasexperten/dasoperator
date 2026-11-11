@@ -65,3 +65,12 @@ test('daily key resets at Yerevan midnight',()=>{
  assert.equal(yerevanBudgetDay(Date.parse('2026-11-08T19:59:59Z')),'2026-11-08');
  assert.equal(yerevanBudgetDay(Date.parse('2026-11-08T20:00:00Z')),'2026-11-09');
 });
+
+test('a start cut off mid-call blocks for six hours, then retries once',async()=>fixture(async(env,calls)=>{
+ const key='ugc-apify:post:Example';
+ env.DB.s.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run(key,JSON.stringify({phase:'starting',at:Date.now()-3_600_000}),0);
+ assert.equal((await instagramPostFallback(env,{url})).status,'unknown');assert.equal(calls().starts,0);
+ env.DB.s.prepare('UPDATE crm_sync_state SET value=? WHERE key=?').run(JSON.stringify({phase:'ambiguous',at:Date.now()-7*3_600_000}),key);
+ const r=await instagramPostFallback(env,{url});
+ assert.equal(r.status,'ok');assert.equal(r.views,20);assert.equal(calls().starts,1);
+}));

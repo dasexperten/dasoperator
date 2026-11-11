@@ -3,6 +3,7 @@ import { isInstagramAvatarUrl } from './ugc-blogger-profile-parse.mjs';
 // Both workers reserve the full run ceiling, not an estimate of the bill.
 const CAP = 10_000; // micro USD = $0.01
 const DAY = 86_400_000;
+const STALE_START = 6 * 3_600_000;
 const count = x => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : null;
 const handle = x => typeof x === 'string' && /^[a-z0-9_.]{1,30}$/i.test(x) ? x.toLowerCase() : null;
 export function instagramPostTarget(value) {
@@ -48,7 +49,10 @@ async function fallback(env,kind,target,cacheForMs) {
   const write=async state=>db.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=?').bind(JSON.stringify(state),Math.floor(Date.now()/1000),key).run();
   let previous=await read(), state=previous?.state;
   if (state?.phase==='done' && now-state.at<Math.max(0,Number(cacheForMs)||0)) return state.result;
-  if (state && ['starting','ambiguous'].includes(state.phase)) return {status:'unknown'};
+  // A start cut off mid-call (a night job dropped on 10-11 Nov 2026) must not block the
+  // post forever. Within six hours an unconfirmed start stays inert; after that one retry
+  // may cost at most one extra capped run ($0.01).
+  if (state && ['starting','ambiguous'].includes(state.phase) && now-(Number(state.at)||0)<STALE_START) return {status:'unknown'};
   const request=async(path,init={})=>{
     const response=await fetch(`https://api.apify.com/v2/${path}`,{...init,headers:{Authorization:`Bearer ${env.APIFY_TOKEN}`,'Content-Type':'application/json'},redirect:'manual',signal:AbortSignal.timeout(40_000)});
     if (!response.ok) throw new Error('Apify request failed');

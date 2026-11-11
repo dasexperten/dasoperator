@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 /**
  * Header — top of the main content area.
  *
  * Desktop:
  *  - 32px schwarz ribbon row with "ERP Portal · Internal use only · clock"
- *  - 64px main row with search input + entity list "DEE / DEI / DASEAN / DEC"
+ *  - Search bar and entity list removed (Owner 2026-11-11). The 64px main row
+ *    renders on desktop only on /emailer (nav toggle); elsewhere it is hidden.
  *  - On /emailer: toggle to collapse/expand the ERP left sidebar (more mail space)
  *
  * Mobile:
@@ -75,7 +76,7 @@ export default function Header({
 
       {/* Primary header */}
       <header
-        className="dx-header-main flex items-center justify-between px-8 bg-card"
+        className={`dx-header-main flex items-center justify-between px-8 bg-card${showEmailerNavToggle ? '' : ' dx-header-main--mobile-only'}`}
         style={{
           height: '64px',
           borderBottom: '1px solid var(--border-hairline)',
@@ -123,35 +124,10 @@ export default function Header({
             <sup style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--brand-gold)' }}>®</sup>
           </div>
 
-          {/* Desktop search — hidden on mobile via dx-header-search class */}
-          <div className="dx-header-search relative flex-1">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
-              style={{ color: 'var(--fg-muted)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search operations, products, partners..."
-              className="w-full pl-10 pr-3 py-2 text-sm focus:outline-none"
-              style={{
-                backgroundColor: 'var(--paper-sunk)',
-                border: '1px solid var(--border-hairline)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--fg-1)',
-              }}
-            />
-          </div>
         </div>
 
         {/* Right cluster */}
         <div className="flex items-center gap-4">
-          {/* Entity list — desktop only; class hides on mobile */}
-          <div
-            className="dx-header-entities"
-            style={{ fontSize: '14px', color: 'var(--fg-3)' }}
-          >
-            DEE / DEI / DASEAN / DEC
-          </div>
           {/* Mobile-only clock */}
           <div
             className="dx-show-mobile"

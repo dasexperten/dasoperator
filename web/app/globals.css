@@ -478,6 +478,11 @@ input[type="number"] {
   .dx-emailer-nav-toggle { display: none !important; }
 }
 
+/* Desktop: header strip removed except where it carries the emailer nav toggle (Owner 2026-11-11) */
+@media (min-width: 768px) {
+  .dx-header-main--mobile-only { display: none !important; }
+}
+
 /* ---- 9. Header tweaks for mobile ---- */
 @media (max-width: 767px) {
   .dx-header-ribbon {

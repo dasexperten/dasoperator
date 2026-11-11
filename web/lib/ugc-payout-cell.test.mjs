@@ -115,7 +115,7 @@ test('a payout the Owner paid outside the ERP is green and never a pay button (O
 
 test('unknown and one-kopeck amounts are neutral and not payable, regardless of requisites',()=>{
  for(const amount_minor of [1,0,49,4999])for(const has_requisites of [0,1]){
-  const p={status:'awaiting_approval',amount_minor,has_requisites};assert.equal(payoutCell(p).tone,'grey');assert.equal(canPay(p),false);
+  const p={status:'awaiting_approval',amount_minor,has_requisites};assert.equal(payoutCell(p).tone,has_requisites?'brown':'grey');assert.equal(canPay(p),false);
  }
  for(const amount_minor of [39400,45300])assert.equal(payoutCell({status:'awaiting_approval',amount_minor,has_requisites:1}).tone,'brown');
 });
@@ -129,7 +129,8 @@ import { canSetPayoutAmount, canMarkPaidOutside } from './ugc-payout-cell.mjs';
 test('placeholder is neutral, never payable or markable, even when requisites are complete', () => {
   for (const has_requisites of [false, true]) {
     const p = { status: 'awaiting_approval', amount_minor: 1, has_requisites };
-    assert.equal(payoutCell(p).tone, 'grey');
+    // Owner 2026-11-11: details present -> brown amount button (still not payable).
+    assert.equal(payoutCell(p).tone, has_requisites ? 'brown' : 'grey');
     assert.equal(payoutCell(p).text, 'сумма?');
     assert.equal(canPay(p), false);
     assert.equal(canMarkPaidOutside(p), false);

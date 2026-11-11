@@ -65,7 +65,8 @@ export function payoutCell(payout, now = Date.now()) {
   if (payout.status === 'sent' && payout.konsol_payment_id) return out('lightgreen', 'передано в Консоль');
   if (payout.status === 'failed') return out('red', payout.konsol_payment_id ? 'отказ' : 'не исполнено в Консоли');
   if (isStaleSent(payout, now)) return out('red', 'не исполнено в Консоли');
-  if (!Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000) return { tone: 'grey', text: 'сумма?', reason: 'нужна подтверждённая сумма', title: 'Без подтверждённой суммы выплата не готова' };
+  // Owner 2026-11-11: phone, bank and name are enough for the brown button; the amount follows.
+  if ((!Number.isSafeInteger(payout.amount_minor) || payout.amount_minor < 5000) && !(payout.has_requisites && ['awaiting_approval','approved'].includes(payout.status))) return { tone: 'grey', text: 'сумма?', reason: 'нужна подтверждённая сумма', title: 'Без подтверждённой суммы выплата не готова' };
   if ((payout.status === 'sent' || payout.status === 'paid') && !payout.konsol_payment_id) {
     return out(payout.has_requisites ? 'brown' : 'grey', 'не исполнено в Консоли');
   }

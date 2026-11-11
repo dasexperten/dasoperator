@@ -54,7 +54,16 @@ export async function tickDiterAlarm(env: Env, now = Date.now(), contentId: stri
 export async function reelAssignment(env: Env, consumerId: string, origin: string) {
   const row = await env.DB.prepare(`SELECT j.*,c.content_url,p.handle FROM ugc_reel_jobs j JOIN ugc_content c ON c.id=j.content_id JOIN ugc_creator_platforms p ON p.id=c.creator_platform_id WHERE j.status='working' AND j.consumer_id=? LIMIT 1`).bind(consumerId).first<{content_id:string;claim_id:string;content_url:string;handle:string;started_at:string;acknowledged_at:string|null;required_destinations:string;publications:string}>();
   if (!row) return null;
-  return { runner:'diter-ugc-round', content_id:row.content_id,claim_id:row.claim_id,status:'working',source_url:row.content_url,author:row.handle,
+  // Owner 11.11.2026: Dieter identifies the product with Diana's ERP record of this creator.
+  // Evidence is advisory: a failed read must not take the exact assignment away.
+  const evidence = await env.DB.prepare(`SELECT c.product_codes content_codes,
+      (SELECT json_group_array(product_codes) FROM ugc_collaborations k WHERE k.creator_id=c.creator_id AND k.product_codes IS NOT NULL) collaboration_codes,
+      (SELECT json_group_array(source_text) FROM ugc_source_records s WHERE s.creator_id=c.creator_id AND s.kind='product_reference' AND s.source_text IS NOT NULL) product_references
+    FROM ugc_content c WHERE c.id=?`).bind(row.content_id).first<{content_codes:string|null;collaboration_codes:string|null;product_references:string|null}>()
+    .catch((e: unknown) => { console.warn('[diter-upload] erp_product_evidence unavailable', String(e)); return null; });
+  const parse = (v: string | null | undefined) => { try { return v ? JSON.parse(v) : null; } catch { return v ?? null; } };
+  const erp_product_evidence = { source:'diana-helios ERP creator record', content_product_codes:parse(evidence?.content_codes), collaboration_product_codes:parse(evidence?.collaboration_codes) ?? [], product_references:parse(evidence?.product_references) ?? [] };
+  return { runner:'diter-ugc-round', erp_product_evidence, content_id:row.content_id,claim_id:row.claim_id,status:'working',source_url:row.content_url,author:row.handle,
     started_at:row.started_at,acknowledged_at:row.acknowledged_at,required_destinations:reelScope(row).active,optional_destinations:reelScope(row).optional,destination_scope:reelScope(row),publications:JSON.parse(row.publications),
     task:reelTaskText(row,origin) };
 }

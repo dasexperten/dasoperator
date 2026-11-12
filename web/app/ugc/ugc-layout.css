@@ -636,3 +636,6 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-bq-text { margin: 0; padding: 10px 12px; background: #FFFFFF; border: 1.5px solid #1A1519; border-radius: 8px; font-size: 15px; line-height: 1.4; font-weight: 500; color: #1A1519; overflow-wrap: anywhere; }
 .ugc-bq-remove { align-self: flex-start; height: 44px; padding: 0 14px; border: 1.5px solid #1A1519; border-radius: 8px; background: #FFFFFF; color: #1A1519; font-size: 14px; font-weight: 800; letter-spacing: 0; cursor: pointer; }
 .ugc-bq-empty { margin: 0; padding: 12px; font-size: 15px; font-weight: 700; color: #1A1519; }
+
+/* Owner 12 Nov: skipped unavailable sources retain a grey frame. */
+.ugc-pub[data-reel-skipped] .ugc-pub-link { outline: 3px solid #8b8b8b; outline-offset: -1px; box-shadow: none; }

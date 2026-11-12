@@ -4,5 +4,6 @@ export function dianaWorkWindow(timestamp = Date.now()) {
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
   const date = local.toISOString().slice(0, 10);
   const slot = minute < 30 ? 'night' : minute >= 360 && minute < 390 ? 'morning' : null;
-  return { direct: minute >= 480 && minute < 1410, round: slot, date };
+  // Owner 2026-11-12: «Direct answers 06:00–02:00» Yerevan (UTC+4) = 05:00–01:00 Moscow.
+  return { direct: minute >= 300 || minute < 60, round: slot, date };
 }

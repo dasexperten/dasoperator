@@ -77,6 +77,15 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        // Owner 2026-11-11: the payment message must find this chat later; keep only its id.
        if(out?.payout_id)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_payout_cid:'+out.payout_id,JSON.stringify({cid:String(input.cid),message_id:String(input.message_id),handle:String(input.handle??'')}),Date.now()).run();
        return out;},
+      markFee:async(source:any)=>{
+       const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
+       if(!name)return;
+       // Only a creator we never paid moves to fee; a hand-set status is never overwritten.
+       await this.env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage='fee',updated_at=?2 WHERE id IN (SELECT creator_id FROM ugc_creator_platforms WHERE platform='instagram' AND normalized_handle=?1)
+         AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','replied','agreed','cart','silent')
+         AND NOT EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=ugc_creators.id)
+         AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(name,Date.now()).run();
+      },
       pendingAmount:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        if(!name)return false;

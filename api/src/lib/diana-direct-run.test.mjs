@@ -64,3 +64,12 @@ test('2026-11-12: a message that needs no answer is closed with a receipt, not p
  const out=await runDirect(f.options);
  assert.equal(out.status,'complete');assert.equal(out.reason,'no_reply_needed');assert.equal(sent,0);assert.equal(ack,1);
 });
+
+test('Owner 2026-11-12: a price-list answer is closed warmly and the creator is marked fee',async()=>{
+ const f=fixture();let fee=0,text='';
+ f.options.decide=async()=>({action:'reply',fee:true,reply:'Мы работаем по бартеру.',recipientId:'person'});
+ f.options.deliver=async({text:t})=>{text=t;return{status:'verified',outgoingId:'o1'};};
+ f.options.markFee=async()=>{fee++;};
+ const out=await runDirect(f.options);
+ assert.equal(out.status,'complete');assert.equal(out.reason,'fee_closed');assert.equal(fee,1);assert.equal(text,'Мы работаем по бартеру.');
+});

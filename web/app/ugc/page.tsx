@@ -1080,7 +1080,8 @@ export default function UgcPage() {
 
   const creators = useMemo(() => {
     // Hide stale rows immediately while the separately filtered request is loading.
-    const rows = data.creators.filter((creator) => creator.profiles.some(unavailableInstagram) === inactive);
+    // Owner 2026-11-12: refused bloggers are shown only when Inactive is ticked.
+    const rows = data.creators.filter((creator) => (creator.profiles.some(unavailableInstagram) || creator.lifecycle_stage === 'refused') === inactive);
     rows.sort((a, b) => {
       const ap = primaryProfile(a, platform);
       const bp = primaryProfile(b, platform);

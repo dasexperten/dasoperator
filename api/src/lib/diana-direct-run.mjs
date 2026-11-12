@@ -1,6 +1,6 @@
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
-export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount}) {
+export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee}) {
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
   const decision=await decide(source);
@@ -53,7 +53,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   if(delivery.status!=='verified')return {status:'pending',reason:'delivery_'+delivery.status};
   const proof={event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:delivery.outgoingId,executor:'diana_direct_workflow'};
   await saveProof(proof);
+  // Owner 2026-11-12: a creator who asked for money gets the warm barter-only close and the status fee.
+  if(decision.fee&&typeof markFee==='function')await markFee(source).catch(()=>null);
   const acknowledged=await acknowledge(event);
-  return acknowledged?{status:'complete',outgoing_id:delivery.outgoingId,image_trace:decision.receipt?.image_trace??[]}:{status:'pending',reason:'newer_event_preserved'};
+  return acknowledged?{status:'complete',...(decision.fee?{reason:'fee_closed'}:{}),outgoing_id:delivery.outgoingId,image_trace:decision.receipt?.image_trace??[]}:{status:'pending',reason:'newer_event_preserved'};
 }
 

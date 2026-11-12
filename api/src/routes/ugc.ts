@@ -284,8 +284,8 @@ ugc.get('/', async (c) => {
        AND (?2 = '' OR LOWER(COALESCE(c.display_name, '') || ' ' || p.handle) LIKE '%' || ?2 || '%')
        AND (?3 IS NULL OR c.lifecycle_stage = ?3)
        AND (?5=1 OR ((?4=1 AND c.archived_at IS NOT NULL) OR (?4=0 AND c.archived_at IS NULL)))
-       AND ((?5=1 AND p.platform='instagram' AND p.availability_status='unavailable')
-         OR (?5=0 AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
+       AND ((?5=1 AND ((p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'))
+         OR (?5=0 AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable') AND COALESCE(c.lifecycle_stage,'')<>'refused'))
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
   ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0, inactiveOnly ? 1 : 0).all<Record<string, any>>();
@@ -567,11 +567,12 @@ ugc.get('/', async (c) => {
   const platformCounts = await c.env.DB.prepare(
     `SELECT platform, COUNT(DISTINCT creator_id) creator_count
      FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id
-     WHERE ((?1=1 AND p.platform='instagram' AND p.availability_status='unavailable')
-       OR (?1=0 AND c.archived_at IS NULL AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
+     WHERE ((?1=1 AND ((p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'))
+       OR (?1=0 AND c.archived_at IS NULL AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable') AND COALESCE(c.lifecycle_stage,'')<>'refused'))
      GROUP BY platform ORDER BY creator_count DESC`
   ).bind(inactiveOnly ? 1 : 0).all<{ platform: string; creator_count: number }>();
-  const inactiveCount = await c.env.DB.prepare("SELECT COUNT(DISTINCT creator_id) count FROM ugc_creator_platforms WHERE platform='instagram' AND availability_status='unavailable'")
+  // Owner 2026-11-12: refused bloggers are not shown; they appear only when «Inactive» is ticked.
+  const inactiveCount = await c.env.DB.prepare("SELECT COUNT(DISTINCT p.creator_id) count FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id WHERE (p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'")
     .first<{ count: number }>();
   const totals = await c.env.DB.prepare(
     `SELECT

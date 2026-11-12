@@ -23,7 +23,7 @@ import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
-import {runPayoutNotice,runOwnerChoice,runGoldWelcome,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK} from './lib/diana-direct-notice.mjs';
+import {runPayoutNotice,runOwnerChoice,runGoldWelcome,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK,IDEA_LINES} from './lib/diana-direct-notice.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
@@ -83,8 +83,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN}),
       // Owner 2026-11-12: the four approved scenario cards (DIRECT_RULES «Сценарии»), two short lines first.
       deliverCards:({conversationId,messageId,recipientId}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
-       text:'Сценарий можете придумать сами, свою аудиторию вы знаете лучше. Главное, чтобы в ролике были видны вы и паста.',
-       followTexts:['Нет идеи, не страшно: вот четыре на выбор. Пришлите номер от 1 до 4.'],images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),
+       text:IDEA_LINES[0],followTexts:IDEA_LINES.slice(1),images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });

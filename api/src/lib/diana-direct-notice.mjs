@@ -1,3 +1,4 @@
+import {SCENARIO_CARDS} from './ig-dm-reply-guard.mjs';
 // Owner 2026-10-18/2026-11-11: once a payout is confirmed paid (or declined by the
 // bank) Diana tells the creator at once, in her own words. Runs inside one Diana
 // Direct workflow step; conversation text stays in memory and is never persisted.
@@ -10,7 +11,7 @@ export const GOLD_TASK='gold_welcome';
 
 export function noticeInstruction(kind,amountRub){
   return kind==='payout_paid_notice'
-    ? `Write one short message to the creator in Russian, in Diana's voice, speaking for the company in plural (мы перевели). Facts: we have just transferred ${amountRub} ₽ by SBP for the paste. Ask her to check it and then place the order and send a screenshot of the placed order. Nothing else: no scenario, no cards, no requisites acknowledgement. Return JSON {"reply":"..."}.`
+    ? `Write one short message to the creator in Russian, in Diana's voice, speaking for the company in plural (мы перевели). Facts: we have just transferred ${amountRub} ₽ by SBP for the paste. Ask her to check it and then place the order and send a screenshot of the placed order. Nothing else: no scenario, no cards, no requisites acknowledgement (the ideas and the four cards follow automatically as separate messages). Return JSON {"reply":"..."}.`
     : `Write one short message to the creator in Russian, in Diana's voice, through «мы», warm and without a refusing tone. Facts: our transfer of ${amountRub} ₽ by SBP was declined by her bank. Ask her for another Russian bank for the transfer (bank and the phone linked to it). Return JSON {"reply":"..."}.`;
 }
 
@@ -66,6 +67,9 @@ export async function runPayoutNotice({env,event,token,infer,prepareContext,fetc
     return{status:'pending',reason:'notice_delivery_unknown'};
   }
   await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify({status:'verified',outgoing_id:outgoing,at:now}),Date.now()).run();
+  // Owner 2026-11-12: the ideas follow the paid notice at once. Sent once per payout; an unclear
+  // send is never repeated. A failure here never undoes the verified payment message.
+  if(paid)await sendIdeas({env,fetchImpl,pageToken:page.access_token,recipientId:creator.from.id,payoutId:row.id,cards:SCENARIO_CARDS,now}).catch(()=>null);
   return await finish(outgoing);
 
   async function finish(outgoingId){
@@ -114,6 +118,31 @@ export async function runOwnerChoice({env,event,token,infer,prepareContext,fetch
   async function markAnswered(){q.answered_at=new Date().toISOString();await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(qkey,JSON.stringify(q),Date.now()).run();}
 }
 
+// Owner 2026-11-12: right after «перевели» the blogger gets the ideas: her own idea with three
+// conditions (face visible, funny or everyday use, no unpacking or box), then our four cards.
+export const IDEA_LINES=[
+  'Пока паста едет, про ролик. Можно придумать свою идею: смешную или просто как вы чистите зубы этой пастой.',
+  'Главное, чтобы было видно ваше лицо. Распаковку и коробку не снимаем.',
+  'Или выберите одну из четырёх идей ниже. Пришлите номер от 1 до 4.',
+];
+export async function sendIdeas({env,fetchImpl=fetch,pageToken,recipientId,payoutId,cards,now=Date.now()}){
+  const key='diana_ideas_delivery:'+payoutId;
+  const claim=await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({status:'claimed',at:now}),now).run();
+  if(!claim?.meta?.changes)return{status:'already_claimed'};
+  const ids=[];
+  try{
+    for(const item of [...IDEA_LINES.map(text=>({text})),...cards.map(url=>({attachment:{type:'image',payload:{url,is_reusable:true}}}))]){
+      const send=extra=>graph(fetchImpl,`${PAGE}/messages`,pageToken,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recipient:{id:String(recipientId)},message:item,...extra})});
+      let r;try{r=await send({messaging_type:'RESPONSE'});}catch(e){if(!/notice_meta_(400|403)/.test(String(e.message)))throw e;r=await send({messaging_type:'MESSAGE_TAG',tag:'HUMAN_AGENT'});}
+      const id=String(r?.message_id??'');if(!id)throw Error('ideas_unconfirmed');ids.push(id);
+    }
+  }catch{
+    await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify({status:'unknown',sent:ids.length,at:now}),Date.now()).run();
+    return{status:'unknown',sent:ids.length};
+  }
+  await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify({status:'verified',ids,at:now}),Date.now()).run();
+  return{status:'verified',ids};
+}
 export async function sendProactive(fetchImpl,pageToken,recipientId,text){
   try{
     const send=extra=>graph(fetchImpl,`${PAGE}/messages`,pageToken,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recipient:{id:recipientId},message:{text},...extra})});

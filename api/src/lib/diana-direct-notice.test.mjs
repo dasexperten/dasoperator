@@ -15,10 +15,10 @@ test('Owner 11.11: confirmed paid payout -> Diana writes the notice, Meta receip
  const sent=[];let prompt='';const infer=async(m)=>{prompt=m[0].content;return{text:JSON.stringify({reply:'Перевели 453 ₽ по СБП, проверьте, пожалуйста) Теперь оформите заказ и пришлите скрин.'})};};
  const ev={cid:'c1',message_id:'m2',event_id:'action:x',task:'payout_paid_notice',payout_id:'p1'};
  const r=await runPayoutNotice({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent)});
- assert.equal(r.status,'complete');assert.equal(sent.length,1);assert.equal(sent[0].recipient.id,'u1');assert.match(prompt,/453 ₽/);
+ assert.equal(r.status,'complete');/* Owner 2026-11-12: notice, three idea lines, four cards */assert.equal(sent.length,8);assert.equal(sent[0].recipient.id,'u1');assert.match(sent[1].message.text,/свою идею/);assert.match(sent[2].message.text,/лицо.*Распаковку/s);assert.equal(sent.slice(4).filter(x=>x.message.attachment?.type==='image').length,4);assert.match(prompt,/453 ₽/);
  assert.equal(d.prepare("SELECT notice_status FROM ugc_payouts").get().notice_status,'delivered');
  const again=await runPayoutNotice({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent)});
- assert.equal(again.status,'complete');assert.equal(sent.length,1);
+ assert.equal(again.status,'complete');assert.equal(sent.length,8);
 });
 test('an unconfirmed payout sends nothing',async()=>{
  const {d,env}=db();d.prepare("INSERT INTO ugc_payouts(id,handle,status,amount_minor) VALUES('p1','alice','approved',45300)").run();

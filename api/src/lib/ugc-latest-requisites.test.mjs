@@ -26,3 +26,10 @@ test('Owner 2026-11-11 (elwira.karimova2013): a lowercase first name after the s
   assert.equal(r.first_name, 'Эльвира');
   assert.equal(r.phone, '+79177969694');
 });
+
+test('Owner 2026-11-12 irina_beauty_smr: a first name ending in -ина with a patronymic is a name, not a surname', () => {
+  const r = latestRequisites([{id:'i1',direction:'in',text:'89179990011 Сбербанк Ирина Леонидовна Т.',created_at:'2026-11-12T05:20:00Z'}]);
+  assert.equal(r?.first_name, 'Ирина');
+  const m = latestRequisites([{id:'m1',direction:'in',text:'89179990011 Т-Банк Марина',created_at:'2026-11-12T05:20:00Z'}]);
+  assert.equal(m?.first_name, 'Марина');
+});

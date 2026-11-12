@@ -24,6 +24,16 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const acknowledged=await acknowledge(event);
       return acknowledged?{status:'complete',reason:'payout_button_amount_asked',payout_id:handoff.payout_id,outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
+    if(handoff?.status==='amount_needed') {
+      // Owner 2026-11-12: no 0.01 ₽ button. One simple question asks the amount; her answer makes the button.
+      if(!decision.amountQuestion||!decision.recipientId)return {status:'pending',reason:'payout_amount_question_missing'};
+      const asked=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.amountQuestion});
+      if(asked.status==='preview')return {status:'preview'};
+      if(asked.status!=='verified')return {status:'pending',reason:'delivery_'+asked.status};
+      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow'});
+      const acknowledged=await acknowledge(event);
+      return acknowledged?{status:'complete',reason:'payout_amount_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+    }
     if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields'};
     return {status:'pending',reason:'payout_verification_pending'};
   }

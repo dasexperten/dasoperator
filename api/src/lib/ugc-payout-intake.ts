@@ -130,8 +130,8 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   if (amount == null || !Number.isSafeInteger(amount) || amount < 5000) {
     // Owner 11.11.2026: phone, bank and name are enough for the button; the amount
     // is asked once in text and filled in later. The 1-kopeck sentinel is never payable.
-    if (input.amount_later === true && !missing.length && (!open || open.amount_minor < 5000)) finalAmount = 1;
-    else missing.unshift('amount_minor');
+    // Owner 2026-11-12: never a 0.01 ₽ placeholder button; the amount is always required.
+    missing.unshift('amount_minor');
   }
   if (missing.length) {
     // Durable, deduplicated metadata for review. This is NOT a sent message or

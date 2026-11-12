@@ -83,6 +83,9 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  const existing=await env.DB.prepare("SELECT p.id,p.status,p.amount_minor,p.konsol_payment_id,p.execute_claim FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1").bind(initial.handle,Date.now()-60*86400000).first();
  if(existing&&(existing.konsol_payment_id||existing.execute_claim||!['awaiting_approval','approved'].includes(existing.status)))return{status:'pending',reason:'payout_cycle_already_processed'};
  if(amount!==null&&existing?.amount_minor>=5000&&existing.amount_minor!==amount)return{status:'pending',reason:'payout_existing_amount_conflict'};
+ // Owner 2026-11-12: never a 0.01 ₽ button. No real amount, no button — Diana asks the amount
+ // and the button appears once the blogger's amount is in.
+ if(amount===null)return{status:'amount_needed'};
  const raw=JSON.stringify({version:1,complete_history:true,conversation_id:event.cid,event_id:event.event_id,cycle_message_id:r.cycle_message_id,messages:fresh.messages,cart,typed});
  const sha256=await digest(raw);
  // Resolver and hash are ephemeral in this process; never write raw to ERP/R2.

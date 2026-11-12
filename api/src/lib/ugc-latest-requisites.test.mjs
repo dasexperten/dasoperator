@@ -42,3 +42,14 @@ test('Owner 2026-11-12 svetlanakogai2018: «сбер озон» after the name s
  const r=latestRequisites([m('a','89990000000 Светлана Денисовна Л сбер озон','00')]);
  assert.equal(r?.first_name,'Светлана');assert.equal(r?.bank,'100000000111');
 });
+
+test('Owner 2026-11-12 (shh_aze): our transfer message after the details means paid is paid',()=>{
+ const at=Date.now()-3600000,iso=t=>new Date(t).toISOString();
+ const msgs=[{id:'1',direction:'in',text:'89051234563 сбер банк Шакурова Айзиле',created_at:iso(at)},{id:'2',direction:'out',text:'Перевели 410 ₽ по СБП. Проверьте, пожалуйста.',created_at:iso(at+60000)}];
+ assert.equal(latestRequisites(msgs),null);
+ assert.ok(latestRequisites(msgs.slice(0,1)));
+});
+test('Owner 2026-11-12 (madi___na111): details older than 14 days never make a button',()=>{
+ const old=Date.now()-130*86400000;
+ assert.equal(latestRequisites([{id:'1',direction:'in',text:'89281234536 Фаина А. Сбербанк',created_at:new Date(old).toISOString()}]),null);
+});

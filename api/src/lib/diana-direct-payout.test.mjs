@@ -17,7 +17,7 @@ function fixture(){
 }
 function setup(){const f=fixture();const prepare=f.env.DB.prepare;f.env.DB.prepare=sql=>{if(sql.includes('ugc_ig_messages'))throw Error('ERP chat read/write forbidden');return prepare(sql);};f.env.DOCS={put(){throw Error('R2 write forbidden')},get(){throw Error('R2 read forbidden')}};const source={status:'ready',conversationId:'chat',messageId:'details',messages:[{id:'amount',from:{id:'person',username:'alice'},message:'Итого 453 руб',created_time:'2026-11-09T10:00:00Z'},{id:'details',from:{id:'person',username:'alice'},message:'89990000000 ТБанк Елена',created_time:'2026-11-09T10:01:00Z'}]};const event={cid:'chat',message_id:'details',event_id:'message:details'};return{...f,source,event,args:{env:f.env,event,source,refreshOriginal:async()=>structuredClone(source),infer:async()=>{throw Error('text needs no vision')}}};}
 test('active handoff persists only approval/payment facts; replay produces no duplicate',async()=>{const f=setup();try{const a=await handoffDirectPayout(f.args),b=await handoffDirectPayout(f.args);assert.equal(a.status,'registered');assert.equal(a.amount_minor,45300);assert.equal(a.payout_id,b.payout_id);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,1);assert.equal(f.db.prepare('SELECT status FROM ugc_payouts').get().status,'awaiting_approval');const states=f.db.prepare('SELECT value FROM crm_sync_state').all().map(x=>x.value).join(' ');assert.ok(!states.includes('Итого 453 руб'));assert.ok(!states.includes('89990000000 ТБанк Елена'));assert.ok(!JSON.stringify(a).includes('phone'));}finally{f.db.close();}});
-test('missing amount: Owner 11.11 button stands with the unpayable sentinel, amount asked later',async()=>{const f=setup();try{f.source.messages[0].message='Здравствуйте';const result=await handoffDirectPayout(f.args);assert.equal(result.status,'registered_without_amount');const row=f.db.prepare('SELECT status,amount_minor FROM ugc_payouts').get();assert.equal(row.status,'awaiting_approval');assert.equal(row.amount_minor,1);}finally{f.db.close();}});
+test('missing amount: Owner 2026-11-12 no 0.01 ₽ button, the amount is asked first',async()=>{const f=setup();try{f.source.messages[0].message='Здравствуйте';const result=await handoffDirectPayout(f.args);assert.equal(result.status,'amount_needed');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);}finally{f.db.close();}});
 test('fresh edit to earlier source blocks stale registration',async()=>{const f=setup();try{f.args.refreshOriginal=async()=>{const s=structuredClone(f.source);s.messages[0].message='Итого 499 руб';return s;};assert.equal((await handoffDirectPayout(f.args)).reason,'payout_original_changed');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);}finally{f.db.close();}});
 test('dry run never reads or saves and returns only closed metadata',async()=>{const f=setup();try{f.event.dryRun=true;f.args.refreshOriginal=()=>{throw Error('must not run')};assert.equal((await handoffDirectPayout(f.args)).reason,'payout_preview_no_write');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);}finally{f.db.close();}});
 test('paid cycle never registers a second row',async()=>{const f=setup();try{await handoffDirectPayout(f.args);f.db.exec("UPDATE ugc_payouts SET status='paid',konsol_payment_id='provider',paid_at='2026-11-10T12:00:00Z'");assert.equal((await handoffDirectPayout(f.args)).reason,'payout_cycle_already_processed');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,1);}finally{f.db.close();}});
@@ -34,16 +34,16 @@ test('Owner 2026-11-11: unknown media after the details never blocks the button;
  for(const earlier of [false,true]){const f=setup();try{
  const unknown={id:'unknown',from:{id:'person',username:'alice'},is_unsupported:true,message:'',created_time:earlier?'2026-11-09T09:00:00Z':'2026-11-09T10:00:30Z'};
  f.source.messages.splice(earlier?0:1,0,unknown);
- const result=await handoffDirectPayout(f.args);assert.equal(result.status,earlier?'registered':'registered_without_amount');
- assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,1);
+ const result=await handoffDirectPayout(f.args);assert.equal(result.status,earlier?'registered':'amount_needed');
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,earlier?1:0);
  }finally{f.db.close();}}
 });
 test('older selected amount extends unreadable guard beyond short requisites cluster',async()=>{
  const f=setup();try{
  f.source.messages[0].created_time='2026-11-09T09:00:00Z';
  f.source.messages.splice(1,0,{id:'unknown',from:{id:'person',username:'alice'},is_unsupported:true,message:'',created_time:'2026-11-09T09:30:00Z'});
- assert.equal((await handoffDirectPayout(f.args)).status,'registered_without_amount');
- assert.equal(f.db.prepare('SELECT amount_minor FROM ugc_payouts').get().amount_minor,1);
+ assert.equal((await handoffDirectPayout(f.args)).status,'amount_needed');
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);
  }finally{f.db.close();}
 });
 test('out-of-order full source cannot assert latest original',async()=>{

@@ -18,7 +18,15 @@ function firstBank(text){
 }
 /** Only short original detail clusters. A later explicit single-bank correction wins.
  * No profile name, outgoing acknowledgement or amount is interpreted as requisites. */
-export function latestRequisites(messages){
+// Owner 2026-11-12 (shh_aze, madi___na111): «when paid is paid». Our own transfer message after
+// the details means they are used up — whatever the ERP list says (a misspelled card, a payment
+// from before the list existed). Old details never make a new button either.
+const PAID_NOTICE=/перевел\S*\s+(?:вам\s+)?(?:\d[\d\s]*(?:[.,]\d{1,2})?\s*(?:₽|руб)|деньги)/i;
+export const REQUISITES_MAX_AGE_MS=14*86400000;
+export function paidAfter(messages,at){
+ return (messages??[]).some(m=>m.direction==='out'&&Date.parse(m.created_at)>at&&PAID_NOTICE.test(String(m.text??'')));
+}
+export function latestRequisites(messages,{now=Date.now()}={}){
  const rows=messages.filter(m=>m.direction==='in'&&m.text?.trim()).sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at));
  let result=null;
  for(let i=0;i<rows.length;i++){
@@ -49,5 +57,7 @@ export function latestRequisites(messages){
   if(bank){result.bank=bank;result.source_message_ids.push(row.id);result.source_at=Date.parse(row.created_at);}
  }
  result.source_message_ids=[...new Set(result.source_message_ids)].slice(-20);
+ if(paidAfter(messages,result.source_at))return null;
+ if(now-result.source_at>REQUISITES_MAX_AGE_MS)return null;
  return result;
 }

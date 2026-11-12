@@ -30,6 +30,20 @@ export async function readDirectOriginal({conversationId, messageId, token, fetc
     if (!next || cursors.has(next) || !response.data.length) throw Error('direct_original_incomplete');
     cursors.add(next); after = next;
   }
+  // Owner 2026-11-12 (svetlanakogai2018): the chat list can show a screenshot as an empty
+  // «unsupported» message while the same message, asked for by its own id, carries the picture.
+  // Ask again for the newest empty incoming messages so Diana reads the cart instead of «сумма?».
+  let asked = 0;
+  for (const item of items) {
+    if (asked >= 6) break;
+    if ([PAGE, BRAND].includes(String(item?.from?.id ?? ''))) continue;
+    if (String(item?.message ?? '').trim() || item?.attachments?.data?.length || item?.shares?.data?.length || !item?.id) continue;
+    asked++;
+    try {
+      const one = await graph(`${encodeURIComponent(item.id)}?fields=attachments{mime_type,image_data,video_data,file_url}`, page.access_token);
+      if (Array.isArray(one.attachments?.data) && one.attachments.data.length) { item.attachments = one.attachments; delete item.is_unsupported; }
+    } catch { /* the list answer stands */ }
+  }
   const latest = items[0];
   // 2026-11-12 (diljon_recepti): the blogger deleted the chat or her account — Meta returns no
   // messages. That is not a failure to retry for ever; there is nothing left to answer.

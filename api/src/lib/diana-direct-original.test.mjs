@@ -22,3 +22,14 @@ test('incomplete pagination and failed Meta requests are not mistaken for comple
   await assert.rejects(readDirectOriginal({conversationId:'chat',messageId:'m',token:'fixture',fetchImpl:async url=>url.includes('fields=access_token')?Response.json({access_token:'page'}):Response.json({data:[],paging:{next:'yes',cursors:{after:'x'}}})}),/direct_original_incomplete/);
   await assert.rejects(readDirectOriginal({conversationId:'chat',messageId:'m',token:'fixture',fetchImpl:async()=>new Response('',{status:503})}),/direct_original_http_503/);
 });
+test('an empty «unsupported» message is asked again by its own id and gets its picture back',async()=>{
+  const r=await readDirectOriginal({conversationId:'chat',messageId:'m3',token:'fixture',fetchImpl:async url=>{
+    if(url.includes('fields=access_token'))return Response.json({access_token:'page'});
+    if(url.includes('/m1?'))return Response.json({id:'m1',attachments:{data:[{image_data:{url:'https://x/cart'}}]}});
+    if(url.includes('/m3?'))return Response.json({id:'m3'});
+    return Response.json({data:[{id:'m3',from:{id:'creator'},message:''},{id:'m2',from:{id:'creator'},message:'сбер озон'},{id:'m1',from:{id:'creator'},message:'',is_unsupported:true}]});
+  }});
+  assert.equal(r.status,'ready');
+  assert.equal(r.messages[0].attachments.data[0].image_data.url,'https://x/cart');assert.equal(r.messages[0].is_unsupported,undefined);
+  assert.equal(r.messages[2].attachments,undefined);
+});

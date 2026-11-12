@@ -54,3 +54,13 @@ test('Owner 2026-11-12 argnvd: a request for ideas sends the four approved cards
  const out=await runDirect(f.options);
  assert.equal(out.status,'complete');assert.equal(out.reason,'scenario_cards_sent');assert.equal(cards,1);assert.equal(texts,0);
 });
+
+test('2026-11-12: a message that needs no answer is closed with a receipt, not parked',async()=>{
+ const f=fixture();let proof=null,ack=0,sent=0;
+ f.options.decide=async()=>({action:'none',reason:'no_reply_needed'});
+ f.options.deliver=async()=>{sent++;return{status:'verified',outgoingId:'x'};};
+ f.options.saveProof=async p=>{proof=p;};
+ f.options.acknowledge=async()=>{ack++;return Boolean(proof?.verified);};
+ const out=await runDirect(f.options);
+ assert.equal(out.status,'complete');assert.equal(out.reason,'no_reply_needed');assert.equal(sent,0);assert.equal(ack,1);
+});

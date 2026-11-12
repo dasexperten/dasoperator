@@ -860,12 +860,13 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
   const jobBusy = useRef(false);
   useEffect(() => { setJobStatus(item.reel_status ?? null); }, [item.reel_status]);
   const enqueue = async () => {
-    if (jobBusy.current || jobStatus) return true;
+    if (jobBusy.current || (jobStatus && jobStatus !== 'queued')) return true;
+    const unselect = jobStatus === 'queued';
     jobBusy.current = true; setJobError(null);
     try {
-      const response = await apiPostTimed<{ job: { status: 'queued' | 'working' | 'uploaded' | 'published' } }>(`/api/ugc/content/${encodeURIComponent(item.id)}/reel-job`, {}, 20_000);
-      if (!response.success || !response.result?.job) { setJobError(response.errors?.[0]?.message ?? 'Ролик не добавлен в очередь'); return false; }
-      setJobStatus(response.result.job.status); window.dispatchEvent(new Event('ugc:reload')); return true;
+      const response = await apiPostTimed<{ job: { status: 'queued' | 'working' | 'uploaded' | 'published' } | null; unselected?: boolean }>(`/api/ugc/content/${encodeURIComponent(item.id)}/reel-job`, { action: unselect ? 'unselect' : 'select' }, 20_000);
+      if (!response.success || (!response.result?.job && !response.result?.unselected)) { setJobError(response.errors?.[0]?.message ?? 'Ролик не добавлен в очередь'); return false; }
+      setJobStatus(response.result.unselected ? null : response.result.job!.status); window.dispatchEvent(new Event('ugc:reload')); return true;
     } catch { setJobError('Нет связи. Отметка не подтверждена'); return false; }
     finally { jobBusy.current = false; }
   };

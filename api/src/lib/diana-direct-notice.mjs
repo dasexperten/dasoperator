@@ -119,10 +119,10 @@ export async function runOwnerChoice({env,event,token,infer,prepareContext,fetch
 }
 
 // Owner 2026-11-12: right after «перевели» the blogger gets the ideas: her own idea with three
-// conditions (face visible, funny or everyday use, no unpacking or box), then our four cards.
+// conditions (face visible, funny or everyday use, not a video only about unpacking), then our four cards.
 export const IDEA_LINES=[
   'Пока паста едет, про ролик. Можно придумать свою идею: смешную или просто как вы чистите зубы этой пастой.',
-  'Главное, чтобы было видно ваше лицо. Распаковку и коробку не снимаем.',
+  'Главное, чтобы было видно ваше лицо и как вы пользуетесь пастой. Ролик только про распаковку не подойдёт.',
   'Или выберите одну из четырёх идей ниже. Пришлите номер от 1 до 4.',
 ];
 export async function sendIdeas({env,fetchImpl=fetch,pageToken,recipientId,payoutId,cards,now=Date.now()}){

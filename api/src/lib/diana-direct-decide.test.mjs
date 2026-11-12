@@ -42,6 +42,6 @@ test('Owner 2026-11-12: a video sent into the chat is watched, then answered —
  const source={status:'ready',messageId:'v2',messages:[{id:'v2',from:{id:'u9',username:'mila'},message:'',attachments:{data:[{video_data:{url:'https://video.cdninstagram.com/x.mp4'}}]},created_time:'2026-11-12T06:00:00Z'}]};
  const out=await decideDirect({source,prepareContext:async()=>({system:'DIANA',receipt:{}}),readImage:async()=>null,env:{},
   infer:async(m)=>{seen=JSON.parse(m[1].content);return{text:JSON.stringify({action:'reply',reply:'Мила, классный ролик!'})};},
-  watchVideo:async()=>({summary:'чистит зубы TERMO',our_product:'yes',face_visible:'yes',in_use:'yes',unpacking:'no',kind:'draft_reel'})});
+  watchVideo:async()=>({summary:'чистит зубы TERMO',our_product:'yes',face_visible:'yes',in_use:'yes',unboxing_only:'no',kind:'draft_reel'})});
  assert.equal(out.action,'reply');assert.equal(seen.verified_erp_facts.verified_video.our_product,'yes');
 });

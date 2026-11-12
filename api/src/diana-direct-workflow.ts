@@ -15,6 +15,8 @@ import {decideDirect} from './lib/diana-direct-decide.mjs';
 // @ts-expect-error plain JS module
 import {deliverDirectReply} from './lib/diana-direct-deliver.mjs';
 // @ts-expect-error plain JS module
+import {SCENARIO_CARDS} from './lib/ig-dm-reply-guard.mjs';
+// @ts-expect-error plain JS module
 import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
 import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
@@ -79,6 +81,10 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        return !paid;
       },
       deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN}),
+      // Owner 2026-11-12: the four approved scenario cards (DIRECT_RULES «Сценарии»), two short lines first.
+      deliverCards:({conversationId,messageId,recipientId}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
+       text:'Сценарий можете придумать сами, свою аудиторию вы знаете лучше. Главное, чтобы в ролике были видны вы и паста.',
+       followTexts:['Нет идеи, не страшно: вот четыре на выбор. Пришлите номер от 1 до 4.'],images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });

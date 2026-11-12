@@ -45,3 +45,12 @@ test('Owner 2026-11-11: no «реквизиты получила» while the but
  g.options.decide=async()=>({action:'reply',reply:'Оксана, спасибо, реквизиты получила 🌷',recipientId:'person'});
  assert.equal((await runDirect(g.options)).status,'complete');
 });
+
+test('Owner 2026-11-12 argnvd: a request for ideas sends the four approved cards, never an invented idea',async()=>{
+ const f=fixture();let cards=0,texts=0;
+ f.options.decide=async()=>({action:'cards',reason:'scenario_cards',recipientId:'person'});
+ f.options.deliver=async()=>{texts++;return{status:'verified',outgoingId:'x'};};
+ f.options.deliverCards=async({recipientId})=>{cards++;assert.equal(recipientId,'person');return{status:'verified',outgoingId:'c1'};};
+ const out=await runDirect(f.options);
+ assert.equal(out.status,'complete');assert.equal(out.reason,'scenario_cards_sent');assert.equal(cards,1);assert.equal(texts,0);
+});

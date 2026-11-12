@@ -4,7 +4,7 @@ const PAGE='1697038263872226', BRAND='17841466350261166';
 const ROOT='https://graph.facebook.com/v21.0/';
 const keyFor=(cid,messageId)=>`diana_direct_delivery:${cid}:${messageId}`;
 
-export async function deliverDirectReply({db,conversationId,messageId,recipientId,text,token,fetchImpl=fetch,now=Date.now()}) {
+export async function deliverDirectReply({db,conversationId,messageId,recipientId,text,token,fetchImpl=fetch,now=Date.now(),followTexts=[],images=[]}) {
   if(!db||!conversationId||!messageId||!recipientId||!token||typeof text!=='string'||!text.trim())throw Error('direct_delivery_invalid');
   const headers={authorization:`Bearer ${token}`};
   async function get(path,key=token){
@@ -46,8 +46,20 @@ export async function deliverDirectReply({db,conversationId,messageId,recipientI
     outgoing=String(payload.message_id);
     const proof=await get(`${encodeURIComponent(outgoing)}?fields=id,message,from`,page.access_token);
     if(String(proof?.id??'')!==outgoing||proof?.message!==text||![PAGE,BRAND].includes(String(proof?.from?.id??'')))throw Error('direct_delivery_unconfirmed');
+    // Owner 2026-11-12 (argnvd): the four approved scenario cards go as the follow-up of the
+    // verified first line: the second short line, then each card picture, in order.
+    const extra=[];
+    for(const item of [...followTexts.map(t=>({text:t})),...images.map(url=>({url}))]){
+      const body=item.url?{attachment:{type:'image',payload:{url:item.url,is_reusable:true}}}:{text:item.text};
+      const send=tag=>fetchImpl(ROOT+`${PAGE}/messages`,{method:'POST',headers:{authorization:`Bearer ${page.access_token}`,'content-type':'application/json'},
+        body:JSON.stringify({recipient:{id:String(recipientId)},message:body,...tag}),signal:AbortSignal.timeout(30000)});
+      let r=await send({messaging_type:'RESPONSE'});let j=await r.json().catch(()=>null);
+      if(!r.ok&&[400,403].includes(r.status)){r=await send({messaging_type:'MESSAGE_TAG',tag:'HUMAN_AGENT'});j=await r.json().catch(()=>null);}
+      if(!r.ok||!j?.message_id)throw Error('direct_delivery_unconfirmed');
+      extra.push(String(j.message_id));
+    }
     const saved=await db.prepare(`UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1 AND json_extract(value,'$.status')='claimed'`)
-      .bind(key,JSON.stringify({status:'verified',conversation_id:conversationId,incoming_id:messageId,outgoing_id:outgoing,at:now}),Date.now()).run();
+      .bind(key,JSON.stringify({status:'verified',conversation_id:conversationId,incoming_id:messageId,outgoing_id:outgoing,...(extra.length?{follow_ids:extra}:{}),at:now}),Date.now()).run();
     if(!saved?.meta?.changes)throw Error('direct_delivery_state_conflict');
     return {status:'verified',outgoingId:outgoing};
   }catch{

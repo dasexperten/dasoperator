@@ -12,13 +12,16 @@ test('newest phone cluster wins; ordinary later Ozon order discussion does not c
 test('split short requisites work, missing name and alternate banks fail closed',()=>{
  assert.equal(latestRequisites([m('a','89990000000','00'),m('b','Сбер','01'),m('c','Людмила Игоревна з','02')]).first_name,'Людмила');
  assert.equal(latestRequisites([m('a','89990000000 Сбер','00')]),null);
- assert.equal(latestRequisites([m('a','89990000000 Сбер или ТБанк Анна','00')]),null);
+ // Owner 2026-11-12: two banks named means either works; T-Bank when it is among them, otherwise the first.
+ assert.equal(latestRequisites([m('a','89990000000 Сбер или ТБанк Анна','00')])?.bank,'100000000004');
+ assert.equal(latestRequisites([m('a','89990000000 Анна озон тинькофф сбер','00')])?.bank,'100000000004');
  // Owner 2026-11-12: «remove the name rule» — a surname with initials is still a name; the button appears.
  assert.equal(latestRequisites([m('a','89990000000 Сбер Жукова Т.Б','00')])?.first_name,'Жукова');
 });
 
 test('new ambiguous phone never falls back to older bank or recipient details',()=>{
- assert.equal(latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 Сбер или ТБанк Елена','20')]),null);
+ const newer=latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 Сбер или ТБанк Елена','20')]);
+ assert.equal(newer?.first_name,'Елена');assert.equal(newer?.phone.replace(/\D/g,''),'79991111111'); // the newer details win whole, never mixed with the older ones
  const r=latestRequisites([m('a','89990000000 Сбер Анна','00'),m('b','89991111111 ТБанк Елена','01')]);assert.equal(r.phone,'+79991111111');assert.equal(r.first_name,'Елена');
 });
 
@@ -33,4 +36,9 @@ test('Owner 2026-11-12 irina_beauty_smr: a first name ending in -ина with a p
   assert.equal(r?.first_name, 'Ирина');
   const m = latestRequisites([{id:'m1',direction:'in',text:'89179990011 Т-Банк Марина',created_at:'2026-11-12T05:20:00Z'}]);
   assert.equal(m?.first_name, 'Марина');
+});
+
+test('Owner 2026-11-12 svetlanakogai2018: «сбер озон» after the name still makes the button, first bank taken',()=>{
+ const r=latestRequisites([m('a','89990000000 Светлана Денисовна Л сбер озон','00')]);
+ assert.equal(r?.first_name,'Светлана');assert.equal(r?.bank,'100000000111');
 });

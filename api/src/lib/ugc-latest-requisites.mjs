@@ -6,6 +6,16 @@ function singleBank(text){
  const ids=[...new Set((text.match(BANK)??[]).map(bank=>cleanRequisites({phone:'+79990000000',bank,first_name:'Анна',amount_rub:100})?.bank).filter(Boolean))];
  return ids.length===1?ids[0]:null;
 }
+// Owner 2026-11-12 (svetlanakogai2018, «сбер озон»): a blogger who names two banks means either works.
+// Owner 2026-11-12: «if tinkov is named then tinkof or t-bank, if not then the first one». The button
+// appears at once; she is not asked to choose.
+const TBANK=/т[-\s]?банк|тинькоф|тиньков|tbank|tinkoff/i;
+function firstBank(text){
+ const t=text.match(TBANK);
+ if(t){const id=cleanRequisites({phone:'+79990000000',bank:t[0],first_name:'Анна',amount_rub:100})?.bank;if(id)return id;}
+ for(const m of text.matchAll(BANK)){const id=cleanRequisites({phone:'+79990000000',bank:m[0],first_name:'Анна',amount_rub:100})?.bank;if(id)return id;}
+ return null;
+}
 /** Only short original detail clusters. A later explicit single-bank correction wins.
  * No profile name, outgoing acknowledgement or amount is interpreted as requisites. */
 export function latestRequisites(messages){
@@ -19,7 +29,7 @@ export function latestRequisites(messages){
   const cluster=rows.slice(Math.max(0,i-2),i+3).filter(m=>Math.abs(Date.parse(m.created_at)-at)<=600000&&m.text.length<=240).filter(m=>!m.text.match(BANK)||PHONE.test(m.text)||/банк|сбер|тинькофф|тиньков|втб|альфа|совком/i.test(m.text)||/^\s*(?:озон|ozon)\s*$/i.test(m.text));
   const selected=cluster.filter(m=>{const p=m.text.match(PHONE)?.[0].replace(/\D/g,'').replace(/^8/,'7');return !p||p===phone;});
   const text=selected.map(m=>m.text).join('\n');
-  if(!singleBank(text))continue;
+  if(!firstBank(text))continue;
   // Owner 2026-11-11 (elwira.karimova2013): «Каримова эльвира васфирахмановна» — a name
   // typed in lowercase is still a name. Capitalise Cyrillic words before reading names.
   const cased=t=>t.replace(/(^|[\s,.;:])([а-яё])([а-яё]{2,})/g,(_,a,b,c)=>a+b.toUpperCase()+c);
@@ -27,7 +37,7 @@ export function latestRequisites(messages){
   if(!r?.first_name)r=detectRequisites(selected.map(m=>cased(m.text)))??r;
   // Owner 2026-11-12: «remove the name rule» — no surname guessing. Phone, bank and any name
   // in the cluster make the button; the Owner checks the name himself before paying.
-  if(r&&String(r.first_name??r.last_name??'').trim())result={...r,first_name:String(r.first_name??r.last_name).trim(),source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
+  if(r&&String(r.first_name??r.last_name??'').trim())result={...r,bank:firstBank(text)??r.bank,first_name:String(r.first_name??r.last_name).trim(),source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
  }
  if(!result)return null;
  for(const row of rows){

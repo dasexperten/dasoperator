@@ -24,7 +24,10 @@ async function graph(fetchImpl,path,key){
 export async function roundConversationId(env,person){
   if(person.cid)return person.cid;
   const alarm=await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND json_valid(value) AND lower(json_extract(value,'$.handle'))=?1 ORDER BY updated_at DESC LIMIT 1`).bind(String(person.normalized_handle).toLowerCase()).first();
-  try{return JSON.parse(alarm?.value??'null')?.cid??null;}catch{return null;}
+  try{const cid=JSON.parse(alarm?.value??'null')?.cid??null;if(cid)return cid;}catch{}
+  // 2026-11-12: the message archive stopped on 10.11; a blogger paid since then is found through her payout's chat.
+  const paid=await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'diana_payout_cid:%' AND json_valid(value) AND lower(json_extract(value,'$.handle'))=?1 ORDER BY updated_at DESC LIMIT 1`).bind(String(person.normalized_handle).toLowerCase()).first();
+  try{return JSON.parse(paid?.value??'null')?.cid??null;}catch{return null;}
 }
 
 export async function runRoundCreator({env,runId,person,token,infer,prepareContext,fetchImpl=fetch,now=Date.now()}){

@@ -66,7 +66,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
         // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
         watchVideo:(url:string)=>watchVideo({apiKey:this.env.GEMINI_API_KEY,url}),
-        lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at});if(!p)return null;
+        lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at,seen:async(id:string)=>Boolean(await this.env.DB.prepare('SELECT 1 x FROM crm_sync_state WHERE key=?1').bind('diana_publication_seen:'+id).first())});if(!p)return null;
          const accepted=p.kind==='invite'&&!signal.dryRun?await acceptInvite({page:p.page,mediaId:p.media_id}):false;
          await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_publication_seen:'+p.media_id,JSON.stringify({handle,kind:p.kind,media_id:p.media_id,permalink:p.permalink??null,accepted}),Date.now()).run();
          return {kind:p.kind,accepted,permalink:p.permalink??null,caption:p.caption,published_at:p.published_at??null};}});
@@ -101,7 +101,8 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
      return result;
     }catch{
      // Never persist exceptions: upstream errors can contain private content.
-     const result=directOutcomeState({status:'pending',reason:'direct_execution_failed'},signal.attempt??1);
+     // 2026-11-12: a failed second look is final too; without the mark it was retried every 10 minutes for ever.
+     const result={...directOutcomeState({status:'pending',reason:'direct_execution_failed'},signal.attempt??1),...(signal.revisit?{revisited:true}:{})};
      if(!signal.dryRun)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(result),Date.now()).run();
      return result;
     }

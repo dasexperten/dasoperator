@@ -31,6 +31,9 @@ export async function readDirectOriginal({conversationId, messageId, token, fetc
     cursors.add(next); after = next;
   }
   const latest = items[0];
+  // 2026-11-12 (diljon_recepti): the blogger deleted the chat or her account — Meta returns no
+  // messages. That is not a failure to retry for ever; there is nothing left to answer.
+  if (!items.length) return {status:'superseded', gone:true};
   if (!latest?.id || !latest?.from?.id) throw Error('direct_original_identity_missing');
   if (String(latest.id) !== String(messageId) || [PAGE, BRAND].includes(String(latest.from.id))) return {status:'superseded'};
   return {status:'ready', conversationId:String(conversationId), messageId:String(messageId), messages:items.reverse()};

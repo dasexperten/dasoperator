@@ -29,6 +29,11 @@ route.post('/video-watch-check',async c=>{
   try{const seen=await watchVideo({apiKey:c.env.GEMINI_API_KEY,url:input.url});return c.json({ok:true,ms:Date.now()-t,seen});}
   catch(e){return c.json({ok:false,ms:Date.now()-t,error:e instanceof Error?e.message:'failed'});}
 });
+// Owner 2026-11-12: record reels that tag us right now (the round does the same at 06:00 and 18:00).
+route.post('/record-tagged-reels',async c=>{
+  const {recordTaggedReels}=await import('../lib/diana-round-tags');
+  try{return c.json({ok:true,...(await recordTaggedReels(c.env))});}catch(e){return c.json({ok:false,error:e instanceof Error?e.message:'failed'});}
+});
 // Private preview executes the real read/context/model chain with send/ACK disabled.
 route.post('/cloud-preview',async c=>{
   const input=await c.req.json<{cid?:string}>();

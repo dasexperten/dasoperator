@@ -45,6 +45,8 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
     const acknowledged=await acknowledge(event);
     return acknowledged?{status:'complete',reason:'scenario_cards_sent',outgoing_id:sent.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
   }
+  // 2026-11-12: «спасибо», «ок», ❤️ — nothing to answer. The event is closed, not parked.
+  if(decision.action==='none'&&!event.dryRun){const acknowledged=await acknowledge(event);return acknowledged?{status:'complete',reason:'no_reply_needed'}:{status:'pending',reason:'newer_event_preserved'};}
   if(decision.action!=='reply')return {status:'pending',reason:decision.reason,...(event.dryRun?{images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null}:{}),image_trace:decision.receipt?.image_trace??[]};
   const delivery=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});
   if(delivery.status==='preview')return {status:'preview',images_read:Number(decision.receipt?.images_read??0),images_uncertain:Number(decision.receipt?.images_uncertain??0),images_unavailable:Number(decision.receipt?.images_unavailable??0),image_diagnostics:decision.receipt?.image_diagnostics??null};

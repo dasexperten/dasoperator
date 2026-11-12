@@ -17,7 +17,7 @@ export function currentVideos(messages) {
  }
  return result;
 }
-async function download(url,fetcher=fetch){
+export async function download(url,fetcher=fetch){
  let next=url;
  for(let n=0;n<4;n++){
   const r=await fetcher(trusted(next),{redirect:'manual',signal:AbortSignal.timeout(30000),headers:{'User-Agent':'Mozilla/5.0','Accept':'video/*,*/*;q=0.8'}});

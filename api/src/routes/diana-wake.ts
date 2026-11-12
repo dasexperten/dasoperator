@@ -18,6 +18,17 @@ route.get('/status', async c => {
   const response=await c.env.DIANA_WAKE.get(c.env.DIANA_WAKE.idFromName('diana')).fetch('https://wake.internal/status');
   return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
+// Owner 2026-11-12: proof that the live Worker itself downloads and watches a chat video.
+// Read-only: nothing is sent, nothing is stored; returns only the watched facts.
+route.post('/video-watch-check',async c=>{
+  const input=await c.req.json<{url?:string}>().catch(()=>({} as {url?:string}));
+  if(!input.url)return c.json({ok:false},400);
+  // @ts-expect-error plain JS module
+  const {watchVideo}=await import('../lib/diana-direct-video-watch.mjs');
+  const t=Date.now();
+  try{const seen=await watchVideo({apiKey:c.env.GEMINI_API_KEY,url:input.url});return c.json({ok:true,ms:Date.now()-t,seen});}
+  catch(e){return c.json({ok:false,ms:Date.now()-t,error:e instanceof Error?e.message:'failed'});}
+});
 // Private preview executes the real read/context/model chain with send/ACK disabled.
 route.post('/cloud-preview',async c=>{
   const input=await c.req.json<{cid?:string}>();

@@ -80,6 +80,14 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       markFee:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        if(!name)return;
+       // A blogger who answered a first invitation with a price list has no card yet: she gets one, status fee.
+       const sid=async(prefix:string,input:string)=>{const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input));return prefix+'_'+[...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,24);};
+       const has=await this.env.DB.prepare("SELECT 1 x FROM ugc_creator_platforms WHERE platform='instagram' AND normalized_handle=?1 LIMIT 1").bind(name).first();
+       if(!has&&/^[a-z0-9_.]{1,40}$/.test(name)){const cid=await sid('ugc','instagram:'+name),pid=await sid('ugcp','instagram:'+name),now=Date.now();
+        await this.env.DB.batch([
+         this.env.DB.prepare("INSERT INTO ugc_creators (id,normalized_handle,lifecycle_stage,origin,created_at,updated_at) VALUES (?1,?2,'fee','invited',?3,?3) ON CONFLICT(id) DO NOTHING").bind(cid,name,now),
+         this.env.DB.prepare("INSERT INTO ugc_creator_platforms (id,creator_id,platform,handle,normalized_handle,profile_url,source,created_at,updated_at) VALUES (?1,?2,'instagram',?3,?3,?4,'diana_direct',?5,?5) ON CONFLICT(platform,normalized_handle) DO NOTHING").bind(pid,cid,name,'https://www.instagram.com/'+name+'/',now)]);
+        return;}
        // Only a creator we never paid moves to fee; a hand-set status is never overwritten.
        await this.env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage='fee',updated_at=?2 WHERE id IN (SELECT creator_id FROM ugc_creator_platforms WHERE platform='instagram' AND normalized_handle=?1)
          AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','replied','agreed','cart','silent')

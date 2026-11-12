@@ -27,3 +27,12 @@ test('passes a partially legible screenshot with uncertainty after both models t
 });
 
 test('leaves a proof trace of every image read without keeping any text',async()=>{const f=env();f.options.source.messages[0].attachments={data:[{mime_type:'image/png',image_data:{url:'https://example.invalid'}}]};f.options.infer=async(m,o)=>({text:JSON.stringify(o.model==='gpt-6-luna'?{visible_text:'Card 4276 amount 394',uncertain:false}:{action:'reply',reply:'Спасибо!'})});const d=await decideDirect(f.options);const [t]=d.receipt.image_trace;assert.equal(d.receipt.image_trace.length,1);assert.equal(t.message_id,'m1');assert.equal(t.sha256,'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb');assert.equal(t.model,'gpt-6-luna');assert.equal(t.read,true);assert.equal(t.uncertain,false);assert.equal(t.version,'direct-vision-1');assert.ok(!JSON.stringify(d.receipt).includes('4276'));});
+
+test('Owner 2026-11-12 anyanapanike: a blank collab message is matched to her reel, never «не могу разобрать»',async()=>{
+ const {decideDirect}=await import('./diana-direct-decide.mjs');let seen=null;
+ const source={status:'ready',messageId:'m3',messages:[{id:'m1',from:{id:'17841466350261166'},message:'Когда ролик?',created_time:'2026-11-12T04:40:00Z'},{id:'m3',from:{id:'u9',username:'anya'},message:'',is_unsupported:true,created_time:'2026-11-12T04:48:59Z'}]};
+ const out=await decideDirect({source,prepareContext:async()=>({system:'DIANA',receipt:{}}),readImage:async()=>null,env:{},
+  infer:async(m)=>{seen=JSON.parse(m[1].content);return{text:JSON.stringify({action:'reply',reply:'Аня, спасибо за ролик!'})};},
+  lookupPublication:async({handle})=>({kind:'invite',accepted:true,permalink:null,caption:'паста с термо эффектом'})});
+ assert.equal(out.action,'reply');assert.equal(seen.verified_erp_facts.verified_publication.kind,'invite');assert.equal(seen.unavailable_images,0);
+});

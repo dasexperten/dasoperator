@@ -13,6 +13,8 @@ import {directThink} from './lib/diana-direct-think.mjs';
 // @ts-expect-error plain JS module
 import {decideDirect} from './lib/diana-direct-decide.mjs';
 // @ts-expect-error plain JS module
+import {findPublication,acceptInvite} from './lib/diana-direct-collab.mjs';
+// @ts-expect-error plain JS module
 import {deliverDirectReply} from './lib/diana-direct-deliver.mjs';
 // @ts-expect-error plain JS module
 import {SCENARIO_CARDS} from './lib/ig-dm-reply-guard.mjs';
@@ -59,7 +61,12 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        const creator=name?await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>():null;
        const payouts=creator?.id?(await this.env.DB.prepare('SELECT status,amount_minor,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY updated_at DESC LIMIT 5').bind(creator.id).all<any>()).results:[];
-       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true});
+       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
+        // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
+        lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at});if(!p)return null;
+         const accepted=p.kind==='invite'&&!signal.dryRun?await acceptInvite({page:p.page,mediaId:p.media_id}):false;
+         await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_publication_seen:'+p.media_id,JSON.stringify({handle,kind:p.kind,media_id:p.media_id,permalink:p.permalink??null,accepted}),Date.now()).run();
+         return {kind:p.kind,accepted,permalink:p.permalink??null,caption:p.caption,published_at:p.published_at??null};}});
       },
       handoffPayout:async({event:input,source}:any)=>{const out=await handoffDirectPayout({env:this.env,event:input,source,
        refreshOriginal:async({conversationId,messageId}:any)=>{const source:any=await readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN});if(source?.status==='ready')await applyShares(this.env.DB,source.messages).catch(()=>0);return source;},

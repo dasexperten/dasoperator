@@ -572,7 +572,8 @@ ugc.get('/', async (c) => {
       updated_at: row.creator_updated_at,
       profiles: [],
       collaboration: latestCollaboration.get(creatorId) ?? null,
-      payout: creatorPayouts[0] ?? null,
+      // Owner 2026-11-12 (irina_beauty_smr): a payout still waiting for the click is never hidden behind a newer paid one.
+      payout: creatorPayouts.find((item) => (item.status === 'awaiting_approval' || item.status === 'approved') && !item.konsol_payment_id) ?? creatorPayouts[0] ?? null,
       payment_register: sourceIndex.payments.get(creatorId) ?? [],
       payment_sources: sourceIndex.paymentSources.get(creatorId) ?? [],
       payouts: creatorPayouts.slice(0, 20),

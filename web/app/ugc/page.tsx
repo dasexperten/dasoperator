@@ -162,6 +162,7 @@ type Creator = {
   manual_stage?: { from: string; to: string; by: string | null; at: number; reviewed_at: number | null } | null;
   delivery?: { status: 'undelivered' | 'expired'; until: string; last_in: string } | null;
   missing_button?: { since: string } | null;
+  browser_message?: { kind: string; state: 'queued' | 'sent' | 'failed'; reason?: string } | null;
   attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
@@ -362,6 +363,16 @@ function CreatorStatus({ creator }: { creator: Creator }) {
   return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} />{stalled ? <span className="ugc-stall-days" title={`Согласилась, рилса нет ${stalled} дн.`}>задержка {stalled} дн</span> : null}<DeliveryMark creator={creator} /><MissingButtonMark creator={creator} /></span>;
 }
 
+// Owner 2026-11-12 (approved mockup): a message waiting in the Chrome queue shows as a second line under the name.
+function QueueLine({ creator }: { creator: Creator }) {
+  const m = creator.browser_message;
+  if (!m) return null;
+  const what = m.kind === 'gold' ? 'Приветствие' : 'Сообщение';
+  const text = m.state === 'queued' ? `${what} · ждёт отправки` : m.state === 'sent' ? `${what} · доставлено` : `${what} · не доставлено`;
+  const title = m.state === 'failed' ? `Не отправлено через Chrome${m.reason ? ': ' + m.reason : ''}. Остаётся в очереди.` : m.state === 'queued' ? 'Ждёт отправки через ваш Chrome: кнопка очереди вверху.' : 'Отправлено через ваш Chrome.';
+  return <span className="ugc-queue-line" data-state={m.state} title={title}>{text}</span>;
+}
+
 // Owner 2026-11-11: phone, bank and name are in the chat, but no payout button exists.
 function MissingButtonMark({ creator }: { creator: Creator }) {
   const m = creator.missing_button;
@@ -503,9 +514,10 @@ function BrowserQueueList() {
   </article>;
 }
 
-// Owner 2026-10-19: «Очередь браузера · N». On a computer one button for this machine (PC or Mac);
-// on a phone two. A click starts sending at once in the Owner's own Chrome on that machine.
+// Owner 2026-10-19: «Очередь браузера · N». Owner 2026-11-12 (approved mockup): the button opens the queue;
+// one blogger per row, a tap shows Diana's text, and the send buttons sit at the top of the opened queue.
 type PayDays = { today: { n: number; minor: number }; yesterday: { n: number; minor: number } };
+type QueueEntry = { handle: string; texts: string[]; kind?: string };
 function BrowserQueueButton() {
   const [count, setCount] = useState<number | null>(null);
   const [pay, setPay] = useState<PayDays | null>(null);
@@ -514,8 +526,14 @@ function BrowserQueueButton() {
   const [message, setMessage] = useState('');
   const [pressed, setPressed] = useState<'pc' | 'mac' | null>(null);
   const [writable, setWritable] = useState(false);
+  const [items, setItems] = useState<QueueEntry[] | null>(null);
+  const [openHandle, setOpenHandle] = useState<string | null>(null);
+  const dialog = useRef<HTMLDialogElement | null>(null);
   const refresh = useCallback(async () => {
     try { const r = await apiGet<{ count: number; pay?: PayDays }>('/api/ugc/browser-queue'); if (r.success && r.result) { setCount(r.result.count); setPay(r.result.pay ?? null); } } catch { /* the count stays as it was */ }
+  }, []);
+  const loadItems = useCallback(async () => {
+    try { const r = await apiGet<{ items: QueueEntry[] }>('/api/ugc/browser-queue/items'); setItems(r.success && r.result ? r.result.items : []); } catch { setItems([]); }
   }, []);
   useEffect(() => {
     const user = getUser(); setWritable(user?.role === 'admin' || ['full', 'rw'].includes(user?.permissions?.['/ugc'] ?? ''));
@@ -526,19 +544,41 @@ function BrowserQueueButton() {
     return () => window.clearInterval(timer);
   }, [refresh]);
   if (!writable || count == null) return null;
-  // Owner 2026-10-19: no extra line for the result — it shows on the pressed button itself for a few seconds.
-  const label = (t: 'pc' | 'mac') => message && pressed === t ? message : targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь · ${count}`;
-  return <span className="ugc-bq">{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={busy || count === 0}
-    title={message || (count === 0 ? 'Очередь пуста' : `Отправить ${count} в Chrome на ${t === 'pc' ? 'ПК' : 'Mac'}`)}
-    onClick={async () => {
-      setBusy(true); setMessage(''); setPressed(t);
-      try {
-        const r = await apiPost<{ started: boolean; count: number }>('/api/ugc/browser-queue/run', { target: t });
-        if (!r.success || !r.result) setMessage(r.errors[0]?.message ?? 'Не удалось запустить');
-        else setMessage('Запущено');
-      } catch { setMessage('Ответ не получен'); }
-      finally { setBusy(false); window.setTimeout(() => setMessage(''), 8_000); window.setTimeout(() => { void refresh(); }, 90_000); }
-    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{pay ? <span className="ugc-bq-pay" title="Оплаты блогерам: сегодня и вчера"><span className="ugc-bq-pay-today">{pay.today.n} · {formatRub(pay.today.minor)}</span><span>{pay.yesterday.n} · {formatRub(pay.yesterday.minor)}</span></span> : null}{message ? <span className="sr-only" role="status">{message}</span> : null}</span>;
+  const open = () => { setItems(null); setOpenHandle(null); setMessage(''); void loadItems(); dialog.current?.showModal(); };
+  const close = () => dialog.current?.close();
+  const send = async (t: 'pc' | 'mac') => {
+    setBusy(true); setMessage(''); setPressed(t);
+    try {
+      const r = await apiPost<{ started: boolean; count: number }>('/api/ugc/browser-queue/run', { target: t });
+      if (!r.success || !r.result) setMessage(r.errors[0]?.message ?? 'Не удалось запустить');
+      else setMessage('Запущено');
+    } catch { setMessage('Ответ не получен'); }
+    finally { setBusy(false); window.setTimeout(() => setMessage(''), 8_000); window.setTimeout(() => { void refresh(); window.dispatchEvent(new Event('ugc:reload')); }, 90_000); }
+  };
+  const remove = async (handle: string) => {
+    const r = await apiPost<{ removed: boolean }>('/api/ugc/browser-queue/remove', { handle });
+    if (r.success) { setItems((prev) => (prev ?? []).filter((item) => item.handle !== handle)); setOpenHandle(null); void refresh(); window.dispatchEvent(new Event('ugc:reload')); }
+    else setMessage(r.errors[0]?.message ?? 'Не удалось убрать');
+  };
+  const label = (t: 'pc' | 'mac') => targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь · ${count}`;
+  const sendLabel = (t: 'pc' | 'mac') => message && pressed === t ? message : `Отправить с ${t === 'pc' ? 'ПК' : 'Mac'}`;
+  const shown = items ?? [];
+  return <span className="ugc-bq">{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={count === 0}
+    title={count === 0 ? 'Очередь пуста' : `Открыть очередь Chrome: ${count}`} onClick={open}>{label(t)}</button>)}{pay ? <span className="ugc-bq-pay" title="Оплаты блогерам: сегодня и вчера"><span className="ugc-bq-pay-today">{pay.today.n} · {formatRub(pay.today.minor)}</span><span>{pay.yesterday.n} · {formatRub(pay.yesterday.minor)}</span></span> : null}
+    <dialog ref={dialog} className="ugc-bq-dialog" aria-labelledby="ugc-bq-title" onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <div className="ugc-bq-sheet">
+        <div className="ugc-bq-head"><h2 id="ugc-bq-title">Очередь Chrome · {items ? shown.length : count}</h2><button type="button" className="ugc-bq-close" aria-label="Закрыть" onClick={close}><X className="h-5 w-5" aria-hidden="true" /></button></div>
+        <div className="ugc-bq-send" data-count={targets.length}>{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={busy || shown.length === 0} onClick={() => { void send(t); }}>{busy && pressed === t ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{sendLabel(t)}</button>)}</div>
+        {message ? <span className="sr-only" role="status">{message}</span> : null}
+        {items == null ? <p className="ugc-bq-empty">Загружаю…</p> : shown.length === 0 ? <p className="ugc-bq-empty">Очередь пуста</p> : <ul className="ugc-bq-rows">{shown.map((item) => {
+          const isOpen = openHandle === item.handle;
+          return <li key={item.handle} className="ugc-bq-row" data-kind={item.kind || undefined} data-open={isOpen ? 'true' : undefined}>
+            <button type="button" className="ugc-bq-row-head" aria-expanded={isOpen} onClick={() => setOpenHandle(isOpen ? null : item.handle)}><span className="ugc-bq-handle">@{item.handle}</span>{item.kind === 'gold' ? <span className="ugc-bq-kind">Gold</span> : null}</button>
+            {isOpen ? <div className="ugc-bq-body">{item.texts.map((text, i) => <p key={i} className="ugc-bq-text">{text}</p>)}<button type="button" className="ugc-bq-remove" onClick={() => { void remove(item.handle); }}>Убрать из очереди</button></div> : null}
+          </li>;
+        })}</ul>}
+      </div>
+    </dialog></span>;
 }
 
 function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: () => Promise<void> }) {
@@ -1266,7 +1306,7 @@ export default function UgcPage() {
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             const linked = creatorPublicationLinks(creator.profiles);
             return <div key={creator.id} className={`ugc-mobile-row ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} data-stalled={stalledDays(creator) ? 'true' : undefined} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
-              <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-profile-copy"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><ProfileAvailability profile={profile} /></span></span>
+              <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-profile-copy"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><QueueLine creator={creator} /><ProfileAvailability profile={profile} /></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCountShort(profile.followers)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
               {linked.length ? <div className="ugc-mobile-publications"><PublicationCarousel count={linked.length} label={name}>{linked.map(({ item, href }) => <Publication key={item.id} item={item} href={href} compact />)}</PublicationCarousel></div> : null}
@@ -1294,7 +1334,7 @@ export default function UgcPage() {
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} className={`ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} data-stage={creator.lifecycle_stage} data-stalled={stalledDays(creator) ? 'true' : undefined} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <span className="absolute right-1 top-1/2 -translate-y-1/2"><AttentionMark attention={creator.attention} name={name} onOpen={() => setSelectedId(creator.id)} creatorId={creator.id} onSaved={() => undefined} /></span> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
+                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <span className="absolute right-1 top-1/2 -translate-y-1/2"><AttentionMark attention={creator.attention} name={name} onOpen={() => setSelectedId(creator.id)} creatorId={creator.id} onSaved={() => undefined} /></span> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<QueueLine creator={creator} /><span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} chat /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>

@@ -471,6 +471,22 @@ ugc.get('/', async (c) => {
   } catch { /* the list never fails over a mark */ }
   // Owner 2026-11-11: details in the chat without a button — rechecked live so a button made
   // since the hourly watch clears the mark at once.
+  // Owner 2026-11-12 (approved mockup): a message waiting in the Chrome queue shows under the blogger's name:
+  // «ждёт отправки», then «доставлено» (3 days), or «не доставлено» with the reason.
+  const browserByHandle = new Map<string, { kind: string; state: 'queued' | 'sent' | 'failed'; reason?: string }>();
+  try {
+    const lastRun = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+    let results: Record<string, string> = {};
+    try { const run = String(JSON.parse(lastRun?.value ?? '{}').run ?? ''); if (run) results = JSON.parse((await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind('browser_run:' + run).first<{ value: string }>())?.value ?? '{}').results ?? {}; } catch { results = {}; }
+    const sentRows = (await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'browser_sent:%' AND updated_at >= ?1 ORDER BY updated_at`).bind(Date.now() - 3 * 86_400_000).all<{ key: string; value: string }>()).results ?? [];
+    for (const row of sentRows) { const h = row.key.split(':')[1] ?? ''; let kind = ''; try { kind = String(JSON.parse(row.value).kind ?? ''); } catch { kind = ''; } if (h) browserByHandle.set(h, { kind, state: 'sent' }); }
+    for (const row of await browserQueueRows(c)) {
+      let v: any = null; try { v = JSON.parse(row.value); } catch { v = null; }
+      const h = String(v?.handle ?? row.key.replace(/^browser_queue:/, '')).toLowerCase();
+      const r = String(results[h] ?? '');
+      if (h) browserByHandle.set(h, r.startsWith('skipped') ? { kind: String(v?.kind ?? ''), state: 'failed', reason: r.replace(/^skipped:\s*/, '').slice(0, 200) } : { kind: String(v?.kind ?? ''), state: 'queued' });
+    }
+  } catch { /* the queue line is an aid; the list never fails because of it */ }
   const missingButtonByHandle = new Map<string, { since: string }>();
   try {
     const watch = await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_button_watch'").first<{ value: string }>();
@@ -536,6 +552,7 @@ ugc.get('/', async (c) => {
       manual_stage: manualStageByCreator.get(creatorId) ?? null,
       delivery: deliveryByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? null,
       missing_button: missingButtonByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? null,
+      browser_message: browserByHandle.get(String(row.creator_handle ?? '').toLowerCase()) ?? browserByHandle.get(String(row.handle ?? '').toLowerCase()) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,
@@ -978,7 +995,10 @@ ugc.get('/browser-queue/items', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
   if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
-  return ok(c, { items: queueItems(await browserQueueRows(c)) });
+  const rows = await browserQueueRows(c);
+  const kinds = new Map<string, string>();
+  for (const row of rows) { try { const v = JSON.parse(row.value); kinds.set(String(v?.handle ?? row.key.replace(/^browser_queue:/, '')).toLowerCase(), String(v?.kind ?? '')); } catch { /* skip */ } }
+  return ok(c, { items: queueItems(rows).map((item: { handle: string; texts: string[] }) => ({ ...item, kind: kinds.get(item.handle) ?? '' })) });
 });
 ugc.post('/browser-queue/sent', async (c) => {
   const access = await requireAccess(c, true);
@@ -992,6 +1012,19 @@ ugc.post('/browser-queue/sent', async (c) => {
   const now = Date.now();
   await c.env.DB.prepare(BQ_UPSERT).bind(`browser_sent:${handle}:${new Date(now).toISOString()}`, q.value, now).run();
   await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  return ok(c, { handle, removed: true });
+});
+
+// Owner 2026-11-12 (approved mockup): «Убрать из очереди» — the message is dropped, nothing is sent or marked sent.
+ugc.post('/browser-queue/remove', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin)' }]);
+  const body = await c.req.json<{ handle?: unknown }>().catch(() => ({} as { handle?: unknown }));
+  const handle = String(body.handle ?? '').toLowerCase().replace(/^@/, '').trim();
+  if (!handle) return fail(c, 422, [{ code: 'handle', message: 'handle is required' }]);
+  const gone = await c.env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(`browser_queue:${handle}`).run();
+  if (!Number(gone.meta?.changes ?? 0)) return fail(c, 404, [{ code: 'not_queued', message: 'Not in the queue' }]);
   return ok(c, { handle, removed: true });
 });
 

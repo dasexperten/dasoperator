@@ -160,7 +160,7 @@ export async function runGoldWelcome({env,event,token,infer,prepareContext,fetch
   if(event.task!==GOLD_TASK||!event.cid||!String(event.event_id).startsWith('action:'))throw Error('gold_invalid_event');
   const key='diana_gold_delivery:'+event.event_id;
   const previous=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(key).first();
-  if(previous){let p=null;try{p=JSON.parse(previous.value);}catch{} return p?.status==='verified'?{status:'complete',reason:'gold_welcome_delivered',outgoing_id:p.outgoing_id}:{status:'pending',reason:'gold_delivery_unknown_never_replayed'};}
+  if(previous){let p=null;try{p=JSON.parse(previous.value);}catch{} return p?.status==='verified'?{status:'complete',reason:'gold_welcome_delivered',outgoing_id:p.outgoing_id}:p?.status==='queued_browser'?{status:'complete',reason:'gold_welcome_queued'}:{status:'pending',reason:'gold_delivery_unknown_never_replayed'};}
   const page=await graph(fetchImpl,`${PAGE}?fields=access_token`,token);
   if(!page.access_token)throw Error('gold_page_token_missing');
   const list=await graph(fetchImpl,`${encodeURIComponent(event.cid)}/messages?fields=id,created_time,from,message&limit=40`,page.access_token);
@@ -174,6 +174,19 @@ export async function runGoldWelcome({env,event,token,infer,prepareContext,fetch
   if(!reply||reply.length>700)return{status:'pending',reason:'gold_reply_invalid'};
   const claim=await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({status:'claimed',at:now}),now).run();
   if(!claim?.meta?.changes)return{status:'pending',reason:'gold_already_claimed'};
+  // Owner 2026-11-12: a blogger silent for more than 7 days cannot be written to through Instagram's
+  // official channel (11 Gold welcomes were lost on 11.11). Diana's personal text then waits in the
+  // Chrome queue and goes out through the Owner's own browser by his button.
+  const handle=String(event.handle??creator.from?.username??'').toLowerCase().replace(/^@/,'');
+  if(now-Date.parse(String(creator.created_time??''))>7*86400000&&/^[a-z0-9_.]{1,40}$/.test(handle)){
+    const qKey='browser_queue:'+handle;
+    const old=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(qKey).first();
+    let items=[];try{const v=JSON.parse(old?.value??'null');items=Array.isArray(v?.items)?v.items:v?.text?[{text:v.text}]:[];}catch{}
+    await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
+      .bind(qKey,JSON.stringify({handle,kind:'gold',items:[...items,{text:reply.replace(/\s*\n+\s*/g,' ')}],queued_at:new Date(now).toISOString()}),now).run();
+    await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify({status:'queued_browser',handle,at:now}),Date.now()).run();
+    return{status:'complete',reason:'gold_welcome_queued'};
+  }
   const sent=await sendProactive(fetchImpl,page.access_token,String(creator.from.id),reply);
   await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify(sent?{status:'verified',outgoing_id:sent,at:now}:{status:'unknown',at:now}),Date.now()).run();
   return sent?{status:'complete',reason:'gold_welcome_delivered',outgoing_id:sent}:{status:'pending',reason:'gold_delivery_unknown'};

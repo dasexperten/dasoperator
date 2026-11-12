@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';
-import {runPayoutNotice} from './diana-direct-notice.mjs';
+import {runPayoutNotice,runGoldWelcome} from './diana-direct-notice.mjs';
 function db(){const d=new DatabaseSync(':memory:');d.exec(`CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,handle TEXT,status TEXT,amount_minor INTEGER,konsol_payment_id TEXT,konsol_status TEXT,paid_at TEXT,failed_at TEXT,notice_status TEXT,notice_message_id TEXT,notice_error TEXT,notice_at TEXT,paid_notice_at TEXT,updated_at INTEGER);CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);`);
  const wrap=s=>({bind:(...a)=>({first:async()=>d.prepare(s).get(...a)??null,run:async()=>({meta:{changes:d.prepare(s).run(...a).changes}}),_s:s,_a:a})});
  return{d,env:{GITHUB_TOKEN:'t',DB:{prepare:wrap,batch:async st=>st.map(x=>({meta:{changes:d.prepare(x._s).run(...x._a).changes}}))}}};}
@@ -24,4 +24,16 @@ test('an unconfirmed payout sends nothing',async()=>{
  const {d,env}=db();d.prepare("INSERT INTO ugc_payouts(id,handle,status,amount_minor) VALUES('p1','alice','approved',45300)").run();
  const sent=[];const r=await runPayoutNotice({env,event:{cid:'c1',message_id:'m2',event_id:'action:x',task:'payout_paid_notice',payout_id:'p1'},token:'t',infer:async()=>({text:'{"reply":"x"}'}),prepareContext:ctx,fetchImpl:meta(sent)});
  assert.equal(r.status,'pending');assert.equal(sent.length,0);
+});
+
+test('Owner 2026-11-12: a Gold welcome for a blogger silent over 7 days waits in the Chrome queue, nothing is sent',async()=>{
+ const {d,env}=db();const sent=[];
+ const infer=async()=>({text:JSON.stringify({reply:'Анна, вы в закрытом круге Gold.'})});
+ const ev={cid:'c1',message_id:null,event_id:'action:gold-1',task:'gold_welcome',handle:'alice'};
+ const r=await runGoldWelcome({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent),now:Date.parse('2026-11-25T08:00:00Z')});
+ assert.equal(r.status,'complete');assert.equal(r.reason,'gold_welcome_queued');assert.equal(sent.length,0);
+ const q=JSON.parse(d.prepare("SELECT value FROM crm_sync_state WHERE key='browser_queue:alice'").get().value);
+ assert.equal(q.kind,'gold');assert.equal(q.items[0].text,'Анна, вы в закрытом круге Gold.');
+ const again=await runGoldWelcome({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent),now:Date.parse('2026-11-25T08:05:00Z')});
+ assert.equal(again.reason,'gold_welcome_queued');assert.equal(JSON.parse(d.prepare("SELECT value FROM crm_sync_state WHERE key='browser_queue:alice'").get().value).items.length,1);
 });

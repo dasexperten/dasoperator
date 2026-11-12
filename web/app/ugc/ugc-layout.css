@@ -610,3 +610,29 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-reel-failure-dialog button { margin-top: 16px; padding: 8px 16px; border: 1px solid currentColor; border-radius: var(--radius-sm); }
 
 .ugc-pub[data-reel-status="uploaded"] .ugc-pub-link { outline-color: var(--status-success); }
+
+/* Owner 2026-11-12 (approved mockup): Chrome queue — line under the name, and the opened queue. No letter-spacing; each text sits on its own plate. */
+.ugc-queue-line { display: block; width: fit-content; max-width: 100%; margin-top: 1px; padding: 0 4px; border-radius: 4px; font-size: 12px; line-height: 16px; font-weight: 800; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-queue-line[data-state="queued"] { background: #fef3c7; color: #78350f; }
+.ugc-queue-line[data-state="sent"] { background: #dcfce7; color: #14532d; }
+.ugc-queue-line[data-state="failed"] { background: #fee2e2; color: #7f1d1d; }
+.ugc-bq-dialog { width: min(100vw, 440px); max-width: 100vw; max-height: 100dvh; margin: 0 auto; padding: 0; border: 0; background: #FBFAF6; color: #1A1519; }
+.ugc-bq-dialog::backdrop { background: rgba(26, 21, 25, .6); }
+.ugc-bq-sheet { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-top: 4px solid #282229; }
+.ugc-bq-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ugc-bq-head h2 { margin: 0; font-size: 22px; line-height: 28px; font-weight: 900; letter-spacing: 0; color: #1A1519; }
+.ugc-bq-close { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: #1A1519; cursor: pointer; }
+.ugc-bq-close:focus-visible, .ugc-bq-row-head:focus-visible, .ugc-bq-remove:focus-visible { outline: 2px solid #1A1519; outline-offset: 2px; }
+.ugc-bq-send { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ugc-bq-send[data-count="1"] { grid-template-columns: minmax(0, 1fr); }
+.ugc-bq-send .ugc-bq-btn { width: 100%; height: 48px; font-size: 15px; }
+.ugc-bq-rows { list-style: none; margin: 0; padding: 0; background: #FFFFFF; border: 1.5px solid #B9B2A3; border-radius: 10px; overflow: hidden; }
+.ugc-bq-row + .ugc-bq-row { border-top: 1px solid #D9D3C6; }
+.ugc-bq-row[data-open="true"][data-kind="gold"] { background: #FFF8DC; }
+.ugc-bq-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 48px; padding: 0 12px; border: 0; background: transparent; cursor: pointer; text-align: left; font: inherit; }
+.ugc-bq-handle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 800; color: #B0141F; }
+.ugc-bq-kind { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 9px; border-radius: 6px; background: #F3DB82; color: #3D2E05; font-size: 13px; font-weight: 800; letter-spacing: 0; }
+.ugc-bq-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px; }
+.ugc-bq-text { margin: 0; padding: 10px 12px; background: #FFFFFF; border: 1.5px solid #1A1519; border-radius: 8px; font-size: 15px; line-height: 1.4; font-weight: 500; color: #1A1519; overflow-wrap: anywhere; }
+.ugc-bq-remove { align-self: flex-start; height: 44px; padding: 0 14px; border: 1.5px solid #1A1519; border-radius: 8px; background: #FFFFFF; color: #1A1519; font-size: 14px; font-weight: 800; letter-spacing: 0; cursor: pointer; }
+.ugc-bq-empty { margin: 0; padding: 12px; font-size: 15px; font-weight: 700; color: #1A1519; }

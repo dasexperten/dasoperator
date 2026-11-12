@@ -54,8 +54,8 @@ test('Direct only detects metadata; it never reads bodies, calls a reply model o
   await assert.rejects(STEPS['erp-ugc-direct'](g.env), /metadata unavailable/);
   assert.deepEqual(g.calls, ['detect']);
 });
-test('a stale external Direct signal outside Moscow hours cannot scan or dispatch', async t => {
-  const f=fixture(t,{},null,Date.parse('2026-11-10T23:30:00+03:00'));
+test('a stale external Direct signal outside Direct hours (06:00–02:00 Yerevan) cannot scan or dispatch', async t => {
+  const f=fixture(t,{},null,Date.parse('2026-11-11T03:00:00+04:00'));
   assert.deepEqual(JSON.parse(await STEPS['erp-ugc-direct'](f.env)),{skipped:true,reason:'outside_direct_hours'});
   assert.deepEqual(f.calls,[]);
 });

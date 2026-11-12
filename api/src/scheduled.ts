@@ -432,9 +432,9 @@ export async function handleScheduled(
     // the 3 / 15 / 30 state is one row per lane, so a step never runs twice in a slot.
     try {
       const { STEPS } = await import('./cron-steps');
-      const { dianaWorkWindow } = await import('./lib/diana-work-window.mjs');
+      const { directAnswerHours } = await import('./lib/diana-work-window.mjs');
       for (const w of ['erp-ugc-direct', 'erp-ugc-payouts']) {
-        if (w === 'erp-ugc-direct' && !dianaWorkWindow(event.scheduledTime || Date.now()).direct) continue;
+        if (w === 'erp-ugc-direct' && !directAnswerHours(event.scheduledTime || Date.now())) continue;
         // Owner 09.11: payout fallback shares the fixed ten-minute clock.
         if (w === 'erp-ugc-payouts' && new Date(event.scheduledTime || Date.now()).getUTCMinutes() % 10 !== 0) continue;
         const fresh = await env.DB.prepare(

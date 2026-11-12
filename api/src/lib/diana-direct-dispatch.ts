@@ -2,11 +2,11 @@ import type {Env} from '../types';
 import {pendingDianaMessages} from './diana-alarm';
 import {reserveDianaCloud,releaseDianaCloud} from './diana-cloud-lock';
 // @ts-expect-error plain JS module
-import {dianaWorkWindow} from './diana-work-window.mjs';
+import {directAnswerHours} from './diana-work-window.mjs';
 
 // The detector supplies IDs only. Content is fetched by the Workflow itself.
 export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Date.now()){
- if(!dianaWorkWindow(now).direct)return {dispatched:false,reason:'outside_direct_hours'};
+ if(!directAnswerHours(now))return {dispatched:false,reason:'outside_direct_hours'};
  const active=await env.DB.prepare("SELECT value,updated_at FROM crm_sync_state WHERE key='diana_direct_active'").first<{value:string;updated_at:number}>();
  if(active){
   if(now-Number(active.updated_at)<180000)return {dispatched:false,reason:'diana_cloud_working'};

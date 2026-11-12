@@ -13,7 +13,8 @@ test('split short requisites work, missing name and alternate banks fail closed'
  assert.equal(latestRequisites([m('a','89990000000','00'),m('b','Сбер','01'),m('c','Людмила Игоревна з','02')]).first_name,'Людмила');
  assert.equal(latestRequisites([m('a','89990000000 Сбер','00')]),null);
  assert.equal(latestRequisites([m('a','89990000000 Сбер или ТБанк Анна','00')]),null);
- assert.equal(latestRequisites([m('a','89990000000 Сбер Жукова Т.Б','00')]),null);
+ // Owner 2026-11-12: «remove the name rule» — a surname with initials is still a name; the button appears.
+ assert.equal(latestRequisites([m('a','89990000000 Сбер Жукова Т.Б','00')])?.first_name,'Жукова');
 });
 
 test('new ambiguous phone never falls back to older bank or recipient details',()=>{

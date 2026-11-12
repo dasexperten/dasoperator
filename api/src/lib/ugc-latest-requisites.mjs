@@ -25,14 +25,9 @@ export function latestRequisites(messages){
   const cased=t=>t.replace(/(^|[\s,.;:])([а-яё])([а-яё]{2,})/g,(_,a,b,c)=>a+b.toUpperCase()+c);
   let r=detectRequisites(selected.map(m=>m.text));
   if(!r?.first_name)r=detectRequisites(selected.map(m=>cased(m.text)))??r;
-  // Owner 2026-11-11: Russian names often come surname first («Улубегова Севда»). A first
-  // name that looks like a surname swaps with the other word; only the first name is kept.
-  // Owner 2026-11-12 (irina_beauty_smr): «Ирина Леонидовна Т.» got no button — -ина also ends
-  // common first names. A known first name, or a word followed by a patronymic, is never a surname.
-  const FIRST=/^(?:ирина|марина|алина|полина|карина|арина|галина|нина|регина|кристина|ангелина|анжелина|валентина|екатерина|зарина|дина|мадина|альбина|сабина|элина|эльвина|дарина|каролина|эвелина|евангелина|розалина|лина|амина|алсина|равиля|ильина|виолетта|ева|лев|ярослав|святослав|вячеслав|станислав|владислав|мирослав|ростислав|бронислав|изяслав|богдан|ван|иван|степан|тихон)$/i;
-  const surnameLike=v=>{const x=String(v??'');return x.length>4&&!FIRST.test(x)&&/(?:ова|ева|ёва|ина|ская|цкая|ов|ев|ин)$/i.test(x);};
-  if(r&&surnameLike(r.first_name)&&/^[А-ЯЁ][а-яё]{2,}$/.test(String(r.last_name??''))&&!surnameLike(r.last_name))r={...r,first_name:r.last_name,last_name:null};
-  if(r && (!surnameLike(r.first_name)||/(?:овна|евна|ична|инична|ович|евич|ич)$/i.test(String(r.patronymic??''))))result={...r,source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
+  // Owner 2026-11-12: «remove the name rule» — no surname guessing. Phone, bank and any name
+  // in the cluster make the button; the Owner checks the name himself before paying.
+  if(r&&String(r.first_name??r.last_name??'').trim())result={...r,first_name:String(r.first_name??r.last_name).trim(),source_message_ids:selected.map(m=>m.id),source_at:Math.max(...selected.map(m=>Date.parse(m.created_at))),cycle_message_id:rows[i].id};
  }
  if(!result)return null;
  for(const row of rows){

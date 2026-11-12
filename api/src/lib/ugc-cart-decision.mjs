@@ -3,19 +3,19 @@ export function rubMinor(price,currency='RUB'){
  if(!/^(RUB|₽|руб\.?|рублей|р\.?|р)$/iu.test(String(currency).trim()))return null;
  const s=String(price??'').trim().replace(/\s/gu,'').replace(/(?:₽|RUB|руб\.?|рублей|р\.?)$/iu,'').replace(',','.');
  if(!/^\d+(?:\.\d{1,2})?$/.test(s))return null;
- const n=Math.round(Number(s)*100);return n>=5000&&n<=99900?n:null;
+ const n=Math.round(Number(s)*100);return n>=5000&&n<=299900?n:null;
 }
 export function incomingAmount(messages){
  let result=null,lastQuestion=null;
  for(const m of [...messages].sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at))){
   if(m.direction==='out'){lastQuestion=m.text&&/(?:сумм|цен[ауые]|стоимост|сколько.*корзин)/iu.test(m.text)&&/[?]/.test(m.text)?m:null;continue;}
   if(m.direction!=='in'||!m.text)continue;
-  const text=m.text.trim();let values=[...text.matchAll(/(?<!\d)(\d{2,3}(?:[.,]\d{1,2})?)\s*(₽|руб(?:лей|ля|ль|\.)?|р\.?(?![\p{L}]))/giu)].map(v=>rubMinor(v[1]));
-  if(!values.length)values=[...text.matchAll(/(?:сумма|к оплате|итого|цена|стоимость|корзина)\s*[:=—-]?\s*(\d{2,3}(?:[.,]\d{1,2})?)(?!\d)/giu)].map(v=>rubMinor(v[1]));
+  const text=m.text.trim();let values=[...text.matchAll(/(?<!\d)(\d{2,4}(?:[.,]\d{1,2})?)\s*(₽|руб(?:лей|ля|ль|\.)?|р\.?(?![\p{L}]))/giu)].map(v=>rubMinor(v[1]));
+  if(!values.length)values=[...text.matchAll(/(?:сумма|к оплате|итого|цена|стоимость|корзина)\s*[:=—-]?\s*(\d{2,4}(?:[.,]\d{1,2})?)(?!\d)/giu)].map(v=>rubMinor(v[1]));
   // Bare digits are never authority. Keep an isolated small numeric line only as a conflict warning.
-  const bare=text.split('\n').map(v=>v.trim()).filter(v=>/^\d{2,3}(?:[.,]\d{1,2})?$/.test(v)).map(v=>rubMinor(v)).filter(Boolean);
+  const bare=text.split('\n').map(v=>v.trim()).filter(v=>/^\d{2,4}(?:[.,]\d{1,2})?$/.test(v)).map(v=>rubMinor(v)).filter(Boolean);
   const unique=[...new Set(values.filter(Boolean))];
-  if(unique.length&&(/(?:или|либо|вместо)\s*\d{2,3}(?!\d)|(?:^|\s)(?:можно|может|если|сколько|старая|раньше)\s+(?:[\p{L}]+\s+){0,2}\d{2,3}(?!\d)/iu.test(text)||/(?<!\d)\d{2,3}(?:[.,]\d{1,2})?\s*(?:₽|руб(?:лей|ля|ль|\.)?|р\.?)?\s*\?(?:\s|$)/iu.test(text))){result={source_message_id:m.id,created_at:m.created_at,amount_minor:null,explicit:false};continue;}
+  if(unique.length&&(/(?:или|либо|вместо)\s*\d{2,4}(?!\d)|(?:^|\s)(?:можно|может|если|сколько|старая|раньше)\s+(?:[\p{L}]+\s+){0,2}\d{2,4}(?!\d)/iu.test(text)||/(?<!\d)\d{2,4}(?:[.,]\d{1,2})?\s*(?:₽|руб(?:лей|ля|ль|\.)?|р\.?)?\s*\?(?:\s|$)/iu.test(text))){result={source_message_id:m.id,created_at:m.created_at,amount_minor:null,explicit:false};continue;}
   if(unique.length===1)result={source_message_id:m.id,created_at:m.created_at,amount_minor:unique[0],explicit:true};
   else if(unique.length>1)result={source_message_id:m.id,created_at:m.created_at,amount_minor:null,explicit:false};
   else if(bare.length===1)result={source_message_id:m.id,created_at:m.created_at,amount_minor:bare[0],explicit:Boolean(lastQuestion&&Date.parse(m.created_at)>=Date.parse(lastQuestion.created_at)&&Date.parse(m.created_at)-Date.parse(lastQuestion.created_at)<=86400000),question_message_id:lastQuestion?.id??null};

@@ -148,7 +148,7 @@ test('isolated Worker D1: save-only amount review and hold boundary',{timeout:12
  });
  await t.test('malformed amounts and old one-kopeck PATCH/paid-outside clients never mutate',async()=>{
   await reset();const b=await input(),before=await snapshot();
-  for(const amount_minor of [1,4999,100000,45300.1,'45300'])assert.equal((await save({...b,amount_minor})).result.http,422);
+  for(const amount_minor of [1,4999,300000,45300.1,'45300'])assert.equal((await save({...b,amount_minor})).result.http,422);
   assert.equal((await route('PATCH','/payouts/p',{amount_rub:453})).result.http,409);
   assert.deepEqual((await route('POST','/payouts/paid-outside',{ids:['p']})).result.result.marked,[]);assert.equal(await snapshot(),before);
  });

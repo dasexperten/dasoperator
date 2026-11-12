@@ -80,7 +80,7 @@ export function AmountReviewModal({ target, onClose, onSaved }: Props) {
     <form className="mt-4" onSubmit={(event) => { event.preventDefault(); void current.current?.submit(amount); }}>
       <label htmlFor="ugc-review-amount" className="block text-sm font-medium">Сумма, ₽</label>
       <input ref={input} id="ugc-review-amount" type="text" inputMode="decimal" autoComplete="off" autoFocus placeholder="453,00" value={state.request ? reviewAmountInput(state.request.amount_minor) : amount} disabled={!ready || busy || Boolean(state.request)} onChange={(event) => setAmount(event.target.value)} aria-describedby="ugc-amount-range" aria-invalid={Boolean(amount && !valid)} className="mt-2 w-full px-3" style={{ minHeight: 44, color: 'var(--fg-1)', background: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
-      <p id="ugc-amount-range" className="mt-2 text-sm">От 50 до 999 ₽, с точностью до копейки.</p>
+      <p id="ugc-amount-range" className="mt-2 text-sm">От 50 до 2999 ₽, с точностью до копейки.</p>
       {busy && <p role="status" className="mt-3 text-sm">{state.phase === 'saving' ? 'Сохраняем сумму, без оплаты…' : 'Проверяем эту выплату…'}</p>}
       {state.error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--status-error)' }}>{state.error}</p>}
       {state.phase === 'saved' && <p role="status" className="mt-3 text-sm">{formatRub(state.review?.amount_minor)} сохранено. Требует проверки. Оплата не запускалась.</p>}

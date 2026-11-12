@@ -7,7 +7,8 @@
 // Owner 2026-10-16 («remove 5000 ruble lock put it to 10000»), later the same day:
 // «убираешь лимит на 10 тысяч, вообще убираешь» — no day total is enforced anywhere.
 
-export const UGC_PAYOUT_MAX_MINOR = 99900;
+// Owner 2026-11-12: one payout up to 2 999 ₽ (a basket of several of our products).
+export const UGC_PAYOUT_MAX_MINOR = 299900;
 export const UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR = 1000000;
 export const UGC_PAYOUT_STATUSES = ['awaiting_approval', 'approved', 'sent', 'paid', 'failed'];
 

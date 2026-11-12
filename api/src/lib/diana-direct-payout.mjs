@@ -27,7 +27,7 @@ function normalize(source,event){
  return{messages,handle,recipient};
 }
 // Owner 11.11.2026: the creator's own text is a full amount source. Accept a short
-// incoming text with one 50–999 ₽ figure that is either marked as roubles or
+// incoming text with one 50–2999 ₽ figure that is either marked as roubles or
 // answers our question about the amount. The latest such answer wins.
 export function textAmount(messages,since=-Infinity){
  // Owner 2026-11-11 (nazilya__85): only the current cycle counts (an old «500» from
@@ -47,7 +47,7 @@ export function textAmount(messages,since=-Infinity){
   if(!marked&&!asked)continue;
   const [rub,kop='']=pick.replace(',','.').split('.');
   const minor=Number(rub)*100+Number(kop.padEnd(2,'0'));
-  if(Number.isSafeInteger(minor)&&minor>=5000&&minor<=99900)found={amount_minor:minor,source_message_id:m.id};
+  if(Number.isSafeInteger(minor)&&minor>=5000&&minor<=299900)found={amount_minor:minor,source_message_id:m.id};
  }
  return found;
 }
@@ -66,7 +66,7 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  // media after them (a contact card, a forward) never blocks it; at most the amount waits.
  const mediaAfterRequisites=unresolvedSince(evidenceAt);
  const cart=await reviewCart(env,event.cid,initial.messages,{transient:true,readOnly:true,infer,readImage,handle:initial.handle});
- const cartOk=cart?.status==='confirmed'&&Number.isSafeInteger(cart.amount_minor)&&cart.amount_minor>=5000&&cart.amount_minor<=99900;
+ const cartOk=cart?.status==='confirmed'&&Number.isSafeInteger(cart.amount_minor)&&cart.amount_minor>=5000&&cart.amount_minor<=299900;
  const typed=cartOk?null:textAmount(initial.messages,evidenceAt-7*86400000);
  let amount=cartOk?cart.amount_minor:typed?.amount_minor??null;
  if(amount!==null){

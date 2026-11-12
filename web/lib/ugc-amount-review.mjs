@@ -4,13 +4,13 @@ const SNAPSHOT = /^[a-f0-9]{64}$/;
 
 export function parseReviewAmount(value) {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (!/^\d{1,3}(?:[.,]\d{1,2})?$/.test(text)) {
+  if (!/^\d{1,4}(?:[.,]\d{1,2})?$/.test(text)) {
     return { error: 'Введите сумму в рублях, не больше двух знаков после запятой.' };
   }
   const [rub, kopecks = ''] = text.replace(',', '.').split('.');
   // Integer arithmetic only: never round or strip unexpected characters.
   const amount_minor = Number(rub) * 100 + Number(kopecks.padEnd(2, '0'));
-  if (amount_minor < 5000 || amount_minor > 99900) return { error: 'Допустимая сумма: от 50 до 999 ₽.' };
+  if (amount_minor < 5000 || amount_minor > 299900) return { error: 'Допустимая сумма: от 50 до 2999 ₽.' };
   return { amount_minor };
 }
 

@@ -222,7 +222,7 @@ test('after an independent financial edit the old receipt is not current proof',
 
 test('invalid amount, extra financial/source fields, wrong actor/snapshot and malformed request make no writes',async t=>{
  const f=fixture(t),body=await payload(f),before=f.snapshot();
- for(const patch of [{amount_minor:1},{amount_minor:4999},{amount_minor:100000},{amount_minor:45300.1},{amount_minor:'45300'},{bank_ref:'wrong'},{status:'paid'},{verified:true},{actor_id:'fake'},{creator_id:'wrong'},{expected_snapshot:'0'.repeat(64)},{request_id:'wrong'}]){
+ for(const patch of [{amount_minor:1},{amount_minor:4999},{amount_minor:300000},{amount_minor:45300.1},{amount_minor:'45300'},{bank_ref:'wrong'},{status:'paid'},{verified:true},{actor_id:'fake'},{creator_id:'wrong'},{expected_snapshot:'0'.repeat(64)},{request_id:'wrong'}]){
   assert.ok([409,422].includes((await save(f,{...body,...patch})).http));assert.equal(f.snapshot(),before);assert.equal(holds(f).length,0);
  }
  for(const body of [null,[],{},'{'])assert.equal((await save(f,body)).http,422);

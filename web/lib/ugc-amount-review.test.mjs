@@ -11,7 +11,7 @@ const deferred = () => { let resolve; const promise = new Promise((r) => { resol
 const setup = (options = {}) => createAmountReviewSession({ id: ROW.id, creatorId: ROW.creator_id, read: async () => ok(ROW), save: async (_, request) => ok(receipt(request)), requestId: () => UUID, ...options });
 
 test('exact integer kopecks for 453, 394 and fractional values; inclusive limits', () => {
-  for (const [input, expected] of [['453', 45300], ['453,00', 45300], ['394', 39400], ['453.27', 45327], ['50', 5000], ['999.00', 99900], ['050,10', 5010], [' 394,5 ', 39450]]) {
+  for (const [input, expected] of [['453', 45300], ['453,00', 45300], ['394', 39400], ['453.27', 45327], ['50', 5000], ['999.00', 99900], ['2999.00', 299900], ['1037', 103700], ['050,10', 5010], [' 394,5 ', 39450]]) {
     assert.deepEqual(parseReviewAmount(input), { amount_minor: expected });
   }
   assert.equal(reviewAmountInput(45327), '453.27');
@@ -19,7 +19,7 @@ test('exact integer kopecks for 453, 394 and fractional values; inclusive limits
 });
 
 test('malformed and out-of-range amounts never round, strip, or coerce', () => {
-  for (const input of ['', '49.99', '999.01', '1000', '453.001', '453,001', '4e2', '+453', '-453', '4 53', '453 ₽', 'NaN', 'Infinity', '453.', '.50', '453,2.0', 453, null]) {
+  for (const input of ['', '49.99', '2999.01', '3000', '453.001', '453,001', '4e2', '+453', '-453', '4 53', '453 ₽', 'NaN', 'Infinity', '453.', '.50', '453,2.0', 453, null]) {
     assert.equal(typeof parseReviewAmount(input).error, 'string', String(input));
   }
 });

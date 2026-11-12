@@ -11,5 +11,5 @@ export function confirmedCartAmount(imageCheck, latestImageAt) {
   const price = String(check.observed?.price ?? '').trim().replace(/\s/gu, '').replace(/(?:₽|RUB|руб\.?|рублей)$/iu, '').replace(',', '.');
   if (!/^\d+(?:\.\d{1,2})?$/.test(price)) return null;
   const minor = Math.round(Number(price) * 100);
-  return minor >= 5000 && minor <= 99900 ? minor : null;
+  return minor >= 5000 && minor <= 299900 ? minor : null;
 }

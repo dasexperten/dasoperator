@@ -65,7 +65,8 @@ test('Owner 11.11: the creator text amount is read after our amount question or 
  assert.deepEqual(textAmount([{id:'a',direction:'in',text:'Итого 453,50 ₽'}]),{amount_minor:45350,source_message_id:'a'});
  assert.equal(textAmount([{id:'a',direction:'in',text:'Мне 25 лет'}]),null);
  assert.equal(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'+7 999 123 45 67 Сбер Анна'}]),null);
- assert.equal(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'1500'}]),null);
+ assert.equal(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'3500'}]),null);
+ assert.deepEqual(textAmount([{id:'q',direction:'out',text:'сумму?'},{id:'a',direction:'in',text:'1037'}]),{amount_minor:103700,source_message_id:'a'});
 });
 
 test('Meta re-signing image links between two reads is not a change of the conversation',async()=>{

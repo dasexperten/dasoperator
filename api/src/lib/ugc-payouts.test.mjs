@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { missingInfo, checkDailyLimit, checkDailyTotalLimit, compareByRecent, formatRub, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 
-test('accepts payouts up to and including 999 ₽', () => {
+test('accepts payouts up to and including 2999 ₽ (Owner 2026-11-12)', () => {
   assert.deepEqual(parsePayoutAmount({ amount_rub: 691 }), { ok: true, amount_minor: 69100 });
   assert.deepEqual(parsePayoutAmount({ amount_rub: '836,50' }), { ok: true, amount_minor: 83650 });
-  assert.deepEqual(parsePayoutAmount({ amount_rub: 999 }), { ok: true, amount_minor: UGC_PAYOUT_MAX_MINOR });
+  assert.deepEqual(parsePayoutAmount({ amount_rub: 2999 }), { ok: true, amount_minor: UGC_PAYOUT_MAX_MINOR });
   assert.deepEqual(parsePayoutAmount({ amount_minor: 99900 }), { ok: true, amount_minor: 99900 });
 });
 

@@ -57,7 +57,7 @@ export async function saveAmountReview(db,input) {
   if(!plain(input)||Object.keys(input).some(k=>!['id','creator_id','expected_snapshot','amount_minor','request_id','actor_id','now'].includes(k))
     ||!id(input.id)||!id(input.creator_id)||!id(input.actor_id)||!uuid(input.request_id)
     ||typeof input.expected_snapshot!=='string'||!/^[a-f0-9]{64}$/.test(input.expected_snapshot)
-    ||!Number.isSafeInteger(input.amount_minor)||input.amount_minor<5000||input.amount_minor>99900
+    ||!Number.isSafeInteger(input.amount_minor)||input.amount_minor<5000||input.amount_minor>299900
     ||!Number.isSafeInteger(input.now)||input.now<0)return failure(422,'invalid_amount_review');
   const key=receiptKey(input.id,input.request_id),holdKey=`payout_hold:${input.id}`;
   let row,prior;

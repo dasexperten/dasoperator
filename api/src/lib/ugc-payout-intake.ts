@@ -99,7 +99,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   }
   if(input.cart_review){
     const review=input.cart_review;
-    if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>99900)throw Error('invalid_verified_cart_amount');
+    if(!Number.isSafeInteger(review.amount_minor)||review.amount_minor<5000||review.amount_minor>299900)throw Error('invalid_verified_cart_amount');
     const source=await evidence.attachmentSource(review.source_message_id);
     if(!source||!latestImage?.at)throw Error('verified_cart_must_be_current_original');
     if(Date.parse(source.created_at)!==Date.parse(latestImage.at)){
@@ -117,7 +117,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   if(input.text_amount&&cartAmount==null){
     const t=input.text_amount, source=await evidence.source(t.source_message_id);
     const rub=Math.trunc(t.amount_minor/100);
-    if(!Number.isSafeInteger(t.amount_minor)||t.amount_minor<5000||t.amount_minor>99900||!source||source.direction!=='in'||source.from_username?.toLowerCase()!==handle||!String(source.text??'').includes(String(rub)))throw Error('invalid_text_amount');
+    if(!Number.isSafeInteger(t.amount_minor)||t.amount_minor<5000||t.amount_minor>299900||!source||source.direction!=='in'||source.from_username?.toLowerCase()!==handle||!String(source.text??'').includes(String(rub)))throw Error('invalid_text_amount');
     cartAmount=t.amount_minor;
   }
   // Never create a financial row from the one-kopeck 'unknown' sentinel.

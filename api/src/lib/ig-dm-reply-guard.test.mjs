@@ -179,14 +179,16 @@ test('Owner decision on /ugc lifts the «Owner decides» stops for that message 
 
 test('a health question before buying is answered, a real reaction still goes to a person', async () => {
   const { DIANA_RULES } = await import('./ig-dm-reply-guard.mjs');
-  assert.match(DIANA_RULES, /Вопрос до покупки об аллергии, жжении, дёснах или составе — не жалоба и не повод молчать: escalate=false/);
+  assert.match(DIANA_RULES, /Вопрос до покупки о чувствительности, аллергии, жжении, дёснах или составе — это интерес, не жалоба и не повод молчать: escalate=false/);
   assert.match(DIANA_RULES, /Реакция уже случилась или это срочный случай — reply=null, escalate=true/);
   assert.match(DIANA_RULES, /отвечай на слова/);
-  assert.match(DIANA_RULES, /по заключению Майи/);
+  assert.match(DIANA_RULES, /из консульта Майи от 12\.11\.2026/);
   assert.match(DIANA_RULES, /Попроси ссылку на ролик/);
   assert.match(DIANA_RULES, /не пиши, что Ozon доставляет только по России/);
-  assert.match(DIANA_RULES, /посоветуй показаться стоматологу/);
-  assert.match(DIANA_RULES, /Блогер назвал аллерген — покупку не подтверждай: reply=null, escalate=true/);
+  assert.match(DIANA_RULES, /совет заодно показаться стоматологу/);
+  assert.match(DIANA_RULES, /TERMO подходит для чувствительных зубов/);
+  assert.match(DIANA_RULES, /предложи нашу SCHWARZ/);
+  assert.match(DIANA_RULES, /Запрещены оговорки/);
   assert.doesNotMatch(DIANA_RULES, /разные ощущения/);
 });
 

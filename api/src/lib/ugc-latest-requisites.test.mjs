@@ -49,7 +49,8 @@ test('Owner 2026-11-12 (shh_aze): our transfer message after the details means p
  assert.equal(latestRequisites(msgs),null);
  assert.ok(latestRequisites(msgs.slice(0,1)));
 });
-test('Owner 2026-11-12 (madi___na111): details older than 14 days never make a button',()=>{
- const old=Date.now()-130*86400000;
- assert.equal(latestRequisites([{id:'1',direction:'in',text:'89281234536 Фаина А. Сбербанк',created_at:new Date(old).toISOString()}]),null);
+test('Owner 2026-11-12 (madi___na111): details 14+ days older than the newest message never make a button',()=>{
+ const july={id:'1',direction:'in',text:'89281234536 Фаина А. Сбербанк',created_at:'2026-07-01T10:03:00Z'};
+ assert.ok(latestRequisites([july]));
+ assert.equal(latestRequisites([july,{id:'2',direction:'in',text:'Здравствуйте предлагаю сотрудничество по бартеру',created_at:'2026-11-12T16:13:00Z'}]),null);
 });

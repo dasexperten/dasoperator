@@ -5,6 +5,7 @@ import {subscriptionInfer} from './diana-subscription.mjs';
 import {checkSubscriptionImages} from './diana-subscription-vision.mjs';
 import {decideCart,incomingAmount} from './ugc-cart-decision.mjs';
 import {sellerAnswerForBasket} from './ugc-seller-followup.mjs';
+import {verifyCartImage,SUBQ_CART_REJECT} from './subq.mjs';
 export type CartMessage={id:string;direction:string;text?:string;created_at:string;from_username?:string|null;attachments_json?:string|null};
 type Policy={sha:string;policy:any};
 const RECOGNITION_VERSION='ugc-cart-numeric-v4';
@@ -49,6 +50,13 @@ export async function reviewPayoutCart(env:Env,cid:string,messages:CartMessage[]
       task:'Determine the current RUB payable amount for ONE programme TERMO toothpaste, using only this original image. A checkout BEFORE placing the order is a basket. Any marketplace screen (cart, checkout, search results, product card, order) on Ozon, Wildberries or another marketplace counts when it shows the programme product line with its price. Other unselected goods and their totals are not our reimbursement. The price is the large bold current price on the line of the programme product named in the policy (Ozon, Wildberries or any marketplace): never the crossed-out price, never the cart total, never other products. If the line shows another, smaller price as well, ignore it: only the large bold one counts. A cart never shows the seller: seller unknown is normal there. Transcribe price without arbitrary digits. Seller-only screens are other, not a new basket. Do not infer a price from product cards, old crossed-out prices, instalments, credit limits or text outside the image.',infer:options.infer??subscriptionInfer(env,'image')});
      const c=result.checks[0]!;
      check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,encoded_image_sha256:hash,policy_sha:policy.sha,recognition_version:RECOGNITION_VERSION,kind:c.kind,source_kind:(c as any).source_kind??c.kind,product:c.product,seller:c.seller,amount:c.amount,observed:c.observed,unresolved_required:(c as any).unresolved_required??[],attempts:c.attempts,checked_at:now};
+     // Owner 2026-11-12: SubQ checks the reader's answer on the same picture. If it sees no TERMO
+     // or a different bold price, the amount is not taken from the screen: Diana asks it in text.
+     const price=Number(String((c as any).observed?.price??'').replace(',','.'));
+     if(check.product==='yes'&&check.amount==='yes'&&price>0){
+      const second=await verifyCartImage(env as any,image,price);
+      if(second){check.subq=second;if(second.ours<SUBQ_CART_REJECT||second.price<SUBQ_CART_REJECT){check.amount='unknown';check.unresolved_required=[...new Set([...(check.unresolved_required??[]),'amount'])];check.subq_rejected=true;}}
+     }
     }catch{check={source_message_id:m.id,created_at:m.created_at,attachment_index:index,kind:'unknown',product:'unknown',seller:'unknown',amount:'unknown',reason:'recognition_pending',retry_at:now+5*60000};}
     if(!options.readOnly)await env.DB.batch([env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(key,JSON.stringify(check),now)]);
    }

@@ -122,6 +122,7 @@ export interface Env {
 
   // Gemini API for rating-only review replies (hybrid pipeline)
   GEMINI_API_KEY: string;
+  SUBQ_API_KEY?: string;
 
   // Qwen (Alibaba DashScope, intl) — rating-only review answers (qwen-max).
   // Set via: wrangler secret put DASHSCOPE_API_KEY

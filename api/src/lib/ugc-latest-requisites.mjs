@@ -26,7 +26,7 @@ export const REQUISITES_MAX_AGE_MS=14*86400000;
 export function paidAfter(messages,at){
  return (messages??[]).some(m=>m.direction==='out'&&Date.parse(m.created_at)>at&&PAID_NOTICE.test(String(m.text??'')));
 }
-export function latestRequisites(messages,{now=Date.now()}={}){
+export function latestRequisites(messages){
  const rows=messages.filter(m=>m.direction==='in'&&m.text?.trim()).sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at));
  let result=null;
  for(let i=0;i<rows.length;i++){
@@ -58,6 +58,8 @@ export function latestRequisites(messages,{now=Date.now()}={}){
  }
  result.source_message_ids=[...new Set(result.source_message_ids)].slice(-20);
  if(paidAfter(messages,result.source_at))return null;
- if(now-result.source_at>REQUISITES_MAX_AGE_MS)return null;
+ // Age is measured against the newest message in the chat, so the check is the same in every run.
+ const newest=Math.max(...(messages??[]).map(m=>Date.parse(m.created_at)).filter(Number.isFinite));
+ if(newest-result.source_at>REQUISITES_MAX_AGE_MS)return null;
  return result;
 }

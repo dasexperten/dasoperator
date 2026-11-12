@@ -86,3 +86,6 @@ test('Owner 2026-11-11 (nazilya__85): text amount reads the marked price and ign
  assert.equal(textAmount(msgs.slice(0,1),Date.parse('2026-11-11T09:22:31Z')-7*86400000),null);
  assert.deepEqual(textAmount([{id:'a',direction:'in',text:'447',created_at:at('2026-11-08T12:00:00Z')},{id:'b',direction:'in',text:'Рублей',created_at:at('2026-11-08T12:00:05Z')}].map((m,i)=>i?m:{...m}),-Infinity),null); // bare 447 without a question stays unmarked
 });
+
+test('Owner 2026-11-12 «paid is paid»: SubQ sees an earlier TERMO payment — no button',async()=>{const f=setup();try{f.args.repeatCheck=async()=>0.93;const result=await handoffDirectPayout(f.args);assert.equal(result.status,'pending');assert.equal(result.reason,'payout_already_paid_termo');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM ugc_payouts').get().n,0);}finally{f.db.close();}});
+test('Owner 2026-11-12: SubQ unsure or silent — the rules decide as before',async()=>{for(const score of [null,0.4]){const f=setup();try{f.args.repeatCheck=async()=>score;const result=await handoffDirectPayout(f.args);assert.equal(result.status,'registered');}finally{f.db.close();}}});

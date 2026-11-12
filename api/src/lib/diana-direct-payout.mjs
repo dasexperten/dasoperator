@@ -5,6 +5,7 @@ import {konsolPhone,isFpsBankMemberId} from './ugc-payouts.mjs';
 import {createDianaPayoutEvidence} from './diana-payout-evidence.mjs';
 import {prepareCreatorPayout} from './ugc-payout-intake';
 import {reviewPayoutCart} from './ugc-cart-review';
+import {alreadyPaidForTermo,SUBQ_REPEAT_BLOCK} from './subq.mjs';
 const BRAND=new Set(['1697038263872226','17841466350261166']);
 const digest=async raw=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 // Owner 2026-11-11 (nazilya__85): Meta re-signs every image link on each read, so the
@@ -51,7 +52,7 @@ export function textAmount(messages,since=-Infinity){
  }
  return found;
 }
-export async function handoffDirectPayout({env,event,source,refreshOriginal,infer,readImage,reviewCart=reviewPayoutCart,savePayout=prepareCreatorPayout}){
+export async function handoffDirectPayout({env,event,source,refreshOriginal,infer,readImage,reviewCart=reviewPayoutCart,savePayout=prepareCreatorPayout,repeatCheck=alreadyPaidForTermo}){
  if(event?.dryRun)return{status:'pending',reason:'payout_preview_no_write'};
  if(typeof refreshOriginal!=='function'||typeof infer!=='function')throw Error('payout_trusted_dependencies_required');
  const initial=normalize(source,event),r=latestRequisites(initial.messages);
@@ -83,6 +84,10 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  const existing=await env.DB.prepare("SELECT p.id,p.status,p.amount_minor,p.konsol_payment_id,p.execute_claim FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 ORDER BY p.updated_at DESC LIMIT 1").bind(initial.handle,Date.now()-60*86400000).first();
  if(existing&&(existing.konsol_payment_id||existing.execute_claim||!['awaiting_approval','approved'].includes(existing.status)))return{status:'pending',reason:'payout_cycle_already_processed'};
  if(amount!==null&&existing?.amount_minor>=5000&&existing.amount_minor!==amount)return{status:'pending',reason:'payout_existing_amount_conflict'};
+ // Owner 2026-11-12 «paid is paid»: SubQ reads the whole chat. Already paid for TERMO in an
+ // earlier round → no new button. SubQ silent or unavailable → the rules above decide alone.
+ const repeat=await repeatCheck(env,fresh.messages,initial.handle);
+ if(repeat!==null&&repeat>=SUBQ_REPEAT_BLOCK)return{status:'pending',reason:'payout_already_paid_termo'};
  // Owner 2026-11-12: never a 0.01 ₽ button. No real amount, no button — Diana asks the amount
  // and the button appears once the blogger's amount is in.
  if(amount===null)return{status:'amount_needed'};

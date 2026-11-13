@@ -67,7 +67,11 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
        const creator=name?await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>():null;
        const payouts=creator?.id?(await this.env.DB.prepare('SELECT status,amount_minor,konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY updated_at DESC LIMIT 5').bind(creator.id).all<any>()).results:[];
-       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
+       // Owner 2026-11-13 (juliette_khazieva): an article number she sends is checked against our own
+       // Ozon catalogue, so Diana knows at once that the card is ours instead of waiting.
+       const nums=[...new Set((source.messages??[]).slice(-12).flatMap((m:any)=>String(m.message??'').match(/\b\d{6,12}\b/g)??[]))].slice(0,10);
+       const our_articles=nums.length?(await this.env.DB.prepare(`SELECT sku,offer_id,name FROM ozon_sku_map WHERE sku IN (${nums.map((_,i)=>'?'+(i+1)).join(',')})`).bind(...nums).all<any>()).results.map((r:any)=>({article:String(r.sku),marketplace:'ozon',product:r.name})):[];
+       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
         // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
         watchVideo:(url:string)=>watchVideo({apiKey:this.env.GEMINI_API_KEY,url}),
         lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at,seen:async(id:string)=>Boolean(await this.env.DB.prepare('SELECT 1 x FROM crm_sync_state WHERE key=?1').bind('diana_publication_seen:'+id).first())});if(!p)return null;

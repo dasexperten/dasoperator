@@ -10,6 +10,7 @@ const policy = /(?:нов|измен|меня|обнов|редакци|всту
 export function materialMail(mail){
  const subject=safe(mail.subject,1000),text=plainMail(mail.text);
  if(sensitive(subject+' '+text))return false;
+ if(/^новая\s+(?:маркетинговая\s+)?акци|приглашени.{0,30}акци/i.test(subject)&&!/автоакци|автоматическ|изменени.{0,30}правил/i.test(subject))return false;
  if(/(?:заберите|вывоз|пункт.{0,15}вывоза|возврат.{0,20}остатк|при[её]мка|отгрузк|поставк|поступлени[ея]).*/i.test(subject)&&!/(?:договор|оферт|тариф|комисси|претензи|начислен.{0,15}штраф)/i.test(subject))return false;
  if(/отч[её]т агента|отч[её]т.*(?:за период|о продажах|продаж и возврат)|при[её]мка.*завершена|поступлени[ея] товаров|вебинар|приглашаем|дайджест/i.test(subject)&&!policy.test(subject))return false;
  return policy.test(subject)||policy.test(text);

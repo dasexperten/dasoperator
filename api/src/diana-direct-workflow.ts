@@ -23,6 +23,8 @@ import {SCENARIO_CARDS} from './lib/ig-dm-reply-guard.mjs';
 // @ts-expect-error plain JS module
 import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
+import {agreedExtra as findAgreedExtra} from './lib/ugc-agreed-extra.mjs';
+// @ts-expect-error plain JS module
 import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
@@ -93,6 +95,31 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
          AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','replied','agreed','cart','silent')
          AND NOT EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=ugc_creators.id)
          AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(name,Date.now()).run();
+      },
+      agreedExtra:async(source:any)=>{
+       const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
+       if(!name)return;
+       const rows=(source.messages??[]).map((m:any)=>({id:String(m.id),direction:['1697038263872226','17841466350261166'].includes(String(m.from?.id??''))?'out':'in',text:typeof m.message==='string'?m.message:'',created_at:new Date(Date.parse(m.created_time)||0).toISOString()}));
+       const deal=findAgreedExtra(rows);
+       if(!deal)return;
+       const key='agreed_extra:'+deal.agreement_message_id;
+       if(await this.env.DB.prepare('SELECT 1 x FROM crm_sync_state WHERE key=?1').bind(key).first())return;
+       // Details of her last paid payout; without one, Diana's ordinary requisites flow takes over.
+       const base=await this.env.DB.prepare("SELECT p.* FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.status='paid' AND p.fps_bank_member_id IS NOT NULL ORDER BY p.created_at DESC LIMIT 1").bind(name).first<any>();
+       if(!base)return;
+       const already=await this.env.DB.prepare("SELECT 1 x FROM ugc_payouts WHERE creator_id=?1 AND amount_minor=?2 AND created_at>=?3 LIMIT 1").bind(base.creator_id,deal.amount_minor,deal.agreed_at-86400000).first();
+       const now=Date.now();
+       if(!already){
+        const id='ugcpay_'+crypto.randomUUID().replace(/-/g,'').slice(0,24);
+        const day=new Date(now+4*3600000).toISOString().slice(0,10);
+        const note='Доплата '+(deal.amount_minor/100)+' ₽ по согласию Владельца в чате ('+new Date(deal.agreed_at+4*3600000).toISOString().slice(0,16).replace('T',' ')+'). Реквизиты прошлой выплаты.';
+        await this.env.DB.batch([
+         this.env.DB.prepare("INSERT INTO ugc_payouts (id,creator_id,creator_platform_id,platform,handle,amount_minor,currency,status,payout_date,marketplace,phone_masked,bank_ref,note,created_by,created_at,updated_at,fps_bank_member_id,konsol_contractor_id,product) VALUES (?1,?2,?3,?4,?5,?6,'RUB','awaiting_approval',?7,?8,?9,?10,?11,'owner_agreement',?12,?12,?13,?14,?15)")
+          .bind(id,base.creator_id,base.creator_platform_id,base.platform,base.handle,deal.amount_minor,day,base.marketplace,base.phone_masked,base.bank_ref,note,now,base.fps_bank_member_id,base.konsol_contractor_id,base.product),
+         this.env.DB.prepare("INSERT INTO ugc_payout_requisites (payout_id,fps_mobile_phone,first_name,last_name,patronymic,created_at,updated_at) SELECT ?1,fps_mobile_phone,first_name,last_name,patronymic,?2,?2 FROM ugc_payout_requisites WHERE payout_id=?3").bind(id,now,base.id),
+        ]);
+       }
+       await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({amount_minor:deal.amount_minor,agreed_at:deal.agreed_at}),now).run();
       },
       pendingAmount:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');

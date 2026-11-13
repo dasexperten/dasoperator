@@ -1,9 +1,12 @@
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
 import {requisitesQuestion} from './diana-requisites-question.mjs';
-export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee}) {
+export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee,agreedExtra}) {
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
+  // Owner 2026-11-13 (lona.lnk): an extra amount the Owner agreed to in the chat gets its button
+  // before Diana answers. Silent, never a transfer; a failure never blocks her reply.
+  if(!event.dryRun&&typeof agreedExtra==='function'){try{await agreedExtra(source);}catch{}}
   const decision=await decide(source);
   if(decision.action==='payout' && !event.dryRun && typeof handoffPayout==='function') {
     // This callback only prepares an Owner-approval row. Never submit a transfer,

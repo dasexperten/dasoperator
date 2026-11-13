@@ -36,3 +36,10 @@ test('fixed long probe intent cannot replay and shares bounded read-only result 
 });
 
 test('late GET runs while inference queue is occupied; concurrent reads share budget three',async()=>{let unblock;let calls=0;const {runner,map}=setup(async()=>{calls++;return new Response('',{status:404});});map.set('dieter-intent:busy',{fingerprint:'f'});const occupied=runner.serial(()=>new Promise(r=>unblock=r));await Promise.resolve();const response=await Promise.race([runner.readResult('busy'),new Promise((_,reject)=>setTimeout(()=>reject(Error('blocked by inference')),100))]);assert.equal(response.status,409);await Promise.all(Array.from({length:6},()=>runner.cachedContainerResult('busy')));assert.equal(calls,3);unblock();await occupied;});
+
+test('failed native turn is archived, cached and returned on GET without re-execution',async()=>{
+ let calls=0;const {runner,map}=setup(async req=>{if(typeof req==='string')return new Response('ok');calls++;return Response.json({error:'dieter_native_turn_incomplete',diagnostic:{phase:'native_execution',code:'stream_interrupted'},privateEvents:'safe-failure-events',failure:{event_count:4},receipt:{model:'gpt-6.1-terra'}});});
+ const body={requestId:'failed-cached',operation:'dieter_round',model:'gpt-6.1-terra',execution:{mode:'work'}};
+ const response=await runner.infer(body);assert.equal(response.status,503);const result=await response.json();assert.equal(result.auditArtifact,'dieter/cloud-round/failed-cached/events.jsonl');assert.equal(result.failure.event_count,4);assert.equal(result.privateEvents,undefined);assert.ok(map.has('result:failed-cached'));
+ assert.equal((await runner.readResult('failed-cached')).status,503);assert.equal((await runner.infer(body)).status,503);assert.equal(calls,1);
+});

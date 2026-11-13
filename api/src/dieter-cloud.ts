@@ -23,7 +23,7 @@ function safeNativeFailure(error:unknown){
  const allowed=['dieter_execution_binding_missing','native_runner_unavailable','dieter_outcome_unknown_reconcile_only','request_id_conflict','subscription_auth_not_seeded','subscription_auth_required','dieter_native_turn_incomplete'];
  const code=allowed.includes(source?.error)?source.error:/Durable Object reset/i.test(message)?'deployment_reset':'native_call_outcome_unknown';
  const d=source?.diagnostic;
- return {error:code,...(d&&['container_startup','container_proxy','read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['placement_unavailable','port_not_ready','health_not_ready','startup_unavailable','busy','http_unavailable','ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code)?{diagnostic:{phase:d.phase,code:d.code}}:{})};
+ return {error:code,...(d&&['container_startup','container_proxy','read_request','parse_request','native_initialization','native_execution','write_response'].includes(d.phase)&&['placement_unavailable','port_not_ready','health_not_ready','startup_unavailable','busy','http_unavailable','ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified','execution_timeout','stdin_closed','output_limit','process_exit','context_limit','rate_limit','auth_rejected','stream_interrupted','cancelled','turn_failed','final_message_missing','terminal_event_missing'].includes(d.code)?{diagnostic:{phase:d.phase,code:d.code}}:{})};
 }
 async function stopRuntime(env:Env,input:Event,record:unknown){
  const value={kind:'runtime_incident_stop',...input,first_failure:record,automatic_retry:false,at:new Date().toISOString()};
@@ -80,7 +80,7 @@ async function infer(env:Env,requestId:string,execution:Record<string,unknown>){
  const result=await response.json<any>();
  if(!response.ok){
   const d=result.diagnostic;
-  const diagnostic=d&&['container_startup','container_proxy','read_request','parse_request','native_initialization','write_response'].includes(d.phase)&&['placement_unavailable','port_not_ready','health_not_ready','startup_unavailable','busy','http_unavailable','ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified'].includes(d.code)?{phase:d.phase,code:d.code}:undefined;
+  const diagnostic=d&&['container_startup','container_proxy','read_request','parse_request','native_initialization','native_execution','write_response'].includes(d.phase)&&['placement_unavailable','port_not_ready','health_not_ready','startup_unavailable','busy','http_unavailable','ENOSPC','EACCES','ENOENT','EMFILE','invalid_json','request_too_large','invalid_request','subscription_auth_required','unclassified','execution_timeout','stdin_closed','output_limit','process_exit','context_limit','rate_limit','auth_rejected','stream_interrupted','cancelled','turn_failed','final_message_missing','terminal_event_missing'].includes(d.code)?{phase:d.phase,code:d.code}:undefined;
   throw Error('dieter_native_runtime:'+JSON.stringify({error:result.error??response.status,diagnostic,contract:result.contract,request_id_present:result.request_id_present,operation_supported:result.operation_supported,model_supported:result.model_supported}));
  }
  return result;
@@ -213,7 +213,7 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
    const before=await step.do('read-result-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>dieterOutcome(this.env,input));
    if(before.verified||before.status!=='working')break;
    if(attempt>0){const completed=await step.do('complete-accepted-uploads-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},()=>finishDieterUploads(this.env,input.content_id,input.claim_id));if(completed.upload_completed)break;}
-   let action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'18 minutes'},async()=>{
+   let action=await step.do('native-dieter-'+attempt,{retries:{limit:0,delay:'1 second'},timeout:'33 minutes'},async()=>{
     const actionMode=attempt===0?'work':'reconcile';
     const requestId=input.continuation_id?'dieter-continuation-'+input.continuation_id+'-'+attempt:'dieter-'+input.claim_id+'-'+attempt;
     const prefix='dieter_cloud_attempt:'+executionKey+':'+attempt;
@@ -253,10 +253,10 @@ export class DieterCloudWorkflow extends WorkflowEntrypoint<Env,Event>{
    if(action.outcome==='transport_wait'){
     const failure=action,prefix='dieter_cloud_attempt:'+executionKey+':'+attempt;
     let recovered:any=null;
-    // 16 minutes after the disconnected RPC covers the bounded 15-minute
+    // 32 minutes after the disconnected RPC covers the bounded 30-minute
     // native child. Sleeps are durable Workflow steps, never a replayed POST.
     for(let read=0;read<2;read++){
-     await step.sleep('wait-original-native-result-'+attempt+'-'+read,'8 minutes');
+     await step.sleep('wait-original-native-result-'+attempt+'-'+read,'16 minutes');
      recovered=await step.do('read-original-native-result-'+attempt+'-'+read,{retries:{limit:0,delay:'1 second'},timeout:'1 minute'},async()=>{
       const saved=await getRecord(this.env,prefix+':readback:'+read);if(saved)return saved;
       let native:any=null;try{native=await readDieterNativeResult(this.env,failure.request_id,failure.mode);}catch{}

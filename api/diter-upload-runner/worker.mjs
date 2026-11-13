@@ -2,7 +2,7 @@ import { Container } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 const enc=new TextEncoder();
 export class DieterRunner extends Container {
- defaultPort=8080;sleepAfter='20m';queue=Promise.resolve();readQueue=Promise.resolve();budgetQueue=Promise.resolve();
+ defaultPort=8080;sleepAfter='40m';queue=Promise.resolve();readQueue=Promise.resolve();budgetQueue=Promise.resolve();
  serial(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result;}
  async contract(){return {version:'dieter-tools-v1',operations:['dieter_round'],managed_login_present:Boolean(this.env.SUBSCRIPTION_DOOR_KEY)};}
  async runtimeCheck(){return this.serial(async()=>{
@@ -24,14 +24,13 @@ export class DieterRunner extends Container {
    await this.env.AUDIT.put(artifact,result.privateEvents,{httpMetadata:{contentType:'application/x-ndjson'}});
    delete result.privateEvents;result.auditArtifact=artifact;
   }
-  if(result.error)return Response.json({error:result.error,diagnostic:result.diagnostic},{status:503});
   await this.ctx.storage.put('result:'+requestId,{fingerprint,result,at:Date.now()});
   const cached=await this.ctx.storage.list({prefix:'result:'});for(const [k,v] of cached)if(v.at<Date.now()-86400000)await this.ctx.storage.delete(k);
-  return Response.json(result);
+  return Response.json(result,{status:result.error?503:200});
  }
  async readResult(requestId){const result=this.readQueue.then(async()=>{
   if(typeof requestId!=='string'||!requestId||requestId.length>512)return Response.json({error:'invalid_request'},{status:400});
-  const previous=await this.ctx.storage.get('result:'+requestId);if(previous)return Response.json(previous.result);
+  const previous=await this.ctx.storage.get('result:'+requestId);if(previous)return Response.json(previous.result,{status:previous.result.error?503:200});
   const intent=await this.ctx.storage.get('dieter-intent:'+requestId)||await this.ctx.storage.get('runtime-probe-intent:'+requestId);
   if(!intent)return Response.json({error:'dieter_result_not_accepted'},{status:404});
   const response=await this.cachedContainerResult(requestId);if(!response)return Response.json({error:'dieter_outcome_unknown_reconcile_only'},{status:409});
@@ -41,7 +40,7 @@ export class DieterRunner extends Container {
  });this.readQueue=result.catch(()=>{});return result;}
  async runtimeProbe(requestId){return this.serial(async()=>{
   if(typeof requestId!=='string'||!/^runtime-probe:[A-Za-z0-9_-]{1,100}$/.test(requestId))return Response.json({error:'invalid_request'},{status:400});
-  const prior=await this.ctx.storage.get('result:'+requestId);if(prior)return Response.json(prior.result);
+  const prior=await this.ctx.storage.get('result:'+requestId);if(prior)return Response.json(prior.result,{status:prior.result.error?503:200});
   const key='runtime-probe-intent:'+requestId,intent=await this.ctx.storage.get(key);let response;
   if(intent)response=await this.cachedContainerResult(requestId);
   else{
@@ -61,7 +60,7 @@ export class DieterRunner extends Container {
   if(!body.requestId||String(body.requestId).startsWith('runtime-probe:')||body.operation!=='dieter_round'||body.model!=='gpt-6.1-terra'||body.operation==='dieter_round'&&body.model!=='gpt-6.1-terra')return Response.json({error:'invalid_request',contract:'dieter-tools-v1',request_id_present:Boolean(body.requestId),operation_supported:body.operation==='dieter_round',model_supported:body.model==='gpt-6.1-terra'},{status:400});
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(JSON.stringify(body))))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const cacheKey='result:'+body.requestId;const previous=await this.ctx.storage.get(cacheKey);
-  if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result);}
+  if(previous){if(previous.fingerprint!==fingerprint)return Response.json({error:'request_id_conflict'},{status:409});return Response.json(previous.result,{status:previous.result.error?503:200});}
   const acted=body.operation==='dieter_round'&&body.execution?.mode!=='preflight';
   const intentKey='dieter-intent:'+body.requestId;
   const intent=acted?await this.ctx.storage.get(intentKey):null;

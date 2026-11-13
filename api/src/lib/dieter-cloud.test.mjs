@@ -315,18 +315,18 @@ test('incident repair probe invokes only read-only preflight and preserves the s
 
 test('a long child survives the 164s RPC disconnect and restores only its exact result after durable waits',async t=>{
  const f=workflowFixture(t);let elapsed=164000,posts=0,gets=0;const sleeps=[];
- f.step.sleep=async(name,duration)=>{assert.equal(duration,'8 minutes');sleeps.push(name);elapsed+=480000;};
+ f.step.sleep=async(name,duration)=>{assert.equal(duration,'16 minutes');sleeps.push(name);elapsed+=960000;};
  f.env.DIETER_SUBSCRIPTION.fetch=async(url,init)=>{
   if(init.method==='GET'){
    gets++;assert.equal(url,'https://subscription.internal/result/dieter-exact-claim-0');
-   if(elapsed<900000)return new Response('',{status:409});
+   if(elapsed<1800000)return new Response('',{status:409});
    f.db.prepare("UPDATE ugc_reel_jobs SET status='uploaded' WHERE content_id='one'").run();
    return Response.json({text:'Exact original child completed',receipt:{requestId:'dieter-exact-claim-0',mode:'work',model:'gpt-6.1-terra',transport:'codex-native',auth:'subscription'}});
   }
   posts++;assert.equal(JSON.parse(init.body).execution.mode,'work');throw Error('synthetic transport disconnect');
  };
  const result=await f.workflow.run(f.event,f.step);
- assert.equal(posts,1);assert.equal(gets,2);assert.equal(sleeps.length,2);assert.ok(elapsed>900000);
+ assert.equal(posts,1);assert.equal(gets,2);assert.equal(sleeps.length,2);assert.ok(elapsed>1800000);
  assert.equal(result.upload_completed,true);assert.equal(result.work_runtime_completed,true);assert.equal(result.runtime_incident_present,false);
  assert.equal(f.db.prepare("SELECT key FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").get(),undefined);
  const record=JSON.parse(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_attempt:exact-claim:0:outcome'").get().value);

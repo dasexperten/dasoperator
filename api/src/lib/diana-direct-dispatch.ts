@@ -29,7 +29,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  const choice=(e:any)=>e.task==='owner_choice'&&typeof e.question_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>notice(e)||choice(e)||gold(e)||
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
- pending.sort((a:any,b:any)=>Number(notice(b))-Number(notice(a))||Number(choice(b))-Number(choice(a))||Number(gold(b))-Number(gold(a))||Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
+ pending.sort((a:any,b:any)=>Number(notice(b))-Number(notice(a))||Number(!!b.pay)-Number(!!a.pay)||Number(choice(b))-Number(choice(a))||Number(gold(b))-Number(gold(a))||Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
  const ready:{item:any;attempt:number;revisit?:boolean}[]=[];let earliest=Infinity;
  for(const item of pending){
   let nextAttempt=1;

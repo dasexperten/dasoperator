@@ -55,7 +55,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   for (let pageNo = 0; pageNo < DIANA_SCAN_PAGES; pageNo++) {
     const renewed = await env.DB.prepare("UPDATE crm_sync_state SET updated_at=?1 WHERE key='diana_metadata_scan' AND value=?2").bind(Date.now(),owner).run();
     if (!renewed.meta.changes) throw new Error('metadata_scan_ownership_lost');
-    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(3){id,created_time,from}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
+    const list = await graph(`/${PAGE}/conversations?platform=instagram&fields=id,updated_time,participants,messages.limit(3){id,created_time,from,message}&limit=25${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
     for (const conversation of list.data ?? []) {
       inspected++;
       try {
@@ -68,7 +68,10 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
             const participant = (conversation.participants?.data ?? []).find((p: any) => String(p.id) === String(newest.from.id));
             const handle = String(newest.from.username ?? participant?.username ?? '').toLowerCase();
             const display_name = String(newest.from.name ?? participant?.name ?? '');
-            const alarm = { handle, display_name, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString() };
+            // Owner 2026-11-13 (irina.content.mom): a chat whose newest messages carry payment details goes to
+            // Diana first, so the payout button appears the same minute. Only this flag is kept, never the text.
+            const pay = (conversation.messages?.data ?? []).some((m: any) => String(m.from?.id ?? '') !== PAGE && /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}|сбер|т-?банк|тинькоф|втб|альфа/i.test(String(m.message ?? '')));
+            const alarm = { handle, display_name, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString(), ...(pay ? { pay: true } : {}) };
             // An alarm already ringing for this very message is left as it is (its first ring time stays).
             const raised = await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at

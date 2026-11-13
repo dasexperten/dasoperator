@@ -107,6 +107,20 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       if (q.ok) gold_signals++; else await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind('diana_gold_seen:' + g.id).run();
     }
   } catch { /* Gold check never disturbs the message scan; retried next tick. */ }
+  // Owner 2026-11-13: due lead nudges wake Diana; first at +3 h, second the next day, then stop.
+  let nudge_signals = 0;
+  try {
+    const due = (await env.DB.prepare("SELECT key, value FROM crm_sync_state WHERE key LIKE 'lead_nudge:%' AND json_valid(value) AND CAST(json_extract(value,'$.due') AS INTEGER)<=?1 LIMIT 10").bind(now).all<{ key: string; value: string }>()).results ?? [];
+    const { queueDianaAction } = await import('./diana-compose');
+    for (const row of due) {
+      let v: any; try { v = JSON.parse(row.value); } catch { continue; }
+      const q = await queueDianaAction(env, String(v.handle), '', `nudge:${v.cid}:${v.n}:${v.due}`, { task: 'lead_nudge', cid: String(v.cid) } as any);
+      if (!q.ok) continue;
+      nudge_signals++;
+      if (Number(v.n) >= 2) await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1 AND value=?2').bind(row.key, row.value).run();
+      else await env.DB.prepare('UPDATE crm_sync_state SET value=?3,updated_at=?4 WHERE key=?1 AND value=?2').bind(row.key, row.value, JSON.stringify({ ...v, n: 2, due: now + 21 * 3600000 }), now).run();
+    }
+  } catch { /* nudges never disturb the message scan; retried next tick */ }
   // Owner 2026-11-11: an undelivered answer past the Instagram window gets its final record.
   let delivery_closed = 0;
   try { const { expireUndelivered } = await import('./diana-delivery-expiry.mjs'); delivery_closed = await expireUndelivered(env.DB, now); }
@@ -116,7 +130,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   try { const { runButtonWatch } = await import('./diana-button-watch.mjs'); buttons_missing = await runButtonWatch(env.DB, now); }
   catch { /* the watch never disturbs the message scan */ }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, gold_signals, delivery_closed, buttons_missing, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, nudge_signals, delivery_closed, buttons_missing, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

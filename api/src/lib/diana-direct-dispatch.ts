@@ -24,7 +24,8 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  // Owner 2026-11-11: payment messages (paid / bank declined) are Diana Direct's first job.
  const notice=(e:any)=>['payout_paid_notice','payout_failed_notice'].includes(e.task)&&typeof e.payout_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  // Owner 2026-11-11: his Telegram decision is carried out by Diana Direct.
- const gold=(e:any)=>e.task==='gold_welcome'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
+ const nudge=(e:any)=>e.task==='lead_nudge'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
+ const gold=(e:any)=>(e.task==='gold_welcome'||nudge(e))&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  const choice=(e:any)=>e.task==='owner_choice'&&typeof e.question_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>notice(e)||choice(e)||gold(e)||
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));

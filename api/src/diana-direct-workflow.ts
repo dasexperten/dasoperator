@@ -31,7 +31,7 @@ import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
 // @ts-expect-error plain JS module
-import {runPayoutNotice,runOwnerChoice,runGoldWelcome,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK,IDEA_LINES} from './lib/diana-direct-notice.mjs';
+import {runPayoutNotice,runOwnerChoice,runGoldWelcome,runLeadNudge,scheduleLeadNudge,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK,NUDGE_TASK,IDEA_LINES} from './lib/diana-direct-notice.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
 
@@ -50,9 +50,9 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
     const processOne=async(signal:DianaDirectSignal)=>{
     try{
      const infer=(messages:any,options:any={})=>directThink(this.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
-     if(signal.task&&(NOTICE_TASKS.has(signal.task)||signal.task===OWNER_CHOICE_TASK||signal.task===GOLD_TASK)){
+     if(signal.task&&(NOTICE_TASKS.has(signal.task)||signal.task===OWNER_CHOICE_TASK||signal.task===GOLD_TASK||signal.task===NUDGE_TASK)){
       if(signal.dryRun)return {status:'preview',reason:'task_preview_no_send'};
-      const run=signal.task===OWNER_CHOICE_TASK?runOwnerChoice:signal.task===GOLD_TASK?runGoldWelcome:runPayoutNotice;
+      const run=signal.task===OWNER_CHOICE_TASK?runOwnerChoice:signal.task===GOLD_TASK?runGoldWelcome:signal.task===NUDGE_TASK?runLeadNudge:runPayoutNotice;
       const result=await run({env:this.env,event:signal,token:this.env.META_IG_MESSAGING_TOKEN,infer,prepareContext:prepareDianaContext});
       if(result.status==='complete'){
        await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify({event_id:signal.event_id,cid:signal.cid,message_id:signal.message_id??null,verified:true,proof:'Original Meta outgoing payout notice read back',outgoing_id:result.outgoing_id??null,executor:'diana_direct_workflow'}),Date.now()).run();
@@ -157,7 +157,9 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const paid=await this.env.DB.prepare("SELECT 1 AS present FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 LIMIT 1").bind(name,Number(req.source_at)-3*86400000).first<any>();
        return !paid;
       },
-      deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN}),
+      deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN})
+       // Owner 2026-11-13: after Diana writes to a lead, a nudge is due in 3 hours unless she answers.
+       .then(async(r:any)=>{if(r?.status==='verified')await scheduleLeadNudge(this.env.DB,{cid:conversationId,handle:signal.handle}).catch(()=>false);return r;}),
       // Owner 2026-11-12: the four approved scenario cards (DIRECT_RULES «Сценарии»), two short lines first.
       deliverCards:({conversationId,messageId,recipientId}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
        text:IDEA_LINES[0],followTexts:IDEA_LINES.slice(1),images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),

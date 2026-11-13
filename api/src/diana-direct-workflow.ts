@@ -25,6 +25,8 @@ import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
 import {agreedExtra as findAgreedExtra} from './lib/ugc-agreed-extra.mjs';
 // @ts-expect-error plain JS module
+import {leadStage} from './lib/ugc-lead-stage.mjs';
+// @ts-expect-error plain JS module
 import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
 import {prepareDianaContext} from './lib/diana-context.mjs';
@@ -95,6 +97,27 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
          AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','replied','agreed','cart','silent')
          AND NOT EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=ugc_creators.id)
          AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(name,Date.now()).run();
+      },
+      markLead:async(source:any)=>{
+       const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');
+       if(!/^[a-z0-9_.]{1,40}$/.test(name))return;
+       const ours=new Set(['1697038263872226','17841466350261166']);
+       const msgs=source.messages??[];let k=msgs.length-1;const mine:string[]=[];
+       while(k>=0&&!ours.has(String(msgs[k].from?.id??''))){if(typeof msgs[k].message==='string')mine.unshift(msgs[k].message);k--;}
+       const stage=leadStage(mine);if(!stage)return;
+       const now=Date.now();
+       const known=await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage s FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>();
+       if(known){
+        // Only a scouting card moves up; a working or hand-set status is never touched.
+        await this.env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2,updated_at=?3 WHERE id=?1 AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','silent',CASE WHEN ?2='agreed' THEN 'replied' ELSE '' END)
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(known.id,stage,now).run();
+        return;
+       }
+       const sid=async(prefix:string,input:string)=>{const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input));return prefix+'_'+[...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,24);};
+       const cid=await sid('ugc','instagram:'+name),pid=await sid('ugcp','instagram:'+name);
+       await this.env.DB.batch([
+        this.env.DB.prepare("INSERT INTO ugc_creators (id,normalized_handle,lifecycle_stage,origin,created_at,updated_at,accepted_at) VALUES (?1,?2,?3,'invited',?4,?4,CASE WHEN ?3='agreed' THEN ?4 END) ON CONFLICT(id) DO NOTHING").bind(cid,name,stage,now),
+        this.env.DB.prepare("INSERT INTO ugc_creator_platforms (id,creator_id,platform,handle,normalized_handle,profile_url,source,created_at,updated_at) VALUES (?1,?2,'instagram',?3,?3,?4,'diana_direct',?5,?5) ON CONFLICT(platform,normalized_handle) DO NOTHING").bind(pid,cid,name,'https://www.instagram.com/'+name+'/',now)]);
       },
       agreedExtra:async(source:any)=>{
        const name=String(signal.handle??source.messages.at(-1)?.from?.username??'').toLowerCase().replace(/^@/,'');

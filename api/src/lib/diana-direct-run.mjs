@@ -1,7 +1,7 @@
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
 import {requisitesQuestion} from './diana-requisites-question.mjs';
-export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee,agreedExtra}) {
+export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee,agreedExtra,markLead}) {
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
   // Owner 2026-11-13 (lona.lnk): an extra amount the Owner agreed to in the chat gets its button
@@ -79,6 +79,8 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   await saveProof(proof);
   // Owner 2026-11-12: a creator who asked for money gets the warm barter-only close and the status fee.
   if(decision.fee&&typeof markFee==='function')await markFee(source).catch(()=>null);
+  // Owner 2026-11-13: a blogger who answered without refusing is a lead and appears on the UGC page at once.
+  else if(!event.dryRun&&typeof markLead==='function')await markLead(source).catch(()=>null);
   const acknowledged=await acknowledge(event);
   return acknowledged?{status:'complete',...(decision.fee?{reason:'fee_closed'}:{}),outgoing_id:delivery.outgoingId,image_trace:decision.receipt?.image_trace??[]}:{status:'pending',reason:'newer_event_preserved'};
 }

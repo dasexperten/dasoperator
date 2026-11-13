@@ -1,6 +1,6 @@
 // Entire handoff runs inside one live workflow step. Never return source text,
 // image bytes or financial account details from the step.
-import {latestRequisites} from './ugc-latest-requisites.mjs';
+import {latestRequisites,roundRequisites} from './ugc-latest-requisites.mjs';
 import {konsolPhone,isFpsBankMemberId} from './ugc-payouts.mjs';
 import {createDianaPayoutEvidence} from './diana-payout-evidence.mjs';
 import {prepareCreatorPayout} from './ugc-payout-intake';
@@ -56,8 +56,11 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  if(event?.dryRun)return{status:'pending',reason:'payout_preview_no_write'};
  if(typeof refreshOriginal!=='function'||typeof infer!=='function')throw Error('payout_trusted_dependencies_required');
  const initial=normalize(source,event),r=latestRequisites(initial.messages);
- if(!r)return{status:'incomplete',missing_fields:['recipient_details'],reason:'payout_requisites_unconfirmed'};
- if(!konsolPhone(r.phone)||!isFpsBankMemberId(r.bank)||!String(r.first_name??'').trim())return{status:'incomplete',missing_fields:['recipient_details'],reason:'payout_requisites_unconfirmed'};
+ // Owner 2026-11-13: name exactly what is missing, so Diana asks for it instead of going quiet.
+ if(!r){const g=roundRequisites(initial.messages);return{status:'incomplete',missing_fields:g.missing,first_name:g.first_name,foreign:g.foreign,reason:'payout_requisites_unconfirmed'};}
+ if(!konsolPhone(r.phone))return{status:'incomplete',missing_fields:['phone'],first_name:r.first_name??null,foreign:false,reason:'payout_phone_invalid'};
+ if(!isFpsBankMemberId(r.bank))return{status:'incomplete',missing_fields:['bank'],first_name:r.first_name??null,foreign:false,reason:'payout_bank_not_sbp'};
+ if(!String(r.first_name??'').trim())return{status:'incomplete',missing_fields:['name'],first_name:null,foreign:false,reason:'payout_requisites_unconfirmed'};
  // Unknown newer content could amend the same cycle. Never manufacture facts.
  const sourceTimes=r.source_message_ids.map(id=>Date.parse(initial.messages.find(m=>m.id===id)?.created_at??''));
  if(!sourceTimes.length||sourceTimes.some(at=>!Number.isFinite(at)))throw Error('payout_requisite_source_missing');

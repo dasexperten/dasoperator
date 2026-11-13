@@ -1,5 +1,6 @@
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
+import {requisitesQuestion} from './diana-requisites-question.mjs';
 export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee}) {
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
@@ -34,7 +35,17 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const acknowledged=await acknowledge(event);
       return acknowledged?{status:'complete',reason:'payout_amount_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
-    if(handoff?.status==='incomplete')return {status:'pending',reason:'payout_missing_fields'};
+    if(handoff?.status==='incomplete') {
+      // Owner 2026-11-13: never silent. Ask for exactly the missing detail; her answer makes the button.
+      const text=requisitesQuestion(handoff);
+      if(!text||!decision.recipientId)return {status:'pending',reason:'payout_missing_fields'};
+      const asked=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text});
+      if(asked.status==='preview')return {status:'preview'};
+      if(asked.status!=='verified')return {status:'pending',reason:'delivery_'+asked.status};
+      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow'});
+      const acknowledged=await acknowledge(event);
+      return acknowledged?{status:'complete',reason:'payout_details_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+    }
     return {status:'pending',reason:'payout_verification_pending'};
   }
   // Owner 11.11.2026: a button waiting for its amount is filled the moment the

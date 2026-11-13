@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {latestRequisites} from './ugc-latest-requisites.mjs';
+import {latestRequisites,roundRequisites} from './ugc-latest-requisites.mjs';
 const m=(id,text,minute,direction='in')=>({id,text,created_at:`2026-11-09T10:${minute}:00Z`,direction});
 test('latest explicit same-phone bank correction wins after our acknowledgement',()=>{
  const r=latestRequisites([m('a','89990000000 ТБанк Василиса','00'),m('ack','Данные получила','01','out'),m('b','Вы можете и на озон банк сразу перевести по этому же номеру','20')]);
@@ -53,4 +53,18 @@ test('Owner 2026-11-12 (madi___na111): details 14+ days older than the newest me
  const july={id:'1',direction:'in',text:'89281234536 Фаина А. Сбербанк',created_at:'2026-07-01T10:03:00Z'};
  assert.ok(latestRequisites([july]));
  assert.equal(latestRequisites([july,{id:'2',direction:'in',text:'Здравствуйте предлагаю сотрудничество по бартеру',created_at:'2026-11-12T16:13:00Z'}]),null);
+});
+
+test('Owner 2026-11-13: phone now, bank 20 minutes later after our question — the button is made',()=>{
+ const m=[{id:'1',direction:'in',text:'+79028764000',created_at:'2026-11-12T16:50:00Z'},{id:'2',direction:'in',text:'Елена Грищенко',created_at:'2026-11-12T16:51:00Z'},
+  {id:'3',direction:'out',text:'Елена, подскажите, пожалуйста, название банка для перевода по СБП?',created_at:'2026-11-12T16:53:00Z'},{id:'4',direction:'in',text:'Сбербанк',created_at:'2026-11-12T17:15:00Z'}];
+ const r=latestRequisites(m);assert.ok(r);assert.equal(r.first_name,'Елена');assert.equal(r.phone,'+79028764000');
+});
+test('Owner 2026-11-13: exactly what is missing is named',()=>{
+ assert.deepEqual(roundRequisites([{id:'1',direction:'in',text:'89028764000',created_at:'2026-11-12T16:50:00Z'}]).missing,['bank','name']);
+ const g=roundRequisites([{id:'1',direction:'in',text:'Сбербанк Ирина',created_at:'2026-11-12T16:50:00Z'}]);assert.deepEqual(g.missing,['phone']);assert.equal(g.first_name,'Ирина');
+ assert.deepEqual(roundRequisites([{id:'1',direction:'in',text:'Хорошо, заказываю на озоне',created_at:'2026-11-12T16:50:00Z'}]).missing,['phone','bank','name']);
+});
+test('Owner 2026-11-13: a Kazakhstan number is recognised as foreign',()=>{
+ assert.equal(roundRequisites([{id:'1',direction:'in',text:'+7 701 234 56 78 Kaspi Айгерим',created_at:'2026-11-12T16:50:00Z'}]).foreign,true);
 });

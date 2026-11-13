@@ -24,6 +24,7 @@ class Callback(http.server.BaseHTTPRequestHandler):
    form={'client_id':client['client_id'],'client_secret':client['client_secret'],'code':q['code'][0],'code_verifier':verifier,'redirect_uri':redirect,'grant_type':'authorization_code'}
    with urllib.request.urlopen(urllib.request.Request(client['token_uri'],data=urllib.parse.urlencode(form).encode()),timeout=30) as r:grant=json.load(r)
    with urllib.request.urlopen(urllib.request.Request('https://gmail.googleapis.com/gmail/v1/users/me/profile',headers={'Authorization':'Bearer '+grant['access_token']}),timeout=30) as r:profile=json.load(r)
+   if set(grant.get('scope','').split())!={'https://www.googleapis.com/auth/gmail.readonly'}:raise ValueError('Unexpected OAuth scopes')
    if profile.get('emailAddress','').lower()!='dasexperten@gmail.com' or not grant.get('refresh_token'):raise ValueError('Company identity or offline grant not verified')
    path=folder/'verified-grant.json';fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
    with os.fdopen(fd,'w') as f:json.dump({'email':'dasexperten@gmail.com','refreshToken':grant['refresh_token'],'scope':grant.get('scope',''),'verified_at':time.time()},f)

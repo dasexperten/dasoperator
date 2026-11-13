@@ -4,7 +4,7 @@ const bundle=await build({entryPoints:[fileURLToPath(new URL('../online-daily.ts
  b.onResolve({filter:/\/gmail-client$/},()=>({path:'gmail',namespace:'stub'}));
  b.onResolve({filter:/\/google-workspace$/},()=>({path:'google',namespace:'stub'}));
  b.onResolve({filter:/\/mail-archive-recovery$/},()=>({path:'archive',namespace:'stub'}));
- b.onLoad({filter:/.*/,namespace:'stub'},({path})=>({contents:{worker:'export class WorkerEntrypoint{}',archive:'export const mailArchiveEnv=e=>e;',google:'export const gmailRequest=async()=>({messages:[{id:"message"}]});',gmail:'export const gmailSession=async()=>({token:"test"});export const gmailMessage=async()=>({});export const gmailSummary=()=>({from:"seller@a-plus.ru",to:"dasexperten@gmail.com",subject:"Изменения в Договор",timestamp:"2026-11-13T06:17:00Z"});export const gmailBody=async()=>({text:"Новая редакция действует с 16.11.2026",attachments:[]});'}[path]}));
+ b.onLoad({filter:/.*/,namespace:'stub'},({path})=>({contents:{worker:'export class WorkerEntrypoint{}',archive:'export const mailArchiveEnv=e=>e;',google:'export const workspaceAccounts=()=>[{email:"sales@dasexperten.com"}];export const gmailRequest=async()=>({messages:[{id:"message"}]});',gmail:'export const gmailSession=async()=>({token:"test"});export const gmailMessage=async()=>({});export const gmailSummary=()=>({from:"seller@a-plus.ru",to:"dasexperten@gmail.com",subject:"Изменения в Договор",timestamp:"2026-11-13T06:17:00Z"});export const gmailBody=async()=>({text:"Новая редакция действует с 16.11.2026",attachments:[]});'}[path]}));
  }}]});
 const {onlineDaily}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 globalThis.fetch=async()=>new Response('',{status:403});

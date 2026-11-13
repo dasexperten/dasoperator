@@ -1,6 +1,7 @@
 // Owner 13.11.2026: online-daily, 09:00 Asia/Yerevan; mail stays model-free.
 export const dayKey = now => `online-daily:${new Date(new Date(now).getTime()+4*3600000).toISOString().slice(0,10)}`;
 export const safe = (value, n=300) => Array.from(String(value??'').replace(/[\u0000-\u001f]+/g,' ').replace(/\s+/g,' ').trim()).slice(0,n).join('');
+export function brief(value,n=200){const full=safe(value,10000);if(full.length<=n)return full;const cut=safe(full,n),end=[...cut.matchAll(/[.!?](?=\s|$)/g)].at(-1)?.index;return end>60?cut.slice(0,end+1):safe(full,n-1).replace(/\s+\S*$/,'')+'…';}
 export const relevant = text => /ozon|wildberries|вайлдберриз|detmir|детский мир|magnit|магнит|a-plus\.ru|аптеки|aptek|аптек|ozon@dasexperten|wb@dasexperten/i.test(text);
 export const sensitive = text => /verification code|one.time password|password reset|reset your password|код (?:входа|подтверждения|авторизации)|сброс пароля|восстановлени[ея] пароля/i.test(text);
 export const plainMail = value => String(value??'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<\/(?:p|div|tr|h[1-6])>|<br\s*\/?>/gi,'\n').replace(/<[^>]*>/g,' ').replace(/&nbsp;|&#160;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)));
@@ -23,7 +24,7 @@ export function renderReport({at,mails,coverage,news,newsError}) {
  const sections={dasha:[],arina:[],justina:[],valentina:[]};
  const urgency=m=>/последн|утилизац|изменени.*договор|возврат.*остат|last.*day/i.test(`${m.subject} ${m.text}`)?1:0;
  for(const mail of [...mails].sort((a,b)=>urgency(b)-urgency(a)))for(const key of classifyMail(mail))sections[key].push(mailLine(mail));
- for(const key of Object.keys(sections))if(news?.[key])sections[key].unshift(`📰 ${safe(news[key],200)}`);
+ for(const key of Object.keys(sections))if(news?.[key])sections[key].unshift(`📰 ${brief(news[key],200)}`);
  const title=`🛒 ONLINE DAILY · ${new Date(at).toLocaleDateString('en-GB',{timeZone:'Asia/Yerevan',day:'numeric',month:'long',year:'numeric'})}`;
  const headings={dasha:'🛍️ Dasha:',arina:'🛒 Arina:',justina:'💰 Justina:',valentina:'⚖️ Valentina:'};
  const out=[title];

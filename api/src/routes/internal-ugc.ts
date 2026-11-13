@@ -1,3 +1,4 @@
+import {writeAlexandraHeadline} from '../lib/alexandra-headline.mjs';
 import {finishDieterUploads} from '../lib/dieter-upload-completion';
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
@@ -181,6 +182,29 @@ route.get('/reel-jobs/:id/tiktok/status',async(c)=>{
  const erpSaved=Boolean(ledger.proof&&JSON.parse(job?.publications??'[]').some((p:any)=>p.platform==='tiktok'&&p.url===ledger.proof.url&&p.verified===true));
  return c.json({ok:true,status:ledger.state,provider_id:ledger.shareId??null,upload_accepted:['accepted','verified'].includes(ledger.state)&&Boolean(ledger.shareId),upload_completed:['uploaded','published'].includes(job?.status??''),publication_verified:erpSaved,provider_status:ledger.state==='accepted'?'accepted_processing':ledger.state,proof:ledger.proof??null,erp_saved:erpSaved,job_status:job?.status??null});
 });
+// Dedicated copywriting call; the upload executor remains pinned to Terra.
+route.post('/reel-jobs/:id/headline', async c=>{
+ const id=c.req.param('id'),body=await c.req.json().catch(()=>null);
+ const job=await c.env.DB.prepare('SELECT status,claim_id FROM ugc_reel_jobs WHERE content_id=?').bind(id).first<any>();
+ if(!body?.claim_id||job?.status!=='working'||job.claim_id!==body.claim_id)return c.json({ok:false,error:'working_claim_required'},409);
+ const brief=body.brief;
+ if(!brief||!['author','source_caption','scene_evidence','profile_context'].every(k=>typeof brief[k]==='string'&&brief[k].trim())||!Array.isArray(brief.verified_products)||JSON.stringify(brief).length>80000)return c.json({ok:false,error:'source_grounded_headline_brief_required'},422);
+ const key=`ugc-alexandra-headline:${id}`;
+ const old=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<any>();
+ if(old){const value=JSON.parse(old.value);if(value.state==='ready')return c.json({ok:true,headline_key:key,...value});return c.json({ok:false,error:'headline_pending_or_unknown_no_replay'},409);}
+ const reserved=await c.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({state:'generating',claim_id:body.claim_id}),Date.now()).run();
+ if(!reserved.meta.changes)return c.json({ok:false,error:'headline_already_reserved'},409);
+ try{
+  const rows=await c.env.DB.prepare("SELECT json_extract(value,'$.headline') headline FROM crm_sync_state WHERE key LIKE 'ugc-alexandra-headline:%' AND json_valid(value) AND json_extract(value,'$.state')='ready' ORDER BY updated_at DESC LIMIT 100").all<any>();
+  const result=await writeAlexandraHeadline(c.env,brief,(rows.results??[]).map((r:any)=>r.headline));
+  const value={state:'ready',content_id:id,claim_id:body.claim_id,...result,created_at:new Date().toISOString()};
+  await c.env.DB.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=?').bind(JSON.stringify(value),Date.now(),key).run();
+  return c.json({ok:true,headline_key:key,...value});
+ }catch{
+  await c.env.DB.prepare('UPDATE crm_sync_state SET value=?,updated_at=? WHERE key=?').bind(JSON.stringify({state:'unconfirmed',claim_id:body.claim_id}),Date.now(),key).run();
+  return c.json({ok:false,error:'alexandra_headline_unconfirmed_do_not_substitute_terra'},503);
+ }
+});
 route.post('/reel-jobs/:id/caption-plan', async (c) => {
   const id=c.req.param('id');
   const body=await c.req.json().catch(()=>null) as {claim_id?:string;plan?:any}|null;
@@ -202,6 +226,12 @@ route.post('/reel-jobs/:id/caption-plan', async (c) => {
           &&p.keyword_pool_id===null&&p.selected_keyword_phrases.length===0));
   });
   if(!valid||JSON.stringify(plan).length>100000) return c.json({ok:false,error:'source_specific_caption_provenance_plan_required'},422);
+  const prior=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-caption-plan:${id}:${body.claim_id}`).first<any>();
+  if(!prior){
+   const row=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`ugc-alexandra-headline:${id}`).first<any>();
+   const headline=row?JSON.parse(row.value):null;
+   if(headline?.state!=='ready'||headline.model!=='gpt-6-astra'||!keys.every(k=>platforms[k].caption.split('\n')[0].trim()===headline.headline))return c.json({ok:false,error:'verified_alexandra_astra_headline_required'},422);
+  }
   const key=`ugc-caption-plan:${id}:${body.claim_id}`,value=JSON.stringify(plan);
   await c.env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM ugc_reel_jobs WHERE content_id=? AND status='working' AND claim_id=?) ON CONFLICT(key) DO NOTHING`).bind(key,value,Date.now(),id,body.claim_id).run();
   const saved=await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(key).first<{value:string}>();

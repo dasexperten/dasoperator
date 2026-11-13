@@ -234,6 +234,9 @@ test('caption plan is claim-bound immutable evidence, not a publication proof or
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,claim_id:'other'})).status,409);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:{...plan,content_id:'other'}})).status,422);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{...body,plan:{...plan,platforms:{tiktok:item}}})).status,422);
+ assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,422);
+ sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ugc-alexandra-headline:'+id,JSON.stringify({state:'ready',model:'gpt-6-astra',headline:item.caption}),Date.now());
+ item.caption+='\nA source-grounded description.';
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',body)).status,200);
  assert.equal((await(await request('/reel-jobs/'+id+'/caption-plan',body)).json()).caption_plan_saved,true);
  const saved=sqlite.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('ugc-caption-plan:'+id+':'+claim).value;
@@ -262,6 +265,7 @@ test('Owner caption-only fallback saves an unresolved product without inventing 
  }
  const bad=structuredClone(plan);bad.platforms.threads.caption='No credit';
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan:bad})).status,422);
+ sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ugc-alexandra-headline:'+id,JSON.stringify({state:'ready',model:'gpt-6-astra',headline:item.caption}),Date.now());
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan})).status,200);
  assert.equal(sqlite.prepare('SELECT status FROM ugc_reel_jobs WHERE content_id=?').get(id).status,'working');
  sqlite.prepare('DELETE FROM ugc_reel_jobs WHERE content_id=?').run(id);
@@ -274,6 +278,7 @@ test('deferred destinations cannot enter a new publication caption plan',async()
  sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id,required_destinations) VALUES(?,?,?,?,?,?,?)").run(id,'owner',stamp,stamp,'working',claim,JSON.stringify(['threads','wibes','ozon']));
  const provenance={verified_products:[],keyword_status:'source_caption_only',keyword_pool_id:null,selected_keyword_phrases:[],product_resolution:{status:'unresolved',author:'source_author',source_caption:'Original routine',evidence:'No clear SKU in the approved source'}};
  const item={caption:'source_author: original routine. #MorningRoutine',hashtags:['MorningRoutine'],native_topic_applied:false,selection_evidence:'Source-specific caption',product_keyword_provenance:provenance};
+ sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('ugc-alexandra-headline:'+id,JSON.stringify({state:'ready',model:'gpt-6-astra',headline:item.caption}),Date.now());
  for(const platform of ['wibes','ozon'])assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan:{content_id:id,policy_id:'source-caption',platforms:{[platform]:item}}})).status,422);
  assert.equal((await request('/reel-jobs/'+id+'/caption-plan',{claim_id:claim,plan:{content_id:id,policy_id:'source-caption',platforms:{threads:item}}})).status,200);
 });
@@ -337,4 +342,20 @@ test('long diagnostic is protected, exact-incident gated, fixed and its late res
   assert.equal((await request('/cloud/runtime-result/runtime-probe%3Aone')).status,200);assert.equal(calls[1].init.method,'GET');assert.match(calls[1].url,/result\/runtime-probe%3Aone$/);
   assert.equal((await request('/cloud/runtime-result/dieter-work-id')).status,422);assert.equal(calls.length,2);
  }finally{delete env.DIETER_SUBSCRIPTION;sqlite.prepare('DELETE FROM crm_sync_state WHERE key=?').run(stopKey);if(old)sqlite.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run(stopKey,old.value);for(const j of priorJobs)sqlite.prepare('UPDATE ugc_reel_jobs SET status=? WHERE content_id=?').run(j.status,j.content_id);}
+});
+
+
+test('Alexandra Astra headline is source-bound, saved once and retained across claim retries',async()=>{
+ const id='astra-headline',claim='astra-claim';
+ sqlite.prepare('INSERT INTO ugc_content VALUES(?,?,?,?)').run(id,'profile','https://instagram.com/reel/ASTRA/','video');
+ sqlite.prepare("INSERT INTO ugc_reel_jobs(content_id,requested_by,requested_at,updated_at,status,claim_id)VALUES(?,?,?,?,?,?)").run(id,'owner','now','now','working',claim);
+ const result={candidates:['Что заметила Евгения у зеркала?','Евгения у зеркала: одна деталь меняет утро','Зачем Евгения задержалась у зеркала?'].map(headline=>({headline,angle:'scene-specific',source_evidence:'Exact transcript'})),selected_index:0,selection_reason:'real scene',payoff:'Exact transcript payoff',checks:{source_grounded:true,intrigue:true,viewer_interest:true,unique_to_reel:true,truthful:true}};
+ let calls=0;env.CODEX_ROUTE_SECRET='fixture';env.CODEX_DOOR={async fetch(_,init){calls++;assert.equal(JSON.parse(init.body).model,'gpt-6-astra');return Response.json({ok:true,model:'gpt-6-astra',text:JSON.stringify(result)});}};
+ const brief={author:'evgeniya.ilyna',source_caption:'Exact caption',scene_evidence:'Exact transcript',verified_products:[],profile_context:'Loaded Alexandra voice and charter'};
+ assert.equal((await request('/reel-jobs/'+id+'/headline',{claim_id:'wrong',brief})).status,409);
+ assert.equal((await request('/reel-jobs/'+id+'/headline',{claim_id:claim,brief:{}})).status,422);
+ const first=await(await request('/reel-jobs/'+id+'/headline',{claim_id:claim,brief})).json();assert.equal(first.model,'gpt-6-astra');assert.equal(first.headline,result.candidates[0].headline);
+ sqlite.prepare('UPDATE ugc_reel_jobs SET claim_id=? WHERE content_id=?').run('retry',id);
+ const retry=await(await request('/reel-jobs/'+id+'/headline',{claim_id:'retry',brief})).json();assert.equal(retry.headline,first.headline);assert.equal(calls,1);
+ delete env.CODEX_DOOR;delete env.CODEX_ROUTE_SECRET;
 });

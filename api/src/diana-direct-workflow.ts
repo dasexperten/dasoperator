@@ -70,7 +70,19 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        // Owner 2026-11-13 (juliette_khazieva): an article number she sends is checked against our own
        // Ozon catalogue, so Diana knows at once that the card is ours instead of waiting.
        const nums=[...new Set((source.messages??[]).slice(-12).flatMap((m:any)=>String(m.message??'').match(/\b\d{6,12}\b/g)??[]))].slice(0,10);
-       const our_articles=nums.length?(await this.env.DB.prepare(`SELECT sku,offer_id,name FROM ozon_sku_map WHERE sku IN (${nums.map((_,i)=>'?'+(i+1)).join(',')})`).bind(...nums).all<any>()).results.map((r:any)=>({article:String(r.sku),marketplace:'ozon',product:r.name})):[];
+       const our_articles:any[]=nums.length?(await this.env.DB.prepare(`SELECT sku,offer_id,name FROM ozon_sku_map WHERE sku IN (${nums.map((_,i)=>'?'+(i+1)).join(',')})`).bind(...nums).all<any>()).results.map((r:any)=>({article:String(r.sku),marketplace:'ozon',product:r.name})):[];
+       // Wildberries: a number not in our Ozon map is checked on WB's public card — brand Das Experten = ours.
+       for(const nm of nums.filter(n=>!our_articles.some((a:any)=>a.article===n)).slice(0,4)){
+        try{
+         for(const v of ['v4','v2']){
+          const r=await fetch(`https://card.wb.ru/cards/${v}/detail?appType=1&curr=rub&dest=-1257786&nm=${nm}`,{signal:AbortSignal.timeout(6000)});
+          const d:any=r.ok?await r.json():null;const p=(d?.products??d?.data?.products??[])[0];
+          if(!p)continue;
+          if(String(p.id)===nm&&/das\s*experten|дас\s*экспертен/i.test(String(p.brand??'')+' '+String(p.supplier??'')))our_articles.push({article:nm,marketplace:'wildberries',product:String(p.name??'')});
+          break;
+         }
+        }catch{}
+       }
        return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
         // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
         watchVideo:(url:string)=>watchVideo({apiKey:this.env.GEMINI_API_KEY,url}),

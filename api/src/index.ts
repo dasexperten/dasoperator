@@ -362,3 +362,4 @@ export { DianaWake } from './diana-wake';
 export { DianaDirectWorkflow } from './diana-direct-workflow';
 export { DianaCloudRoundWorkflow } from './diana-cloud-round-workflow';
 export {DieterWake,DieterCloudWorkflow} from './dieter-cloud';
+export {OnlineDailyGateway} from './online-daily';

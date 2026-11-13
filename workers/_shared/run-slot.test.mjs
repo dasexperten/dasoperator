@@ -14,6 +14,13 @@ const { cloudflareOnly, slotRunKey, minuteSlot, currentHttpSlot, currentHttpSche
   isLocalScheduledWorker, erpTriggerWorker, erpWorker, runLogged, runApiStep, claimLocalRun, finishTimerRun } = await import(pathToFileURL(join(dir, 'slots.mjs')));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 const workerName = 'erp-ugc-payouts', cron = '*/10 * * * *', now = Date.parse('2026-10-23T20:00:30Z'), slot = minuteSlot(now);
+test('online-daily is exactly 09:00 Yerevan and Cloudflare only',()=>{
+ const due=Date.parse('2026-11-14T05:00:00Z');
+ assert.equal(matchesScheduledCron('erp-online-daily','0 5 * * *',due),true);
+ assert.equal(matchesScheduledCron('erp-online-daily','0 5 * * *',due-60000),false);
+ assert.equal(matchesScheduledCron('erp-online-daily','0 9 * * *',due),false);
+ assert.equal(cloudflareOnly('erp-online-daily'),true);
+});
 let seq = 0;
 function fixture(t, { name = workerName, at = now, failure = {} } = {}) {
   const dbPath = join(dir, `${seq++}.sqlite`);

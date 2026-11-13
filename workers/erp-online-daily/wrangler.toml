@@ -1,0 +1,25 @@
+name = "erp-online-daily"
+main = "src/index.ts"
+compatibility_date = "2026-11-13"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ORG_DB"
+database_name = "das_org"
+database_id = "56cd51f7-6502-4754-bcc6-23da52a34b0d"
+
+[[services]]
+binding = "ONLINE_DAILY"
+service = "dasoperator-api"
+entrypoint = "OnlineDailyGateway"
+
+[triggers]
+# Owner 13 November: daily 09:00 Asia/Yerevan (UTC+4).
+crons = ["0 5 * * *"]

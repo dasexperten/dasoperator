@@ -79,6 +79,10 @@ export async function runWbDayTurnover(env) {
 }
 export async function runWbNews(env, daysBack = 1, cell = { hour: 4 }) {
   const n = await wbNews(env, { daysBack, limit: Infinity });
+  // online-daily reuses this official API fetch, never starts another WB poll.
+  if (env.ERP_DB) await env.ERP_DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?,?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind('online-daily:wb-source', JSON.stringify({source:'official_wb_api',fetched_at:new Date().toISOString(),ok:n.ok,items:n.items}), Math.floor(Date.now()/1000)).run();
   let review = null;
   let error = n.ok ? null : n.error;
   if (!error) {

@@ -42,6 +42,9 @@
   "erp-modulbank-mail": [
     "30 0 * * *"
   ],
+  "erp-online-daily": [
+    "0 5 * * *"
+  ],
   "erp-order-vn": [
     "0 2 * * *"
   ],

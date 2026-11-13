@@ -95,3 +95,17 @@ test('Direct metadata detector expects 400 three-minute ticks in the 06:00–02:
   const r = find(await guard(t, '2026-11-11T06:20:00Z', []), 'erp-ugc-direct');
   assert.equal(r.expected, 400);
 });
+
+test('online daily read-back returns the persisted report and receipt, not a health claim', async () => {
+  let key;
+  const stored={state:'sent',message_id:42,complete:false,evidence:{coverage:[{name:'WB',ok:false}]}};
+  const DB={prepare(){return{bind(v){key=v;return this;},first:async()=>({value:JSON.stringify(stored)})}}};
+  const response=await route.request('/online-daily?date=2026-11-13',{}, {DB});
+  assert.equal(response.status,200);assert.equal(key,'online-daily:2026-11-13');
+  assert.deepEqual((await response.json()).result,stored);
+});
+test('online daily missing report and malformed date remain explicit',async()=>{
+ const DB={prepare(){return{bind(){return this;},first:async()=>null}}};
+ assert.equal((await route.request('/online-daily?date=2026-11-13',{}, {DB})).status,404);
+ for(const date of ['bad','2026-99-13','2026-02-30'])assert.equal((await route.request('/online-daily?date='+date,{}, {DB})).status,400);
+});

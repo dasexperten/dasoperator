@@ -12,6 +12,7 @@
   "erp-marketplace-fifo": { "crons": ["50 0 * * *"] },
   "erp-marketplace-pull": { "crons": ["30 */3 * * *"] },
   "erp-modulbank-mail": { "crons": ["30 0 * * *"], "execution": "local" },
+  "erp-online-daily": { "crons": ["0 5 * * *"], "execution": "local", "transport": "cloudflare" },
   "erp-orders-drop-watch": { "crons": ["0 4 * * *"] },
   "erp-ozon-ads-poll": { "crons": ["12 * * * *"] },
   "erp-ozon-ads-reports": { "crons": ["5 */6 * * *"] },

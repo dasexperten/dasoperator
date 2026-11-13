@@ -15,6 +15,17 @@ import { REPORT_KEY, runPromotionMonitor } from '../../../workers/_promozon/moni
 
 const route = new Hono<{ Bindings: Env }>();
 
+// Authenticated ERP read-back of the actual report, coverage and Telegram receipt.
+route.get('/online-daily', async (c) => {
+  const date = c.req.query('date') || new Date(Date.now() + 4 * 3600000).toISOString().slice(0,10);
+  const parsedDate = new Date(date + 'T00:00:00Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10) !== date)
+    return c.json({ success: false, error: 'valid_date_required' }, 400);
+  const row = await c.env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?').bind(`online-daily:${date}`).first<{ value: string }>();
+  if (!row) return c.json({ success: false, error: 'report_not_found' }, 404);
+  return c.json({ success: true, result: JSON.parse(row.value) });
+});
+
 route.get('/promozon', async (c) => {
   try {
     if (c.req.query('refresh') === '1') return c.json({ success: true, result: await runPromotionMonitor(c.env) });

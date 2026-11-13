@@ -6,7 +6,7 @@ export const relevant = text => /ozon|wildberries|вайлдберриз|detmir|
 export const sensitive = text => /verification code|one.time password|password reset|reset your password|код (?:входа|подтверждения|авторизации)|сброс пароля|восстановлени[ея] пароля/i.test(text);
 export const plainMail = value => String(value??'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<\/(?:p|div|tr|h[1-6])>|<br\s*\/?>/gi,'\n').replace(/<[^>]*>/g,' ').replace(/&nbsp;|&#160;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)));
 export const senderAddress = value => (String(value??'').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]??String(value??'')).toLowerCase();
-const policy = /(?:нов|измен|редакци|вступ|услови).{0,70}(?:договор|оферт|тариф|комисси|лимит|скид|акци|бустинг)|(?:договор|оферт|тариф|комисси|лимит).{0,70}(?:нов|измен|редакци|вступ)|автоакци|скидк.{0,40}автоматическ|автоматическ.{0,45}(?:скид|акци|бустинг)|штраф|блокировк|претензи|утилизац|задолжен|неоплачен|нарушен/i;
+const policy = /(?:нов|измен|меня|обнов|редакци|вступ|услови).{0,70}(?:договор|оферт|тариф|комисси|лимит|скид|акци|бустинг)|(?:договор|оферт|тариф|комисси|лимит).{0,70}(?:нов|измен|меня|обнов|редакци|вступ)|автоакци|скидк.{0,40}автоматическ|автоматическ.{0,45}(?:скид|акци|бустинг)|штраф|блокировк|претензи|утилизац|задолжен|неоплачен|нарушен/i;
 export function materialMail(mail){
  const subject=safe(mail.subject,1000),text=plainMail(mail.text);
  if(sensitive(subject+' '+text))return false;

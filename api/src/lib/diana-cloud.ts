@@ -375,11 +375,14 @@ export async function draftCloudDecision(env: Env, key: string) {
   if(guarded.escalate&&!/Owner decides/i.test(String(guarded.reason??''))&&!source.event.task&&String(incoming.at(-1)?.text??'').trim()){
     learningUncertainty=String(guarded.reason??'uncertainty').slice(0,200);
     try{
-      const retry=await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system+'\nAnswer the latest readable message using only confirmed facts. State uncertainty honestly and continue where safe. Do not invent payment, sender, product or terms; if a decision is truly necessary, escalate.'},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
+      const retry=await subscriptionInfer(env,'reply')([{role:'system',content:prepared.system+'\nAnswer the latest readable message using only confirmed facts. Write only to the blogger, in Diana’s voice. Never mention files, tools, systems, availability, internal steps or what can or cannot be prepared, and never refer to the blogger in the third person. The Ozon card photo is always available: if she asks for the card, a photo or how to find the paste, set send_ozon_photo=true with a short text such as «Вот она) Наберите на Ozon: энзимная зубная паста.». Do not invent payment, sender, product or terms; if a decision is truly necessary, escalate.'},{role:'user',content:prepared.task}],{model:'gpt-6.1-terra'});
       const retryParsed=JSON.parse(retry.text);
       if(retryParsed&&typeof retryParsed.escalate==='boolean'&&typeof retryParsed.reason==='string'&&(retryParsed.reply===null||typeof retryParsed.reply==='string')&&(retryParsed.replies===null||Array.isArray(retryParsed.replies)&&retryParsed.replies.every((p:unknown)=>typeof p==='string'))){
         const checked=guardReply(retry.text,{paid:source.payouts.some((p:any)=>p.status==='paid'&&p.konsol_payment_id),inCount:incoming.length,lastIn:incoming.slice(-2).map((m:any)=>m.text).join('\n'),ownerDecided:!!(source.ownerChoice??source.ownerDecision)});
-        if(!checked.escalate&&checked.reply){guarded=checked;parsed=retryParsed;result=retry;}
+        // Owner 2026-11-14 (like.you11111 got «Файл недоступен, поэтому ответ блогеру подготовить нельзя»):
+        // an internal note is not a reply; a retry that talks about the blogger or the machinery stays escalated.
+        const leak=/блогер|файл|недоступ|подготовить ответ|ответ подготов|\bERP\b|систем[аеуы]/iu.test(String(checked.reply??''));
+        if(!checked.escalate&&checked.reply&&!leak){guarded=checked;parsed=retryParsed;result=retry;}
       }
     }catch{} // Original review remains durable when no safe answer is available.
   }

@@ -60,8 +60,9 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     const previous = previousProof = JSON.parse(receipt.value);
     if (Number(previous.source_at) > lastAt) throw Error('newer_payment_details_already_saved');
   }
+  // Owner 2026-11-14 (valeria.purpleera): a payout her bank declined was never handed over.
   const settled = await env.DB.prepare(`SELECT id FROM ugc_payouts WHERE creator_id=?1
-    AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)
+    AND status NOT IN ('failed','cancelled','rejected') AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)
     AND COALESCE(paid_at,sent_at,payout_date || 'T00:00:00Z')>=?2 LIMIT 1`)
     .bind(creatorId,new Date(firstAt).toISOString()).first();
   if (settled) throw Error('payment_already_handed_over_for_this_conversation');

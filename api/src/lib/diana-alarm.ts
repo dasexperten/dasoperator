@@ -124,6 +124,41 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       else await env.DB.prepare('UPDATE crm_sync_state SET value=?3,updated_at=?4 WHERE key=?1 AND value=?2').bind(row.key, row.value, JSON.stringify({ ...v, n: 2, due: now + 21 * 3600000 }), now).run();
     }
   } catch { /* nudges never disturb the message scan; retried next tick */ }
+  // Owner 2026-11-14 (valeria.purpleera): payment details never sit without a button. A chat whose
+  // payout handoff stopped is retried once after 5 minutes; still stopped 5 minutes later, the Owner
+  // gets one Telegram line naming the blogger and the reason. Never twice for the same message.
+  let payout_retries = 0, payout_alerts = 0;
+  try {
+    const stuck = (await env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'diana_direct_event:message:%' AND json_valid(value)
+      AND json_extract(value,'$.status') IN ('needs_review','pending') AND json_extract(value,'$.reason') LIKE 'payout%'
+      AND updated_at<=?1 AND updated_at>=?2 LIMIT 10`).bind(now - 5 * 60000, now - 48 * 3600000).all<{ key: string; value: string }>()).results ?? [];
+    for (const row of stuck) {
+      const messageId = row.key.slice('diana_direct_event:message:'.length);
+      const wkey = 'payout_watch:' + messageId;
+      const w = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(wkey).first<{ value: string }>();
+      let reason = ''; try { reason = String(JSON.parse(row.value).reason ?? ''); } catch {}
+      if (!w) {
+        await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(wkey, JSON.stringify({ n: 1, at: now, reason }), now).run();
+        await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1 AND value=?2').bind(row.key, row.value).run();
+        payout_retries++;
+        continue;
+      }
+      let watch: any = {}; try { watch = JSON.parse(w.value); } catch {}
+      if (Number(watch.n) !== 1 || now - Number(watch.at) < 5 * 60000) continue;
+      await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(wkey, JSON.stringify({ ...watch, n: 2, alerted_at: now, reason }), now).run();
+      const alarm = await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND json_valid(value) AND json_extract(value,'$.message_id')=?1 LIMIT 1").bind(messageId).first<{ value: string }>();
+      let handle = ''; try { handle = String(JSON.parse(alarm?.value ?? '{}').handle ?? ''); } catch {}
+      const why: Record<string, string> = {
+        payout_cycle_already_processed: 'система считает этот круг уже оплаченным',
+        payout_already_paid_termo: 'по переписке ей уже платили за TERMO',
+        payout_existing_amount_conflict: 'сумма расходится с уже стоящей кнопкой',
+        payout_original_changed: 'переписка менялась во время проверки',
+        payout_verification_pending: 'проверка реквизитов не завершилась',
+      };
+      const { sendOwnerTelegram } = await import('./owner-telegram');
+      if (await sendOwnerTelegram(env, `Реквизиты без кнопки: @${handle || 'блогер'} — ${why[reason] ?? reason}. Повторная попытка не помогла.`, 'diana-helios').catch(() => false)) payout_alerts++;
+    }
+  } catch { /* the watch never disturbs the message scan; retried next tick */ }
   // Owner 2026-11-11: an undelivered answer past the Instagram window gets its final record.
   let delivery_closed = 0;
   try { const { expireUndelivered } = await import('./diana-delivery-expiry.mjs'); delivery_closed = await expireUndelivered(env.DB, now); }
@@ -133,7 +168,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   try { const { runButtonWatch } = await import('./diana-button-watch.mjs'); buttons_missing = await runButtonWatch(env.DB, now); }
   catch { /* the watch never disturbs the message scan */ }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, gold_signals, nudge_signals, delivery_closed, buttons_missing, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, nudge_signals, payout_retries, payout_alerts, delivery_closed, buttons_missing, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

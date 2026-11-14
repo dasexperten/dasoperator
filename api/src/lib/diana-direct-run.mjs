@@ -49,7 +49,8 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const acknowledged=await acknowledge(event);
       return acknowledged?{status:'complete',reason:'payout_details_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
-    return {status:'pending',reason:'payout_verification_pending'};
+    // The exact stop reason is kept, so the payout watch can retry and name it (Owner 2026-11-14).
+    return {status:'pending',reason:String(handoff?.reason??'').startsWith('payout_')?handoff.reason:'payout_verification_pending'};
   }
   // Owner 11.11.2026: a button waiting for its amount is filled the moment the
   // creator writes it, before Diana's ordinary reply. Silent; never a transfer.

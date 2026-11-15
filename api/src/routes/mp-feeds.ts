@@ -176,8 +176,12 @@ app.get('/questions', async (c) => {
   const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50));
   await ensureQuestionsTable(env);
   const res = await env.DB.prepare(
-    `SELECT id, channel, external_id, product_name, product_sku, question_text, answer_text, status, customer_name, created_at
-     FROM mp_questions WHERE channel = ? ORDER BY created_at DESC LIMIT ?`
+    `SELECT q.id, q.channel, q.external_id, COALESCE(q.product_name, m.name) AS product_name, q.product_sku,
+            COALESCE(m.offer_id, q.product_sku) AS article,
+            q.question_text, q.answer_text, q.status, q.customer_name, q.created_at
+     FROM mp_questions q
+     LEFT JOIN ozon_sku_map m ON q.channel = 'ozon' AND m.sku = q.product_sku
+     WHERE q.channel = ? ORDER BY q.created_at DESC LIMIT ?`
   ).bind(channel, limit).all();
   return c.json({ ok: true, channel, questions: res.results || [] });
 });

@@ -15,7 +15,7 @@ type Kind = 'reviews' | 'questions' | 'chats';
 
 type Item = {
   id: string; kind: Kind; channel: Channel;
-  rating?: number; author?: string | null; product?: string | null;
+  rating?: number; author?: string | null; product?: string | null; sku?: string | null;
   text: string; answer?: string | null; status?: string | null; date?: string | null;
 };
 
@@ -79,7 +79,7 @@ export default function ReviewsPage() {
         const d = await api(`/api/reviews/drafts?${p.toString()}`);
         mapped = (d.drafts || []).map((x: any): Item => ({
           id: x.id, kind: 'reviews', channel: tab.channel,
-          rating: x.rating || 0, author: x.customer_name, product: x.product_name || x.product_sku,
+          rating: x.rating || 0, author: x.customer_name, product: x.product_name, sku: x.article || x.product_sku,
           text: x.review_text || [x.pros && `+ ${x.pros}`, x.cons && `− ${x.cons}`].filter(Boolean).join('\n'),
           answer: x.draft_text, status: x.status, date: x.created_at,
         }));
@@ -88,7 +88,7 @@ export default function ReviewsPage() {
         const d = await api(`/api/mp/questions?channel=${tab.channel}&limit=50`);
         mapped = (d.questions || []).map((x: any): Item => ({
           id: x.id, kind: 'questions', channel: tab.channel,
-          author: x.customer_name, product: x.product_name || x.product_sku,
+          author: x.customer_name, product: x.product_name, sku: x.article || x.product_sku,
           text: x.question_text || '', answer: x.answer_text, status: x.status, date: x.created_at,
         }));
       }
@@ -106,7 +106,7 @@ export default function ReviewsPage() {
   const visible = useMemo(() => {
     if (tab.kind === 'questions' && search.trim()) {
       const s = search.trim().toLowerCase();
-      return items.filter(i => (i.text + ' ' + (i.product || '')).toLowerCase().includes(s));
+      return items.filter(i => (i.text + ' ' + (i.product || '') + ' ' + (i.sku || '')).toLowerCase().includes(s));
     }
     return items;
   }, [items, search, tab.kind]);
@@ -157,7 +157,7 @@ export default function ReviewsPage() {
       {tab.kind === 'chats' ? <MarketplaceChats key={tab.channel} channel={tab.channel} /> : <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 22 }}>
         <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder={tab.kind === 'reviews' ? 'Search reviews, products…' : 'Search questions, products…'}
+          placeholder={tab.kind === 'reviews' ? 'Search reviews, products, SKU…' : 'Search questions, products, SKU…'}
           style={{
             flex: '1 1 260px', minWidth: 220, height: 46, padding: '0 16px',
             fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 600, color: 'var(--fg-1)',
@@ -247,7 +247,12 @@ function Card({ it }: { it: Item }) {
         </div>
       </div>
 
-      {it.product && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)', margin: '14px 0 0' }}>{it.product}</p>}
+      {(it.sku || it.product) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '14px 0 0' }}>
+          {it.sku && <span title="SKU" style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 900, color: '#FFFFFF', background: '#1A1519', padding: '4px 10px', borderRadius: 6, letterSpacing: '0', whiteSpace: 'nowrap' }}>{it.sku}</span>}
+          {it.product && <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)' }}>{it.product}</span>}
+        </div>
+      )}
       {text && <p style={{ fontFamily: 'var(--font-body)', fontSize: 19, fontWeight: 700, fontStyle: 'italic', color: 'var(--fg-1)', lineHeight: 1.55, margin: '8px 0 0', whiteSpace: 'pre-line' }}>{text}</p>}
 
       {(it.answer || st) && (

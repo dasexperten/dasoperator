@@ -133,28 +133,31 @@ app.get('/drafts', async (c) => {
   const whereExtra: string[] = [];
   const bindExtra: any[] = [];
   if (rating && /^\d+$/.test(rating)) {
-    whereExtra.push('rating = ?');
+    whereExtra.push('r.rating = ?');
     bindExtra.push(parseInt(rating, 10));
   }
   if (search) {
-    whereExtra.push('(review_text LIKE ? OR draft_text LIKE ? OR product_name LIKE ?)');
+    whereExtra.push('(r.review_text LIKE ? OR r.draft_text LIKE ? OR r.product_name LIKE ? OR m.name LIKE ? OR r.product_sku LIKE ? OR m.offer_id LIKE ?)');
     const pat = `%${search}%`;
-    bindExtra.push(pat, pat, pat);
+    bindExtra.push(pat, pat, pat, pat, pat, pat);
   }
   const sku = c.req.query('sku'); // canonical base SKU; matches whole product family (DE206, DE206AA, DE206AAAA)
   if (sku) {
-    whereExtra.push('LOWER(product_sku) LIKE ?');
+    whereExtra.push('LOWER(COALESCE(m.offer_id, r.product_sku)) LIKE ?');
     bindExtra.push(`${sku.toLowerCase()}%`);
   }
   const extraWhere = whereExtra.length ? ' AND ' + whereExtra.join(' AND ') : '';
 
   const result = await c.env.DB.prepare(`
-    SELECT id, channel, external_id, rating, customer_name, product_name, product_sku,
-           review_text, pros, cons, draft_text, status, approved_by, posted_to_wb_at,
-           rejection_reason, short_error, next_attempt_at, created_at, updated_at
-    FROM review_drafts
-    WHERE channel = ? AND status IN (${placeholders})${extraWhere}
-    ORDER BY created_at DESC
+    SELECT r.id, r.channel, r.external_id, r.rating, r.customer_name,
+           COALESCE(r.product_name, m.name) AS product_name, r.product_sku,
+           COALESCE(m.offer_id, r.product_sku) AS article,
+           r.review_text, r.pros, r.cons, r.draft_text, r.status, r.approved_by, r.posted_to_wb_at,
+           r.rejection_reason, r.short_error, r.next_attempt_at, r.created_at, r.updated_at
+    FROM review_drafts r
+    LEFT JOIN ozon_sku_map m ON r.channel = 'ozon' AND m.sku = r.product_sku
+    WHERE r.channel = ? AND r.status IN (${placeholders})${extraWhere}
+    ORDER BY r.created_at DESC
     LIMIT ? OFFSET ?
   `).bind(channel, ...statuses, ...bindExtra, limit, offset).all();
 

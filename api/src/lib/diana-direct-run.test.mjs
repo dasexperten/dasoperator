@@ -73,3 +73,13 @@ test('Owner 2026-11-12: a price-list answer is closed warmly and the creator is 
  const out=await runDirect(f.options);
  assert.equal(out.status,'complete');assert.equal(out.reason,'fee_closed');assert.equal(fee,1);assert.equal(text,'Мы работаем по бартеру.');
 });
+
+// Owner 2026-11-15: info → lead-in line + TERMO infographic via deliverInfo.
+{
+  const {runDirect}=await import('./diana-direct-run.mjs');
+  let got=null;
+  const r=await runDirect({event:{event_id:'e',cid:'c',message_id:'m'},readOriginal:async()=>({status:'ready',messages:[]}),decide:async()=>({action:'info',reply:'Смотрите, чем TERMO особенная:',recipientId:'1'}),
+    deliverInfo:async(x)=>{got=x;return {status:'verified',outgoingId:'o'};},saveProof:async()=>{},acknowledge:async()=>true});
+  if(r.reason!=='termo_infographic_sent'||got?.text!=='Смотрите, чем TERMO особенная:')throw Error('info path failed: '+JSON.stringify(r));
+  console.log('info ok');
+}

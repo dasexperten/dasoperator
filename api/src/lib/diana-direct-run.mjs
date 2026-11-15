@@ -1,7 +1,7 @@
 // Orchestrates one signal in memory. Do not return messages or decisions from
 // a Workflow step: Cloudflare persists step results. Only status and IDs leave.
 import {requisitesQuestion} from './diana-requisites-question.mjs';
-export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,saveProof,acknowledge,pendingAmount,markFee,agreedExtra,markLead}) {
+export async function runDirect({event,readOriginal,decide,handoffPayout,deliver,deliverCards,deliverInfo,saveProof,acknowledge,pendingAmount,markFee,agreedExtra,markLead}) {
   const source=await readOriginal({conversationId:event.cid,messageId:event.message_id});
   if(source.status!=='ready')return {status:'superseded'};
   // Owner 2026-11-13 (lona.lnk): an extra amount the Owner agreed to in the chat gets its button
@@ -62,6 +62,14 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   // prepared while no button stands. The chat stays visible instead of a false promise.
   if(decision.action==='reply'&&backed===false&&/реквизит\S*\s+получ|оформ\S*\s+перевод|переводим|перевед[её]м/i.test(String(decision.reply??'')))
     return {status:'pending',reason:'unbacked_payment_claim'};
+  // Owner 2026-11-15: a short lead-in line and Otto's approved TERMO 39° infographic instead of dry text.
+  if(decision.action==='info'&&!event.dryRun&&typeof deliverInfo==='function'){
+    const sent=await deliverInfo({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.reply});
+    if(sent.status!=='verified')return {status:'pending',reason:'delivery_'+sent.status};
+    await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:sent.outgoingId,executor:'diana_direct_workflow',infographic:true});
+    const acknowledged=await acknowledge(event);
+    return acknowledged?{status:'complete',reason:'termo_infographic_sent',outgoing_id:sent.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+  }
   // Owner 2026-11-12 (argnvd): the approved scenario set, word for word, never an invented idea.
   if(decision.action==='cards'&&!event.dryRun&&typeof deliverCards==='function'){
     const sent=await deliverCards({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId});

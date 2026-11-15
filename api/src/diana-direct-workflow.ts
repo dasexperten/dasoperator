@@ -19,7 +19,7 @@ import {watchVideo} from './lib/diana-direct-video-watch.mjs';
 // @ts-expect-error plain JS module
 import {deliverDirectReply} from './lib/diana-direct-deliver.mjs';
 // @ts-expect-error plain JS module
-import {SCENARIO_CARDS} from './lib/ig-dm-reply-guard.mjs';
+import {SCENARIO_CARDS,TERMO_BENEFITS} from './lib/ig-dm-reply-guard.mjs';
 // @ts-expect-error plain JS module
 import {runDirect} from './lib/diana-direct-run.mjs';
 // @ts-expect-error plain JS module
@@ -83,7 +83,8 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
          }
         }catch{}
        }
-       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
+       const termoSent=await this.env.DB.prepare('SELECT 1 AS present FROM crm_sync_state WHERE key=?1').bind('termo_info:'+signal.cid).first<any>().catch(()=>null);
+       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{}),...(termoSent?{termo_infographic_sent:true}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
         // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
         watchVideo:(url:string)=>watchVideo({apiKey:this.env.GEMINI_API_KEY,url}),
         lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at,seen:async(id:string)=>Boolean(await this.env.DB.prepare('SELECT 1 x FROM crm_sync_state WHERE key=?1').bind('diana_publication_seen:'+id).first())});if(!p)return null;
@@ -179,6 +180,10 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       // Owner 2026-11-12: the four approved scenario cards (DIRECT_RULES «Сценарии»), two short lines first.
       deliverCards:({conversationId,messageId,recipientId}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
        text:IDEA_LINES[0],followTexts:IDEA_LINES.slice(1),images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),
+      // Owner 2026-11-15: one lead-in line and Otto's TERMO 39° infographic; once per chat.
+      deliverInfo:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
+       text,images:[TERMO_BENEFITS],token:this.env.META_IG_MESSAGING_TOKEN})
+       .then(async(r:any)=>{if(r?.status==='verified')await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('termo_info:'+conversationId,'sent',Date.now()).run().catch(()=>null);return r;}),
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });

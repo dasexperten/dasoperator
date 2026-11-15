@@ -119,6 +119,8 @@ export function requisitesSupportedByText(r, text) {
 const CARD_BASE = 'https://pub-1d1b12958f2d4ea380276bd8d0a1ff02.r2.dev/ugc';
 // Owner 2026-11-02: «если спрашивает как найти — только тогда отправляешь первое фото» — main photo of our Ozon card.
 export const OZON_CARD_PHOTO = 'https://erp.dasexperten.com/ugc/TERMO39_ozon_card_main.jpg';
+// Owner 2026-11-15: Otto's TERMO 39° infographic (approved) — sent instead of dry text about the paste.
+export const TERMO_BENEFITS = 'https://erp.dasexperten.com/ugc/TERMO39_benefits.jpg';
 export const SCENARIO_CARDS = [
   `${CARD_BASE}/scenario-thermo-261017e/card1.png`,
   `${CARD_BASE}/scenario-thermo-261017e/card2.png`,

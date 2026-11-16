@@ -1,3 +1,4 @@
+import {daytime} from './diana-direct-notice.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {runLeadNudge,scheduleLeadNudge,NUDGE_TASK,NUDGE_INSTRUCTION} from './diana-direct-notice.mjs';
 const fakeDb=(stage=null)=>{const kv=new Map();return{kv,prepare(sql){return{bind(...a){return{
@@ -15,8 +16,8 @@ const t0=Date.parse('2026-11-13T12:00:00Z');
 const conv=[{id:'1',from:{id:'u1',username:'natali'},message:'давайте пробовать',created_time:'2026-11-12T19:16:00Z'},{id:'2',from:{id:PAGE},message:'Натали, на Ozon наберите…',created_time:'2026-11-12T19:21:00Z'}];
 test('Owner 2026-11-13: a silent lead gets Diana\'s own nudge',async()=>{
  const sent=[];const env={DB:fakeDb('agreed'),GITHUB_TOKEN:''};
- const r=await runLeadNudge({env,event:base,token:'t',now:t0,fetchImpl:fetchOf(conv,sent),prepareContext:async()=>({system:'S'}),infer:async(m)=>{assert.ok(m[0].content.includes('DH-HARD-261113-01'));return{text:JSON.stringify({reply:'Натали, получилось найти TERMO?'})};}});
- assert.equal(r.status,'complete');assert.equal(sent[0],'Натали, получилось найти TERMO?');
+ const r=await runLeadNudge({env,event:base,token:'t',now:t0,fetchImpl:fetchOf(conv,sent),prepareContext:async()=>({system:'S'}),infer:async(m)=>{assert.ok(m[0].content.includes('never repeat or rephrase'));return{text:JSON.stringify({reply:'Будем ждать вашего ответа!'})};}});
+ assert.equal(r.status,'complete');assert.equal(sent[0],'Будем ждать вашего ответа!');
 });
 test('she answered, or she is already paid — no nudge',async()=>{
  const r1=await runLeadNudge({env:{DB:fakeDb('agreed')},event:base,token:'t',now:t0,fetchImpl:fetchOf([...conv,{id:'3',from:{id:'u1',username:'natali'},message:'ок',created_time:'2026-11-13T10:00:00Z'}]),prepareContext:async()=>({system:''}),infer:async()=>{throw Error('no');}});
@@ -26,6 +27,6 @@ test('she answered, or she is already paid — no nudge',async()=>{
 });
 test('schedule: lead gets a nudge in 3 hours; a paid blogger never',async()=>{
  const db=fakeDb('agreed');assert.equal(await scheduleLeadNudge(db,{cid:'c1',handle:'natali'},t0),true);
- assert.equal(JSON.parse(db.kv.get('lead_nudge:c1')).due,t0+3*3600000);
+ assert.equal(JSON.parse(db.kv.get('lead_nudge:c1')).due,daytime(t0+24*3600000));{const h=new Date(daytime(Date.parse('2026-11-16T21:00:00Z'))+3*3600000).getUTCHours();assert.ok(h>=10&&h<21);}
  assert.equal(await scheduleLeadNudge(fakeDb('paid'),{cid:'c1',handle:'natali'},t0),false);
 });

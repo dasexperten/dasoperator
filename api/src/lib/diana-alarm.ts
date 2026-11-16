@@ -110,18 +110,19 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       if (q.ok) gold_signals++; else await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1').bind('diana_gold_seen:' + g.id).run();
     }
   } catch { /* Gold check never disturbs the message scan; retried next tick. */ }
-  // Owner 2026-11-13: due lead nudges wake Diana; first at +3 h, second the next day, then stop.
+  // Owner 2026-11-16: one short reminder 24 h after our message, daytime only, then stop.
   let nudge_signals = 0;
   try {
     const due = (await env.DB.prepare("SELECT key, value FROM crm_sync_state WHERE key LIKE 'lead_nudge:%' AND json_valid(value) AND CAST(json_extract(value,'$.due') AS INTEGER)<=?1 LIMIT 10").bind(now).all<{ key: string; value: string }>()).results ?? [];
     const { queueDianaAction } = await import('./diana-compose');
     for (const row of due) {
       let v: any; try { v = JSON.parse(row.value); } catch { continue; }
+      // Old 3-hour schedule (before 16.11): move it to 24 hours after our message, daytime.
+      if (Number(v.n) === 1) { const { daytime } = await import('./diana-direct-notice.mjs'); await env.DB.prepare('UPDATE crm_sync_state SET value=?3,updated_at=?4 WHERE key=?1 AND value=?2').bind(row.key, row.value, JSON.stringify({ ...v, n: 2, due: daytime(Number(v.due) + 21 * 3600000) }), now).run(); continue; }
       const q = await queueDianaAction(env, String(v.handle), '', `nudge:${v.cid}:${v.n}:${v.due}`, { task: 'lead_nudge', cid: String(v.cid) } as any);
       if (!q.ok) continue;
       nudge_signals++;
-      if (Number(v.n) >= 2) await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1 AND value=?2').bind(row.key, row.value).run();
-      else await env.DB.prepare('UPDATE crm_sync_state SET value=?3,updated_at=?4 WHERE key=?1 AND value=?2').bind(row.key, row.value, JSON.stringify({ ...v, n: 2, due: now + 21 * 3600000 }), now).run();
+      await env.DB.prepare('DELETE FROM crm_sync_state WHERE key=?1 AND value=?2').bind(row.key, row.value).run();
     }
   } catch { /* nudges never disturb the message scan; retried next tick */ }
   // Owner 2026-11-14 (valeria.purpleera): payment details never sit without a button. A chat whose

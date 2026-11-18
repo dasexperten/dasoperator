@@ -1,0 +1,27 @@
+name: UGC list timing (read-only)
+
+# Owner 2026-11-17: the UGC list hung on «Загрузка…». This measures the live list:
+# how long each step takes, how big the answer is, and that the top cards are not zero.
+# It reads only. No blogger data leaves the ERP — step times, size and counts.
+
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Measure the live list three times
+        env:
+          ROUTE_SECRET: ${{ secrets.CODEX_ROUTE_SECRET }}
+        run: |
+          set -eu
+          test -n "$ROUTE_SECRET"
+          for run in 1 2 3; do
+            curl --max-time 280 -sS -o body.json -w "run $run: http %{http_code} · %{time_total}s · %{size_download} bytes\n" -X POST \
+              -H "X-Codex-Route-Secret: $ROUTE_SECRET" \
+              https://dasoperator-api.dasexperten.workers.dev/internal/ugc/list-timing || echo "run $run: no answer"
+            head -c 3000 body.json; echo
+          done

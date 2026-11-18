@@ -32,6 +32,23 @@ route.post('/direct-subscription-check', async c => {
     return c.json({ok:imageOk&&out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6.1-terra',image_verified:imageOk});
   } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|upstream_http_\d{3}|upstream_model_not_verified|upstream_empty_answer(?:_(?:completed|failed|incomplete|no_terminal))?|upstream_codex_no_pass|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
 });
+// Read-only stopwatch for the UGC list (Owner 2026-11-17: the list hung on «Загрузка…»).
+// Builds the same payload the screen gets and returns only step times, size and counts — no blogger data.
+route.post('/list-timing', async c => {
+  c.header('Cache-Control', 'no-store');
+  const expected=c.env.CODEX_ROUTE_SECRET ?? '';
+  const given=c.req.header('X-Codex-Route-Secret') ?? '';
+  let diff=expected.length ^ given.length;
+  for(let i=0;i<Math.min(expected.length,given.length);i++)diff|=expected.charCodeAt(i)^given.charCodeAt(i);
+  if(!expected||diff)return c.json({ok:false,error:'unauthorized'},401);
+  const {ugcListPayload}=await import('./ugc');
+  const started=Date.now();let last=started;const steps:Array<[string,number]>=[];
+  const payload=await ugcListPayload(c.env,{},step=>{const now=Date.now();steps.push([step,now-last]);last=now;});
+  const bytes=new TextEncoder().encode(JSON.stringify({success:true,result:payload})).length;
+  const summary=payload.summary as Record<string,unknown>;
+  return c.json({ok:true,total_ms:Date.now()-started,bytes,steps,creators:payload.creators.length,
+    cards:{creators:summary.creators,profiles:summary.profiles,content_items:summary.content_items,published:summary.published,products:payload.products.length}});
+});
 const tiktokSource=(id:string,body:any)=>({contentId:id,claimId:body.claim_id,sourceSha256:String(body.source_sha256??''),sourceAssetUrl:`https://org.dasexperten.com/assets/ugc/${body.source_sha256??''}/original.mp4`,sourceDurationSeconds:Number(body.source_duration_seconds),sourceAuthor:body.source_author,sourceUrl:body.source_url,sourceDriveId:body.source_drive_id});
 
 route.post('/hard-answer', async (c) => {

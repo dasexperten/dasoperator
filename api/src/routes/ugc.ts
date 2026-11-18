@@ -260,19 +260,20 @@ ugc.post('/content/:id/reel-job', async (c) => {
   return ok(c, { job, created: Boolean(result.meta.changes) });
 });
 
-ugc.get('/', async (c) => {
-  const access = await requireAccess(c);
-  if (access instanceof Response) return access;
+// The whole list as one payload. `mark` names each finished step so the time of every step can be
+// measured on the live ERP (Owner 2026-11-17: the list hung on «Загрузка…»).
+type UgcListQuery = { platform?: string | undefined; search?: string | undefined; stage?: string | undefined; inactive?: string | undefined; product?: string | undefined };
+export async function ugcListPayload(env: Env, query: UgcListQuery, mark: (step: string) => void = () => {}) {
 
-  const platform = normalizePlatform(c.req.query('platform'));
-  const usePlatform = c.req.query('platform') && c.req.query('platform') !== 'all' ? platform : null;
-  const search = textValue(c.req.query('search'), 120)?.toLowerCase() ?? '';
-  const stage = textValue(c.req.query('stage'), 80);
+  const platform = normalizePlatform(query.platform);
+  const usePlatform = query.platform && query.platform !== 'all' ? platform : null;
+  const search = textValue(query.search, 120)?.toLowerCase() ?? '';
+  const stage = textValue(query.stage, 80);
   const archiveOnly = stage === 'archived';
-  const inactiveOnly = c.req.query('inactive') === '1';
-  const product = baseProductSku(c.req.query('product'));
+  const inactiveOnly = query.inactive === '1';
+  const product = baseProductSku(query.product);
 
-  const profiles = await c.env.DB.prepare(
+  const profiles = await env.DB.prepare(
     `SELECT
        c.id creator_id, c.normalized_handle creator_handle, c.display_name, c.city,
        c.category, c.audience_market, c.audience_language, c.lifecycle_stage, c.origin,
@@ -295,8 +296,9 @@ ugc.get('/', async (c) => {
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
   ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0, inactiveOnly ? 1 : 0).all<Record<string, any>>();
+  mark('profiles');
 
-  const metricRows = await c.env.DB.prepare(
+  const metricRows = await env.DB.prepare(
     `SELECT c.id, c.creator_id, c.creator_platform_id, c.content_url, c.content_type,
             c.published_at, views, likes, comments, engagement_rate, metrics_checked_at, product_codes, source_sheet,
             source_row, imported_at, link_status, link_checked_at,
@@ -309,27 +311,31 @@ ugc.get('/', async (c) => {
      ORDER BY COALESCE(c.published_at, '') DESC, imported_at DESC,
               source_sheet DESC, source_row DESC`
   ).all<Record<string, any>>();
+  mark('content');
 
-  const sourceRows = await c.env.DB.prepare(
+  const sourceRows = await env.DB.prepare(
     `SELECT creator_id, creator_platform_id, kind, source_document, source_sheet,
             source_row, source_text, amount_minor, product_codes, content_url
      FROM ugc_source_records ORDER BY source_document, source_row`
   ).all<Record<string, any>>();
+  mark('sources');
 
-  const contentCounts = await c.env.DB.prepare(
+  const contentCounts = await env.DB.prepare(
     `SELECT creator_id, creator_platform_id, COUNT(*) content_count
      FROM ugc_content WHERE product_status='identified' GROUP BY creator_id, creator_platform_id`
   ).all<{ creator_id: string; creator_platform_id: string; content_count: number }>();
+  mark('content_counts');
 
-  const collaborations = await c.env.DB.prepare(
+  const collaborations = await env.DB.prepare(
     `SELECT * FROM ugc_collaborations ORDER BY updated_at DESC`
   ).all<Record<string, any>>();
+  mark('collaborations');
 
   // ugc_payouts arrives with migration 0116; until it is applied the screen
   // must keep working, so a missing table reads as "no payouts".
   let payoutRows: Record<string, any>[] = [];
   try {
-    const result = await c.env.DB.prepare(
+    const result = await env.DB.prepare(
       `SELECT p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
               p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
               p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.execute_claimed_at, p.created_at, p.updated_at,
@@ -347,6 +353,7 @@ ugc.get('/', async (c) => {
     ).all<Record<string, any>>();
     payoutRows = annotateMissingInfo(annotateOverLimit((result.results ?? []).map(row => ({ ...row, payout_hold: Boolean(row.payout_hold), has_konsol_contractor: Boolean(row.has_konsol_contractor) }))));
   } catch { /* table not yet migrated */ }
+  mark('payouts');
   const sourceIndex = sourceRecordIndex([...(sourceRows.results ?? []), ...payoutProductRecords(payoutRows)]);
   const payoutsByCreator = new Map<string, Record<string, any>[]>();
   for (const row of payoutRows) {
@@ -424,7 +431,7 @@ ugc.get('/', async (c) => {
   }
 
   // Only unresolved incidents for the current incoming message are shown.
-  const incidents = await c.env.DB.prepare(`
+  const incidents = await env.DB.prepare(`
     WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
     SELECT state.value, latest.conversation_id cid,
       COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
@@ -434,11 +441,12 @@ ugc.get('/', async (c) => {
       JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
     WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
   `).all<{value: string; cid: string; creator_id: string | null}>();
+  mark('incidents');
   // Owner 2026-10-19: hovering the exclamation mark shows the blogger's last words, or her photo.
   const cids = [...new Set((incidents.results ?? []).map((r) => r.cid).filter(Boolean))];
   const lastIn = new Map<string, Array<{ id: string; text: string; images: number; at: string }>>();
   if (cids.length) {
-    const msgs = await c.env.DB.prepare(`SELECT id, conversation_id cid, text, attachments_json a, created_at FROM ugc_ig_messages m
+    const msgs = await env.DB.prepare(`SELECT id, conversation_id cid, text, attachments_json a, created_at FROM ugc_ig_messages m
       WHERE m.direction='in' AND m.conversation_id IN (${cids.map((_, i) => `?${i + 1}`).join(',')})
         AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM ugc_ig_messages o WHERE o.conversation_id=m.conversation_id AND o.direction='out'), '')
       ORDER BY m.created_at`).bind(...cids).all<{ id: string; cid: string; text: string | null; a: string | null; created_at: string }>().catch(() => ({ results: [] as any[] }));
@@ -455,6 +463,7 @@ ugc.get('/', async (c) => {
       lastIn.set(m.cid, list.slice(-4));
     }
   }
+  mark('incident_messages');
   const attentionByCreator = new Map<string, ReturnType<typeof replyAttention> & { last_in?: Array<{ id: string; text: string; images: number; at: string }> }>();
   for (const row of incidents.results ?? []) {
     const state = readReplyState(row.value);
@@ -462,46 +471,50 @@ ugc.get('/', async (c) => {
   }
 
   // Owner 2026-11-05: statuses changed by hand, shown as a mark until Diana has studied them.
-  const manualStageRows = await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE ?1`)
+  const manualStageRows = await env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE ?1`)
     .bind(`${MANUAL_STAGE_PREFIX}%`).all<{ key: string; value: string }>().catch(() => ({ results: [] as any[] }));
   const manualStageByCreator = new Map<string, NonNullable<ReturnType<typeof parseManualStage>>>();
   for (const row of manualStageRows.results ?? []) {
     const parsed = parseManualStage(row.value);
     if (parsed) manualStageByCreator.set(String(row.key).slice(MANUAL_STAGE_PREFIX.length), parsed);
   }
+  mark('manual_stage');
   // Owner 2026-11-11: an answer that never reached the chat is a visible mark, not a silent unknown.
   const deliveryByHandle = new Map<string, { status: string; until: string; last_in: string }>();
   try {
     const { undeliveredChats } = await import('../lib/diana-delivery-expiry.mjs');
-    for (const chat of await undeliveredChats(c.env.DB)) if (chat.handle) deliveryByHandle.set(chat.handle, { status: chat.status, until: chat.until, last_in: chat.last_in });
+    for (const chat of await undeliveredChats(env.DB)) if (chat.handle) deliveryByHandle.set(chat.handle, { status: chat.status, until: chat.until, last_in: chat.last_in });
   } catch { /* the list never fails over a mark */ }
+  mark('delivery');
   // Owner 2026-11-11: details in the chat without a button — rechecked live so a button made
   // since the hourly watch clears the mark at once.
   // Owner 2026-11-12 (approved mockup): a message waiting in the Chrome queue shows under the blogger's name:
   // «ждёт отправки», then «доставлено» (3 days), or «не доставлено» with the reason.
   const browserByHandle = new Map<string, { kind: string; state: 'queued' | 'sent' | 'failed'; reason?: string }>();
   try {
-    const lastRun = await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
+    const lastRun = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key='browser_run:last'`).first<{ value: string }>();
     let results: Record<string, string> = {};
-    try { const run = String(JSON.parse(lastRun?.value ?? '{}').run ?? ''); if (run) results = JSON.parse((await c.env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind('browser_run:' + run).first<{ value: string }>())?.value ?? '{}').results ?? {}; } catch { results = {}; }
-    const sentRows = (await c.env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'browser_sent:%' AND updated_at >= ?1 ORDER BY updated_at`).bind(Date.now() - 3 * 86_400_000).all<{ key: string; value: string }>()).results ?? [];
+    try { const run = String(JSON.parse(lastRun?.value ?? '{}').run ?? ''); if (run) results = JSON.parse((await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind('browser_run:' + run).first<{ value: string }>())?.value ?? '{}').results ?? {}; } catch { results = {}; }
+    const sentRows = (await env.DB.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE 'browser_sent:%' AND updated_at >= ?1 ORDER BY updated_at`).bind(Date.now() - 3 * 86_400_000).all<{ key: string; value: string }>()).results ?? [];
     for (const row of sentRows) { const h = row.key.split(':')[1] ?? ''; let kind = ''; try { kind = String(JSON.parse(row.value).kind ?? ''); } catch { kind = ''; } if (h) browserByHandle.set(h, { kind, state: 'sent' }); }
-    for (const row of await browserQueueRows(c)) {
+    for (const row of await browserQueueRows({ env })) {
       let v: any = null; try { v = JSON.parse(row.value); } catch { v = null; }
       const h = String(v?.handle ?? row.key.replace(/^browser_queue:/, '')).toLowerCase();
       const r = String(results[h] ?? '');
       if (h) browserByHandle.set(h, r.startsWith('skipped') ? { kind: String(v?.kind ?? ''), state: 'failed', reason: r.replace(/^skipped:\s*/, '').slice(0, 200) } : { kind: String(v?.kind ?? ''), state: 'queued' });
     }
   } catch { /* the queue line is an aid; the list never fails because of it */ }
+  mark('browser_queue');
   const missingButtonByHandle = new Map<string, { since: string }>();
   try {
-    const watch = await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_button_watch'").first<{ value: string }>();
+    const watch = await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='diana_button_watch'").first<{ value: string }>();
     for (const m of (watch ? JSON.parse(watch.value).missing ?? [] : [])) {
-      const made = await c.env.DB.prepare(`SELECT 1 AS present FROM ugc_payouts p LEFT JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id AND cp.platform='instagram'
+      const made = await env.DB.prepare(`SELECT 1 AS present FROM ugc_payouts p LEFT JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id AND cp.platform='instagram'
         WHERE (lower(p.handle)=?1 OR cp.normalized_handle=?1) AND p.created_at >= ?2 LIMIT 1`).bind(m.handle, Date.parse(m.since) - 3 * 86_400_000).first();
       if (!made) missingButtonByHandle.set(m.handle, { since: m.since });
     }
   } catch { /* the list never fails over a mark */ }
+  mark('button_watch');
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -588,17 +601,20 @@ ugc.get('/', async (c) => {
     creators.set(creatorId, creator);
   }
 
-  const platformCounts = await c.env.DB.prepare(
+  mark('assemble');
+  const platformCounts = await env.DB.prepare(
     `SELECT platform, COUNT(DISTINCT creator_id) creator_count
      FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id
      WHERE ((?1=1 AND ((p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'))
        OR (?1=0 AND c.archived_at IS NULL AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable') AND COALESCE(c.lifecycle_stage,'')<>'refused'))
      GROUP BY platform ORDER BY creator_count DESC`
   ).bind(inactiveOnly ? 1 : 0).all<{ platform: string; creator_count: number }>();
+  mark('platform_counts');
   // Owner 2026-11-12: refused bloggers are not shown; they appear only when «Inactive» is ticked.
-  const inactiveCount = await c.env.DB.prepare("SELECT COUNT(DISTINCT p.creator_id) count FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id WHERE (p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'")
+  const inactiveCount = await env.DB.prepare("SELECT COUNT(DISTINCT p.creator_id) count FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id WHERE (p.platform='instagram' AND p.availability_status='unavailable') OR c.lifecycle_stage='refused'")
     .first<{ count: number }>();
-  const totals = await c.env.DB.prepare(
+  mark('inactive_count');
+  const totals = await env.DB.prepare(
     `SELECT
        (SELECT COUNT(*) FROM ugc_creators WHERE archived_at IS NULL) creators,
        (SELECT COUNT(*) FROM ugc_creator_platforms) profiles,
@@ -619,6 +635,9 @@ ugc.get('/', async (c) => {
        (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('posted','gold')) published
     `
   ).first<Record<string, any>>();
+  mark('totals');
+  const konsolOwnMinor = await import('../lib/konsol-balance').then((m) => m.konsolOwnRub(env)).catch(() => null);
+  mark('payment_service_balance');
   const payoutSummary = {
     payouts_awaiting: payoutRows.filter((row) => row.status === 'awaiting_approval').length,
     payouts_open: payoutRows.filter((row) => row.status === 'approved' || row.status === 'sent').length,
@@ -627,7 +646,7 @@ ugc.get('/', async (c) => {
     payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
     paid_konsol: paidCounters(payoutRows),
     // Owner 2026-10-20: own RUB in Konsol next to the paid line, and what the queue needs (with the 30 ₽ fee).
-    konsol_own_minor: await import('../lib/konsol-balance').then((m) => m.konsolOwnRub(c.env)).catch(() => null),
+    konsol_own_minor: konsolOwnMinor,
     queue_need_minor: payoutRows.filter((row) => (row.status === 'awaiting_approval' || row.status === 'approved') && !row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0) + 3000, 0),
   };
   const productCounts = new Map<string, number>();
@@ -647,7 +666,8 @@ ugc.get('/', async (c) => {
     { last_activity_at: b.last_activity_at, followers: Math.max(-1, ...b.profiles.map((p: any) => p.followers ?? -1)), name: b.display_name ?? b.normalized_handle },
   ));
 
-  return ok(c, {
+  mark('finish');
+  return {
     creators: creatorList,
     inactive_count: inactiveCount?.count ?? 0,
     payout_summary: payoutSummary,
@@ -661,7 +681,16 @@ ugc.get('/', async (c) => {
     platforms: platformCounts.results ?? [],
     products: Array.from(productCounts, ([sku, content_count]) => ({ sku, name: UGC_PRODUCTS[sku] ?? sku, content_count }))
       .sort((a, b) => b.content_count - a.content_count || a.name.localeCompare(b.name)),
-  });
+  };
+}
+
+ugc.get('/', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  return ok(c, await ugcListPayload(c.env, {
+    platform: c.req.query('platform'), search: c.req.query('search'), stage: c.req.query('stage'),
+    inactive: c.req.query('inactive'), product: c.req.query('product'),
+  }));
 });
 
 // Diana's explicit review; discovery/HTTP health can never call this automatically.

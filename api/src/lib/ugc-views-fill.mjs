@@ -22,25 +22,30 @@ export async function fillMissingViews(env, { limit = 40, budgetMs = 4 * 60_000,
       WHERE views IS NULL AND content_url LIKE '%instagram.com/%'
         AND (content_url LIKE '%/reel/%' OR content_url LIKE '%/p/%' OR content_url LIKE '%/tv/%')
         AND COALESCE(link_status,'') NOT IN ('missing','invalid')${skip.length ? ` AND id NOT IN (${marks})` : ''}
-      ORDER BY ${ACTIVITY} DESC, id LIMIT ?1`).bind(Math.max(1, Math.min(100, Math.trunc(limit))), ...skip).all()).results ?? [];
+        AND NOT EXISTS (SELECT 1 FROM crm_sync_state t WHERE t.key='ugc_views_try:'||ugc_content.id AND CAST(t.value AS INTEGER)>?${skip.length + 2})
+      ORDER BY ${ACTIVITY} DESC, id LIMIT ?1`).bind(Math.max(1, Math.min(100, Math.trunc(limit))), ...skip, Date.now() - DAY).all()).results ?? [];
   const totals = { ids: rows.map(r => r.id), selected: rows.length, filled: 0, pending: 0, no_views: 0, unread: 0, budget_exhausted: false, first: null };
   const save = async (row, seen) => {
-    if (seen.views == null) { totals.no_views++; return; }
+    if (seen.views == null) { totals.no_views++; await deferred(row); return; }
     await env.DB.prepare(`UPDATE ugc_content SET views=?2, likes=COALESCE(?3,likes), comments=COALESCE(?4,comments),
         metrics_checked_at=?5, metrics_source='apify', published_at=COALESCE(published_at,?6), updated_at=?7 WHERE id=?1 AND views IS NULL`)
       .bind(row.id, seen.views, seen.likes ?? null, seen.comments ?? null, seen.observedAt ?? new Date().toISOString(), seen.postedAt ?? null, Date.now()).run();
     totals.filled++;
     if (!totals.first) totals.first = row.id;
   };
+  // A reading that brought no plays (a photo post, a closed account, a dead run) defers that reel for a
+  // day, so the queue moves on to older reels instead of paying for the same posts every night.
+  const deferred = async row => env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind('ugc_views_try:' + row.id, String(Date.now()), Date.now()).run();
   const waiting = [];
   // Pass 1: start or reuse a reading for each reel. A reading saved within a day is reused.
   for (const row of rows) {
     if (now() - started >= budgetMs) break;
     let seen;
-    try { seen = await read(env, { url: row.content_url, cacheForMs: DAY }); } catch { totals.unread++; continue; }
+    try { seen = await read(env, { url: row.content_url, cacheForMs: DAY }); } catch { totals.unread++; await deferred(row); continue; }
     if (seen?.status === 'budget_exhausted') { totals.budget_exhausted = true; break; }
     if (seen?.status === 'pending') { waiting.push(row); continue; }
-    if (seen?.status === 'ok') await save(row, seen); else totals.unread++;
+    if (seen?.status === 'ok') await save(row, seen); else { totals.unread++; await deferred(row); }
   }
   // Pass 2: collect the readings that were still running, in the same night.
   for (const row of waiting) {
@@ -48,8 +53,8 @@ export async function fillMissingViews(env, { limit = 40, budgetMs = 4 * 60_000,
     let seen;
     try { seen = await read(env, { url: row.content_url, cacheForMs: DAY }); } catch { totals.unread++; continue; }
     if (seen?.status === 'ok') await save(row, seen);
-    else if (seen?.status === 'pending' || seen?.status === 'unknown') totals.pending++;
-    else totals.unread++;
+    else if (seen?.status === 'pending') totals.pending++;
+    else { totals.unread++; await deferred(row); }
   }
   await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES('ugc_views_fill:last',?1,?2)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)

@@ -63,3 +63,13 @@ test('the next pass of a round skips the reels already tried', async () => {
   const t = await fillMissingViews(env, { exclude: ['a'], read: async (_e, { url }) => { seen.push(url); return { status: 'ok', views: 9 }; } });
   assert.deepEqual(seen, [reel('B')]); assert.deepEqual(t.ids, ['b']);
 });
+
+test('a reel whose reading brings no plays is deferred a day, so older reels are reached (Codex review)', async () => {
+  const rows = Array.from({ length: 3 }, (_, i) => ({ id: 'n' + i, url: reel('N' + i), pub: `2026-11-1${8 - i}` }));
+  const { env } = db([...rows, { id: 'old', url: reel('OLD'), pub: '2026-11-02' }]);
+  const read = async (_e, { url }) => url.includes('OLD') ? { status: 'ok', views: 77 } : { status: 'ok', views: null, likes: 1 };
+  const first = await fillMissingViews(env, { limit: 3, read });
+  assert.equal(first.no_views, 3); assert.equal(first.filled, 0);
+  const second = await fillMissingViews(env, { limit: 3, read });
+  assert.deepEqual(second.ids, ['old']); assert.equal(second.filled, 1);
+});

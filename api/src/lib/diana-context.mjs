@@ -2,6 +2,7 @@
 // skills and source entries. No OpenRouter or script fallback.
 import { selectWithSubscription } from './diana-subscription-selection.mjs';
 import { parseEntries } from './diana-profile.mjs';
+import { assembleCore } from './seat-core.mjs';
 
 export const DIANA_CONTEXT_VERSION = 'diana-subscription-skills-20261029';
 const ORG = 'dasexperten/organizacia';
@@ -9,6 +10,8 @@ const ARCH = 'dasexperten/das-architektura';
 const PROFILE = {
   harness: 'agents/diana-helios/DIRECT_RULES.md',
   voice: 'agents/diana-helios/VOICE.md', charter: 'agents/diana-helios/CHARTER.md',
+  // Owner 2026-11-18: permanent behaviour layer, whole, never through selection.
+  core: 'agents/diana-helios/CORE.md',
   hardRules: 'HARD_RULES.md', learning: 'agents/diana-helios/LEARNING.md',
   memory: 'agents/diana-helios/MEMORY.md',
   imagePolicy: 'agents/diana-helios/IMAGE_RULES.json',
@@ -52,6 +55,8 @@ export async function prepareDianaContext({ task, githubToken, infer, fetchImpl 
     github(ARCH, `git/trees/${archSha}?recursive=1`, '', githubToken, fetchImpl),
   ]);
   const files = Object.fromEntries(pairs);
+  // CORE goes whole right after VOICE and CHARTER, never into JEV candidates and never cut.
+  const core = assembleCore(files.core, 'Diana Helios');
   const documents = ['hardRules', 'learning', 'memory'].flatMap(layer => parseEntries(files[layer]).map((entry, i) => ({
     key: `${layer}:${i}`, layer, heading: entry.heading, description: entry.text, text: entry.text,
   })));
@@ -84,12 +89,13 @@ export async function prepareDianaContext({ task, githubToken, infer, fetchImpl 
     ...loadedReferences.map(s => `=== REFERENCE ${s.path} (whole) ===\n${s.text}`),
     `=== VOICE.md (whole) ===\n${files.voice}`,
     `=== CHARTER.md (whole) ===\n${files.charter}`,
+    ...(core.block ? [core.block] : []),
     ...knowledge.map(e => `=== ${PROFILE[e.layer]} | ${e.heading} (whole entry) ===\n${e.text}`),
     `=== CURRENT DIRECT_RULES.md (whole) ===\n${files.harness}`,
     'Apply the skills to this particular creator and the actual conversation before writing. Current Owner instructions and HARD_RULES override older examples, skill scripts and dated memories. DIRECT_RULES contains the current programme. Use personizer in gate mode: one next reply, not ten options. Do not invent missing facts or claim to have used tools you cannot call. If an indispensable reference or external action is missing, escalate without a reply. No generic acknowledgement, holding message or stock script as a substitute for understanding the creator. Return only the requested answer JSON.',
   ].join('\n\n');
   const imagePolicy = JSON.parse(files.imagePolicy);
   if (!imagePolicy.product || !Array.isArray(imagePolicy.sellers)) throw new Error('diana_context_unavailable: invalid image policy');
-  return { system, imagePolicy, voice: files.voice, receipt: { version: DIANA_CONTEXT_VERSION, method: 'subscription', org_sha: orgSha, skills_sha: archSha,
+  return { system, imagePolicy, voice: files.voice, core: core.core, receipt: { version: DIANA_CONTEXT_VERSION, method: 'subscription', core: core.stamp, core_rules: core.block ? core.core.rules.map(r => r.id) : [], org_sha: orgSha, skills_sha: archSha,
     skills: skillNames, entries: knowledge.map(e => e.key), references: loadedReferences.map(r => r.path), prepared_ms: Date.now() - started } };
 }

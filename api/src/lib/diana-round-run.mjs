@@ -77,7 +77,7 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
   const claim=await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({status:'claimed',at:now}),now).run();
   if(!claim?.meta?.changes)return{status:'skipped',reason:'already_done_this_round'};
   const sent=await sendProactive(fetchImpl,page.access_token,String(lastIn.from.id),reply);
-  await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify(sent?{status:'verified',outgoing_id:sent,at:now}:{status:'unknown',at:now}),Date.now()).run();
+  await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify(sent?{status:'verified',outgoing_id:sent,at:now,core:context.receipt?.core??null}:{status:'unknown',at:now,core:context.receipt?.core??null}),Date.now()).run();
   // The round answered her message: Diana Direct's alarm for it is closed, so she is not answered twice.
   if(sent&&unanswered){
     try{
@@ -85,5 +85,5 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
       await env.DB.prepare("DELETE FROM crm_sync_state WHERE key=?1 AND json_valid(value) AND json_extract(value,'$.message_id')=?2").bind('diana_round_alarm:'+cid,String(last.id)).run();
     }catch{/* the answer is sent; Direct re-reads the chat and sees our message last */}
   }
-  return sent?{status:unanswered?'answered':'sent',outgoing_id:sent}:{status:'pending',reason:'round_delivery_unknown'};
+  return sent?{status:unanswered?'answered':'sent',outgoing_id:sent,core:context.receipt?.core??null}:{status:'pending',reason:'round_delivery_unknown'};
 }

@@ -42,8 +42,9 @@ route.post('/list-timing', async c => {
   for(let i=0;i<Math.min(expected.length,given.length);i++)diff|=expected.charCodeAt(i)^given.charCodeAt(i);
   if(!expected||diff)return c.json({ok:false,error:'unauthorized'},401);
   const {ugcListPayload}=await import('./ugc');
-  const started=Date.now();let last=started;const steps:Array<[string,number]>=[];
-  const payload=await ugcListPayload(c.env,{},step=>{const now=Date.now();steps.push([step,now-last]);last=now;});
+  // Reads run together, so each step shows the moment it finished, counted from the start.
+  const started=Date.now();const steps:Array<[string,number]>=[];
+  const payload=await ugcListPayload(c.env,{},step=>{steps.push([step,Date.now()-started]);},work=>c.executionCtx.waitUntil(work));
   const bytes=new TextEncoder().encode(JSON.stringify({success:true,result:payload})).length;
   const summary=payload.summary as Record<string,unknown>;
   return c.json({ok:true,total_ms:Date.now()-started,bytes,steps,creators:payload.creators.length,

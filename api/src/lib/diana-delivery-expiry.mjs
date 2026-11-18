@@ -9,26 +9,36 @@ const EVENT = 'diana_direct_event:message:';
 const time = v => { const t = Date.parse(String(v ?? '').replace(/\+0000$/, 'Z')); return Number.isFinite(t) ? t : null; };
 const parse = v => { try { return JSON.parse(v); } catch { return null; } };
 
-async function conversation(db, cid) {
-  const row = await db.prepare(`SELECT
-      max(CASE WHEN direction='in' THEN created_at END) last_in,
-      max(CASE WHEN direction='out' THEN created_at END) last_out,
-      (SELECT from_username FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND from_username IS NOT NULL ORDER BY created_at DESC LIMIT 1) handle
-    FROM ugc_ig_messages WHERE conversation_id=?1`).bind(cid).first();
-  return { lastIn: time(row?.last_in), lastOut: time(row?.last_out), handle: row?.handle ? String(row.handle).toLowerCase() : null };
+// One read for all chats (was one read per chat): the UGC list calls this on every load.
+async function conversations(db, cids) {
+  const found = new Map();
+  for (let i = 0; i < cids.length; i += 80) {
+    const part = cids.slice(i, i + 80);
+    const rows = (await db.prepare(`SELECT m.conversation_id cid,
+        max(CASE WHEN m.direction='in' THEN m.created_at END) last_in,
+        max(CASE WHEN m.direction='out' THEN m.created_at END) last_out,
+        (SELECT h.from_username FROM ugc_ig_messages h WHERE h.conversation_id=m.conversation_id AND h.direction='in' AND h.from_username IS NOT NULL ORDER BY h.created_at DESC LIMIT 1) handle
+      FROM ugc_ig_messages m WHERE m.conversation_id IN (${part.map((_, n) => `?${n + 1}`).join(',')}) GROUP BY m.conversation_id`).bind(...part).all()).results ?? [];
+    for (const row of rows) found.set(row.cid, { lastIn: time(row.last_in), lastOut: time(row.last_out), handle: row.handle ? String(row.handle).toLowerCase() : null });
+  }
+  return found;
 }
 
 /** Conversations whose last blogger message got no delivered answer. */
 export async function undeliveredChats(db, now = Date.now()) {
   const rows = (await db.prepare(`SELECT key, value FROM crm_sync_state WHERE key LIKE ?1
       AND json_extract(value,'$.status') IN ('unknown','expired')`).bind(DELIVERY + '%').all()).results ?? [];
-  const seen = new Map();
+  const first = new Map();
   for (const row of rows) {
-    const v = parse(row.value), cid = v?.conversation_id;
-    if (typeof cid !== 'string' || seen.has(cid)) continue;
-    const c = await conversation(db, cid);
+    const cid = parse(row.value)?.conversation_id;
+    if (typeof cid === 'string' && !first.has(cid)) first.set(cid, row);
+  }
+  const chats = first.size ? await conversations(db, [...first.keys()]) : new Map();
+  const seen = new Map();
+  for (const [cid, row] of first) {
+    const c = chats.get(cid);
     // A later answer that reached the chat settles it, whatever the old record says.
-    if (c.lastIn === null || (c.lastOut !== null && c.lastOut >= c.lastIn)) continue;
+    if (!c || c.lastIn === null || (c.lastOut !== null && c.lastOut >= c.lastIn)) continue;
     const until = c.lastIn + WINDOW_MS;
     seen.set(cid, { key: row.key, cid, handle: c.handle, last_in: new Date(c.lastIn).toISOString(), until: new Date(until).toISOString(),
       status: now >= until ? 'expired' : 'undelivered' });

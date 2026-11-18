@@ -1063,13 +1063,31 @@ export default function UgcPage() {
     let cached: UgcPayload | null = null;
     try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
     if (cached) { setData(applySavedAmounts(cached)); setLoading(false); } else setLoading(true);
-    const response = await apiGet<UgcPayload>(`/api/ugc?${params.toString()}`);
-    if (!response.success || !response.result) setError(response.errors[0]?.message ?? 'UGC data could not be loaded');
-    else {
-      setData(applySavedAmounts(response.result));
-      try { sessionStorage.setItem(key, JSON.stringify(cacheSafe(response.result))); } catch { /* full or blocked — fine */ }
+    // Owner 2026-11-17: the list hung on «Загрузка…» for good when the answer never came. The wait
+    // now ends by itself: after 30 s, or on any network failure, the screen says so instead of spinning.
+    try {
+      const response = await Promise.race([
+        apiGet<UgcPayload>(`/api/ugc?${params.toString()}`),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('timeout')), 30_000)),
+      ]);
+      if (!response.success || !response.result) setError(response.errors?.[0]?.message ?? 'UGC data could not be loaded');
+      else {
+        setData(applySavedAmounts(response.result));
+        const copy = JSON.stringify(cacheSafe(response.result));
+        try { sessionStorage.setItem(key, copy); } catch {
+          // The tab's store was full of copies for other filters, so the next opening had nothing to show
+          // at once. Drop those copies and keep this one.
+          try {
+            for (let i = sessionStorage.length - 1; i >= 0; i--) { const name = sessionStorage.key(i); if (name?.startsWith('ugc-cache:') && name !== key) sessionStorage.removeItem(name); }
+            sessionStorage.setItem(key, copy);
+          } catch { /* blocked or still too large — the list works without the copy */ }
+        }
+      }
+    } catch (failure) {
+      if (!cached) setError(failure instanceof Error && failure.message === 'timeout' ? 'Список не загрузился за 30 секунд. Обновите страницу.' : 'Список не загрузился. Проверьте связь и обновите страницу.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [platform, search, stage, product, inactive, applySavedAmounts]);
 
   useEffect(() => {

@@ -1,0 +1,52 @@
+name: Operational storage pilot tests
+
+on:
+  pull_request:
+    paths:
+      - 'pilots/operational-storage/**'
+      - '.github/workflows/operational-storage-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operational-storage-pilot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test storage, capture, memory, reconciliation and social contracts without live network
+        run: |
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          git rev-parse HEAD
+          node --import ./pilots/operational-storage/no-network.mjs --test \
+            pilots/operational-storage/store.test.mjs \
+            pilots/operational-storage/capture.test.mjs \
+            pilots/operational-storage/memory-head.test.mjs \
+            pilots/operational-storage/reconciliation.test.mjs \
+            pilots/operational-storage/export-destination-ledger.test.mjs \
+            pilots/operational-storage/nightly-archive-receipt-adapter.test.mjs \
+            pilots/operational-storage/hybrid-outreach-planner.test.mjs \
+            pilots/operational-storage/handoff-recovery.test.mjs \
+            pilots/operational-storage/handoff-recovery.file.test.mjs \
+            pilots/operational-storage/handoff-identity.test.mjs \
+            pilots/operational-storage/atomic-handoff.test.mjs \
+            pilots/operational-storage/erp-purge-contract.test.mjs \
+            pilots/operational-storage/erp-handoff.test.mjs \
+            pilots/operational-storage/manual-stage-revision.test.mjs \
+            workers/_social/article-service.test.mjs
+      - name: Explain integration boundary
+        run: |
+          echo 'Diana cross-repository parser fixtures are optional locally and skipped here.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Native D1/R2 and handoff suites require the explicit isolated local runtime; their optional tests are skipped in this package-free job.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Cloudflare bindings, production source state, credentials or publisher are used.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,627 @@
+{
+  "repository": "dasexperten/dasoperator",
+  "commit": "16149d51389cbc4d625bbc8e26d766890e232c14",
+  "retrieval": "authorized GitHub connector, pinned fetch_file",
+  "files": [
+    {
+      "path": "db/migrations/0060_crm_website.sql",
+      "local_path": "originals/db/migrations/0060_crm_website.sql",
+      "git_blob_sha": "88fe44b048418dca9cadf7bf7d1bf57ff4ea58d4",
+      "sha256": "d48659ef1749c4bc5f06dfb39b73f782a54691e0d27f86b7d5a2f3e7285e6804",
+      "bytes": 6325,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0060_crm_website.sql"
+    },
+    {
+      "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+      "local_path": "originals/db/migrations/0098_ugc_creator_pipeline.sql",
+      "git_blob_sha": "c7d78ec8763c8f7674a1a662b86e585998b749d8",
+      "sha256": "68f51ea7c6a41f67b47a32bd1bbd196d9a807b9c9f465bbc7b11cdf23e3601c4",
+      "bytes": 3784,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0098_ugc_creator_pipeline.sql"
+    },
+    {
+      "path": "db/migrations/0121_ugc_creator_status_origin.sql",
+      "local_path": "originals/db/migrations/0121_ugc_creator_status_origin.sql",
+      "git_blob_sha": "1029226fe496fd30950316114aea436a483fd951",
+      "sha256": "ec4284e0c3df131fb252e053a206957390edb8ed64f4126d40b9a80619e184fd",
+      "bytes": 1690,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0121_ugc_creator_status_origin.sql"
+    },
+    {
+      "path": "db/migrations/0126_ugc_creator_city.sql",
+      "local_path": "originals/db/migrations/0126_ugc_creator_city.sql",
+      "git_blob_sha": "7c0f0bb8688c282ac2107771b9b996225b9df948",
+      "sha256": "3abe39767fb54cd88c8de21ba3f357f155113b779c495cdd9ff4971dc8b97aff",
+      "bytes": 243,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0126_ugc_creator_city.sql"
+    },
+    {
+      "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+      "local_path": "originals/db/migrations/0131_ugc_blogger_profiles.sql",
+      "git_blob_sha": "06907f023dfb7a5e3c875100b369356adabc7116",
+      "sha256": "25ba3aa65f73c2cdb6f0e90cbd9a07657b8db22789c27ead14bb709345a87ae5",
+      "bytes": 566,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0131_ugc_blogger_profiles.sql"
+    },
+    {
+      "path": "db/migrations/0132_ugc_creator_archive.sql",
+      "local_path": "originals/db/migrations/0132_ugc_creator_archive.sql",
+      "git_blob_sha": "96a09a122d50787dfda7c3b534f7955a89d2fe86",
+      "sha256": "27abcb48606f953e26ac063db5235b46c8fbc55c776a145fcc257740b1bcb6a4",
+      "bytes": 294,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0132_ugc_creator_archive.sql"
+    },
+    {
+      "path": "db/migrations/0133_ugc_profile_availability.sql",
+      "local_path": "originals/db/migrations/0133_ugc_profile_availability.sql",
+      "git_blob_sha": "73fdc68c6859b718f184b5100b15d6237c993bb9",
+      "sha256": "87f859b6519463fb4f3e84d3b34134df240637be70fb53b548269cb99a712748",
+      "bytes": 439,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0133_ugc_profile_availability.sql"
+    },
+    {
+      "path": "db/migrations/0134_ugc_stage_cleanup.sql",
+      "local_path": "originals/db/migrations/0134_ugc_stage_cleanup.sql",
+      "git_blob_sha": "2c7de4da9987fe6455cbf38967a445dd4403d700",
+      "sha256": "635ab982c6669392ef19f640e6fb202c023bfce4b9d3fd7cb09e359068ab3fdb",
+      "bytes": 1083,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0134_ugc_stage_cleanup.sql"
+    },
+    {
+      "path": "db/migrations/0135_ugc_drop_new_sent.sql",
+      "local_path": "originals/db/migrations/0135_ugc_drop_new_sent.sql",
+      "git_blob_sha": "3aaf03231dfdad4b58edf4e47325c2dc351283f5",
+      "sha256": "0ce86e509aac584b2e758340575281470a0189f96c96cde20cb065c1c36f5a3b",
+      "bytes": 279,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0135_ugc_drop_new_sent.sql"
+    },
+    {
+      "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+      "local_path": "originals/db/migrations/0150_ugc_creator_accepted_at.sql",
+      "git_blob_sha": "1d7f4fc22977101c9e6fd496254b5dac3739d4a4",
+      "sha256": "0717cec0ebbd578122ac647d0d5823b8f6b93b9d9304413ba7b8cd2ea164f174",
+      "bytes": 1450,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0150_ugc_creator_accepted_at.sql"
+    },
+    {
+      "path": "db/migrations/0151_ugc_handle_history.sql",
+      "local_path": "originals/db/migrations/0151_ugc_handle_history.sql",
+      "git_blob_sha": "f0c5eda8fc164b86470db013c94ae8fa2b8969e6",
+      "sha256": "ae8a40e687f0e6eaa98a85c62a752dce0e909408dad79e327ac545bd0162669b",
+      "bytes": 807,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0151_ugc_handle_history.sql"
+    },
+    {
+      "path": "db/migrations/0099_ugc_link_health.sql",
+      "local_path": "originals/db/migrations/0099_ugc_link_health.sql",
+      "git_blob_sha": "aef449d337b15b8714593a476a127b09f28172d2",
+      "sha256": "39356e2ee0edad619358b6b203c5bcedf63e7441bdf7c7a9f65f50da6f22eda3",
+      "bytes": 1358,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0099_ugc_link_health.sql"
+    },
+    {
+      "path": "db/migrations/0100_ugc_product_identification.sql",
+      "local_path": "originals/db/migrations/0100_ugc_product_identification.sql",
+      "git_blob_sha": "eaa2153ac0c7728355b86e3b7179c08b5e5d436b",
+      "sha256": "2a6731aef83d6d365930ca2010827418759fb879a3911f62a7e2dc33687ae007",
+      "bytes": 2637,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0100_ugc_product_identification.sql"
+    },
+    {
+      "path": "db/migrations/0116_ugc_payouts.sql",
+      "local_path": "originals/db/migrations/0116_ugc_payouts.sql",
+      "git_blob_sha": "5abb2c462712f51e5cb95cb5aedec12d9890bd4b",
+      "sha256": "db6322846609a1283f9b97d7e125b84fa93c1e1d3b20e9a5e2e295a825d84e86",
+      "bytes": 2149,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0116_ugc_payouts.sql"
+    },
+    {
+      "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+      "local_path": "originals/db/migrations/0119_ugc_payouts_konsol.sql",
+      "git_blob_sha": "dfeeb5141e4087414b27c240cb58288f37eb2884",
+      "sha256": "e394b9cd98903a59de0dbc039aefa225d3f51f1cbab6c3e450068bc7bc19d802",
+      "bytes": 1751,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0119_ugc_payouts_konsol.sql"
+    },
+    {
+      "path": "db/migrations/0120_ugc_ig_messages.sql",
+      "local_path": "originals/db/migrations/0120_ugc_ig_messages.sql",
+      "git_blob_sha": "e36c33d7c2af243a7b7a0269693d6ac263cca988",
+      "sha256": "b4b0a9d3257918d29803ed18f8ef71c159cc356e1ecac8bc36a8e7ab676f6ccd",
+      "bytes": 1091,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0120_ugc_ig_messages.sql"
+    },
+    {
+      "path": "db/migrations/0125_ugc_content_metrics_checked.sql",
+      "local_path": "originals/db/migrations/0125_ugc_content_metrics_checked.sql",
+      "git_blob_sha": "d46441cac49728ad1a9da557ef251f8874253a78",
+      "sha256": "41bf8d3b531177f4d6e415d852357be7028f91dcc6bde38899b34c29fc97c1b6",
+      "bytes": 251,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0125_ugc_content_metrics_checked.sql"
+    },
+    {
+      "path": "db/migrations/0127_ugc_source_records.sql",
+      "local_path": "originals/db/migrations/0127_ugc_source_records.sql",
+      "git_blob_sha": "80cf86accb863f6df1926c1dc7593f4af1eb056d",
+      "sha256": "a75b7f5be9176d0a0dcb5f3ec03fa39ab9658ea68c2ea81a403aaeb5ee404bf7",
+      "bytes": 952,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0127_ugc_source_records.sql"
+    },
+    {
+      "path": "db/migrations/0128_ugc_payout_product.sql",
+      "local_path": "originals/db/migrations/0128_ugc_payout_product.sql",
+      "git_blob_sha": "9b7d337ba4a562afc347613c55d7f0220a8d19a8",
+      "sha256": "eed94725d3ddb480cd5e599530722e95b8456c136856e3d2d8c9fc24f03f13f3",
+      "bytes": 301,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0128_ugc_payout_product.sql"
+    },
+    {
+      "path": "db/migrations/0136_ugc_payout_notice_status.sql",
+      "local_path": "originals/db/migrations/0136_ugc_payout_notice_status.sql",
+      "git_blob_sha": "5a6e207d7616913dd017698a7fddc35868cc3908",
+      "sha256": "433cf26b7a9bec74d30f4797f5378806d4c195b770426e67614857a314e22707",
+      "bytes": 430,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0136_ugc_payout_notice_status.sql"
+    },
+    {
+      "path": "db/migrations/0152_ugc_shopee_cleanup.sql",
+      "local_path": "originals/db/migrations/0152_ugc_shopee_cleanup.sql",
+      "git_blob_sha": "e47b477e3c1cf6f04f8aeded1868c332c67205e7",
+      "sha256": "98110c5697fd2fa55392a1537befde82566f47d677a04f5e6a55992ff6d8fc18",
+      "bytes": 1837,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0152_ugc_shopee_cleanup.sql"
+    },
+    {
+      "path": "db/migrations/0153_ugc_nondialogue_cleanup.sql",
+      "local_path": "originals/db/migrations/0153_ugc_nondialogue_cleanup.sql",
+      "git_blob_sha": "12ae5ca5da6409a6143c4db8b1b0c4edf077bc22",
+      "sha256": "00f9f94d9ae0a3b1a60f4e40176a5f76a8dfbf50b7605ad4324c89f406faeae1",
+      "bytes": 1961,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/0153_ugc_nondialogue_cleanup.sql"
+    },
+    {
+      "path": "db/migrations/20260919_wb_gateway.sql",
+      "local_path": "originals/db/migrations/20260919_wb_gateway.sql",
+      "git_blob_sha": "9436df74bd252d7c6291808761d739d4c004768c",
+      "sha256": "981a67621d149d2440ac654f4122fc179037625d666d8b9f6f4e07805efdc1d1",
+      "bytes": 498,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/db/migrations/20260919_wb_gateway.sql"
+    },
+    {
+      "path": "api/src/lib/ugc-silent-purge.ts",
+      "local_path": "originals/api/src/lib/ugc-silent-purge.ts",
+      "git_blob_sha": "26c9f48329f25220ff1daf395f29ad536d695623",
+      "sha256": "0d829586d85eb2791301ee320eb2b44f544e8a2adeda4305b53e4f65e2a1d4ab",
+      "bytes": 2687,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/api/src/lib/ugc-silent-purge.ts"
+    },
+    {
+      "path": "api/src/lib/ugc-manual-stage.mjs",
+      "local_path": "originals/api/src/lib/ugc-manual-stage.mjs",
+      "git_blob_sha": "662cdbe84d5c6a3d9b342b9946a92f0a7f2c759c",
+      "sha256": "b4de201ecc67ff7318a92d675ae5204ebc3c01f85ca368efac457f3ecb936049",
+      "bytes": 1449,
+      "url": "https://github.com/dasexperten/dasoperator/blob/16149d51389cbc4d625bbc8e26d766890e232c14/api/src/lib/ugc-manual-stage.mjs"
+    }
+  ],
+  "handoff-schema": {
+    "sha256": "9da4f2a976926c0ef46d0e70ac4baed572f63e7355bad722b441a1ebf3eb5a03",
+    "sources": [
+      {
+        "path": "db/migrations/0060_crm_website.sql",
+        "statement": 13
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 7
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 10
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 11
+      },
+      {
+        "path": "db/migrations/0121_ugc_creator_status_origin.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0126_ugc_creator_city.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 7
+      },
+      {
+        "path": "db/migrations/0132_ugc_creator_archive.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0132_ugc_creator_archive.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/20260919_wb_gateway.sql",
+        "statement": 4
+      }
+    ],
+    "local_validation": "sqlite3 in-memory executescript, foreign_keys=ON; schema only, no seed/backfill/cleanup DML"
+  },
+  "purge-schema": {
+    "sha256": "b71f8da41691b23512da454b15f172e47ccb44cae00b9d4108e35f6eaae7da37",
+    "sources": [
+      {
+        "path": "db/migrations/0060_crm_website.sql",
+        "statement": 13
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 7
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 8
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 9
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 10
+      },
+      {
+        "path": "db/migrations/0098_ugc_creator_pipeline.sql",
+        "statement": 11
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0099_ugc_link_health.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0100_ugc_product_identification.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0100_ugc_product_identification.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0100_ugc_product_identification.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0100_ugc_product_identification.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0100_ugc_product_identification.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0116_ugc_payouts.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0116_ugc_payouts.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0116_ugc_payouts.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0116_ugc_payouts.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 7
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 8
+      },
+      {
+        "path": "db/migrations/0119_ugc_payouts_konsol.sql",
+        "statement": 10
+      },
+      {
+        "path": "db/migrations/0120_ugc_ig_messages.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0120_ugc_ig_messages.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0120_ugc_ig_messages.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0121_ugc_creator_status_origin.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0125_ugc_content_metrics_checked.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0125_ugc_content_metrics_checked.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0126_ugc_creator_city.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0127_ugc_source_records.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0127_ugc_source_records.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0127_ugc_source_records.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0128_ugc_payout_product.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 5
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 6
+      },
+      {
+        "path": "db/migrations/0131_ugc_blogger_profiles.sql",
+        "statement": 7
+      },
+      {
+        "path": "db/migrations/0132_ugc_creator_archive.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0132_ugc_creator_archive.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0133_ugc_profile_availability.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0136_ugc_payout_notice_status.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0136_ugc_payout_notice_status.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0136_ugc_payout_notice_status.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0136_ugc_payout_notice_status.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0150_ugc_creator_accepted_at.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 1
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 2
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 3
+      },
+      {
+        "path": "db/migrations/0151_ugc_handle_history.sql",
+        "statement": 4
+      },
+      {
+        "path": "db/migrations/20260919_wb_gateway.sql",
+        "statement": 4
+      }
+    ],
+    "local_validation": "sqlite3 in-memory executescript, foreign_keys=ON; schema only, no seed/backfill/cleanup DML"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "observedUtc": "2026-11-05T11:30:43Z",
+  "method": "Connected Google Sheets read-only metadata and bounded first-row header reads; no contact rows read",
+  "spreadsheetId": "1i1099gbjC6-OyV-4Bve7U0GE_aQJKa3jQ5JNXxjiUeg",
+  "url": "https://docs.google.com/spreadsheets/d/1i1099gbjC6-OyV-4Bve7U0GE_aQJKa3jQ5JNXxjiUeg/edit",
+  "title": "Das Experten Instagram — журнал комментариев и контактов",
+  "locale": "en_US",
+  "timeZone": "Asia/Yerevan",
+  "tabs": [
+    {
+      "title": "Instagram",
+      "tabId": 894663735,
+      "rows": 1000,
+      "columns": 26,
+      "frozenRows": 1,
+      "headerRange": "A1:P1",
+      "headers": ["Дата (Ереван)", "Ник Instagram", "Публикация", "Отклик человека", "Наш комментарий / реакция", "Форма", "Статус комментария", "Независимая проверка", "Доказательство", "Статус Direct", "Ссылка на Direct", "Следующий шаг", "ERP / квитанция", "Ответственный", "Прогон", "Примечание"]
+    },
+    { "title": "Как пользоваться", "tabId": 709041, "rows": 100, "columns": 5 }
+  ],
+  "missingExpectedTabs": ["Facebook", "Threads"],
+  "unestablishedContracts": ["stable case/person identity", "substantive-discussion decision record", "consistent source checkpoint", "ERP mapping format and uniqueness", "handoff transaction and reconciliation"],
+  "notes": [
+    "Instagram Q:Z have no returned populated header values; no contact rows or formulas were inspected.",
+    "Отклик человека is a response field, not proof of substantive discussion.",
+    "ERP / квитанция exists, but its live values, format and uniqueness are not verified.",
+    "Absence from this notebook is not evidence of no prior contact; source instructions warn of incomplete history.",
+    "This observation is not active schema configuration or permission to add tabs, columns, records or mappings."
+  ]
+}

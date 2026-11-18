@@ -73,3 +73,24 @@ test('a tall phone screenshot is resized whole; a small picture is padded, never
     assert.ok(output.width * output.height >= 78400);
   }
 });
+
+// Owner 2026-11-18: CORE loads whole right after VOICE and CHARTER, outside selection; draft is not loaded.
+test('CORE: approved layer is whole after CHARTER with a run mark; draft is not loaded', async () => {
+  const core = status => '# CORE\nstatus: ' + status + '\napproved: ' + (status === 'approved' ? '18.11.2026, слово Владельца' : '—') +
+    '\n\n## Правила\nC01 | Один вопрос за раз.\nC03 | Есть скрин корзины, цена и данные — сразу просим реквизиты (телефон, банк, имя), про артикул и продавца не спрашиваем.\n';
+  for (const status of ['approved', 'draft']) {
+    const f = fixture();
+    const base = f.options.fetchImpl;
+    const fetchImpl = async (url, init) => url.includes('CORE.md') ? new Response(core(status)) : base(url, init);
+    const result = await prepareDianaContext({ ...f.options, fetchImpl });
+    if (status === 'approved') {
+      assert.match(result.receipt.core, /^core: loaded 2\/15 sha=[0-9a-f]{8}$/);
+      const at = result.system.indexOf('=== CORE');
+      assert.ok(at > result.system.indexOf('=== CHARTER.md') && at < result.system.indexOf('=== CURRENT DIRECT_RULES'));
+      assert.match(result.system, /C03\. Есть скрин корзины.*продавца не спрашиваем/);
+    } else {
+      assert.match(result.receipt.core, /^core: draft/);
+      assert.equal(result.system.includes('=== CORE'), false);
+    }
+  }
+});

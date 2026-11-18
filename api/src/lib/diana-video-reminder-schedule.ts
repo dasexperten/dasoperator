@@ -3,11 +3,12 @@ import { VIDEO_REMINDER_BATCH_KEY, yerevanDay } from './diana-alarm';
 import { overdueVideoReminders } from './ugc-payout-store';
 const VIDEO_REMINDER_FINISHED_KEY = 'diana_video_reminder_batch_completed_day';
 
-// Runs on the existing three-minute Direct timer. Only its 10:00 Yerevan hour opens the batch.
+// Runs on the existing three-minute Direct timer. Only its 11:00 Yerevan hour (10:00 Moscow) opens the batch.
+// Owner 2026-11-18 (K4): reminders only 10:00–21:00 Moscow; 10:00 Yerevan was 09:00 Moscow.
 // A failed pass retries during that hour; events are deduplicated per payout and cycle.
 export async function startDailyVideoReminders(env: Env, now = Date.now()) {
   const local = new Date(now + 4 * 3600_000);
-  if (local.getUTCHours() !== 10) return { due: false };
+  if (local.getUTCHours() !== 11) return { due: false };
   const day = yerevanDay(now);
   const previous = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind(VIDEO_REMINDER_FINISHED_KEY).first<{value:string}>();
   if (previous?.value === day) return { due: false, opened: true };

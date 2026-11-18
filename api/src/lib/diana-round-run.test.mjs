@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';
 import {runRoundCreator} from './diana-round-run.mjs';
-const now=Date.parse('2026-11-11T02:00:00Z'),H=3600_000;
+// 18:00 Yerevan round = 17:00 Moscow, inside the reminder window (Owner 2026-11-18, K4).
+const now=Date.parse('2026-11-11T14:00:00Z'),H=3600_000;
 function setup({lastOutAgo=30*H,lastInAgo=40*H,lastFrom='us',herAgo=H/2,decision={action:'send',reply:'Мария, как ваш заказ? Пришёл? 🌷'}}={}){
  const s=new DatabaseSync(':memory:');s.exec('CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);CREATE TABLE ugc_payouts(creator_id TEXT,status TEXT,amount_minor INTEGER,paid_at TEXT,created_at INTEGER)');
  const env={GITHUB_TOKEN:'x',DB:{prepare(sql){let v=[];return{bind(...a){v=a;return this},async first(){return s.prepare(sql).get(...v)??null},async all(){return{results:s.prepare(sql).all(...v)}},async run(){return{meta:{changes:Number(s.prepare(sql).run(...v).changes)}}}}}}};
@@ -37,6 +38,10 @@ test('a reply Diana Direct is already sending is never doubled; a message that n
  const b=setup({lastFrom:'her',herAgo:3*H,decision:{action:'none',reply:null}});
  assert.equal((await runRoundCreator(b.args)).reason,'unanswered_needs_no_reply');
  assert.equal((await runRoundCreator({...b.args,runId:'r2'})).reason,'round_already_decided_no_answer');assert.equal(b.sent.length,0);
+});
+test('the 06:00 Yerevan round (05:00 Moscow) sends no reminder (Owner 2026-11-18, K4)',async()=>{
+ const early=Date.parse('2026-11-11T02:00:00Z');
+ const f=setup({lastOutAgo:45*H,lastInAgo:50*H});const r=await runRoundCreator({...f.args,now:early});assert.equal(r.reason,'outside_reminder_hours');assert.equal(f.sent.length,0);
 });
 test('needing no answer is a receipt; a refund question stays in the Owner\'s sight; an alarm chat is only ever answered (2026-11-18)',async()=>{
  const b=setup({lastFrom:'her',herAgo:3*H,decision:{action:'none',reply:null}});await runRoundCreator(b.args);

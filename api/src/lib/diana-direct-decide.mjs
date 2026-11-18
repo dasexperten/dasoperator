@@ -9,6 +9,7 @@ async function sha256(data){const bytes=Uint8Array.from(atob(String(data??'')),c
 import {dropName} from './diana-no-name.mjs';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
 
+export const OWNER_HOLDING='Передали вопрос, ответим сегодня.';
 export async function decideDirect({source,prepareContext,infer,readImage,env,facts={},finalAttempt=false,revisit=false,lookupPublication=null,watchVideo=null}) {
   if(source?.status!=='ready'||!Array.isArray(source.messages))throw Error('direct_source_not_ready');
   const newest=source.messages.at(-1);
@@ -134,6 +135,8 @@ export async function decideDirect({source,prepareContext,infer,readImage,env,fa
   // Owner 2026-11-15 iron rule: her name at most once a day, a second time only in a payment message, never more than twice a day.
   if(decision.reply&&['reply','fee','payout','info'].includes(decision.action))decision={...decision,reply:dropName(decision.reply,history.map((m,i)=>({...m,at:Date.parse(source.messages[i]?.created_time)})),{payment:decision.action==='payout'})};
   if(decision.action==='none')return {action:'none',reason:'no_reply_needed'};
+  // Owner 2026-11-18 (K8): while a paid creator's money question waits for the Owner, she gets one line, the Owner still decides.
+  if(ownerDecides)return {action:'wait',reason:'owner_decides_money',holding:OWNER_HOLDING,recipientId:String(newest.from.id),receipt:{...context.receipt}};
   if(decision.action==='fee')return {action:'reply',fee:true,reply:decision.reply.trim(),recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:0,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};
   if(decision.action==='info')return {action:'info',reason:'termo_infographic',reply:decision.reply.trim(),recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};
   if(decision.action==='cards')return {action:'cards',reason:'scenario_cards',recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};

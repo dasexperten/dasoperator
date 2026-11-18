@@ -83,3 +83,4 @@ test('Owner 2026-11-12: a price-list answer is closed warmly and the creator is 
   if(r.reason!=='termo_infographic_sent'||got?.text!=='Смотрите, чем TERMO особенная:')throw Error('info path failed: '+JSON.stringify(r));
   console.log('info ok');
 }
+test('Owner 2026-11-18 K8: a paid creator\'s money question gets one holding line and stays with the Owner',async()=>{const f=fixture();let ack=0,text='';f.options.acknowledge=async()=>{ack++;return true};f.options.deliver=async(d)=>{text=d.text;return {status:'verified',outgoingId:'o'}};f.options.decide=async()=>({action:'wait',reason:'owner_decides_money',holding:'Передали вопрос, ответим сегодня.',recipientId:'person'});const out=await runDirect(f.options);assert.equal(out.status,'pending');assert.equal(out.reason,'owner_decides_money');assert.equal(text,'Передали вопрос, ответим сегодня.');assert.equal(ack,0);});

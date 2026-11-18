@@ -60,6 +60,8 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
     if(await env.DB.prepare('SELECT 1 AS x FROM crm_sync_state WHERE key=?1').bind('diana_round_seen:'+last.id).first())return{status:'skipped',reason:'round_already_decided_no_answer'};
   }else if(answerOnly)return{status:'skipped',reason:'already_answered'};
   else if(now-Date.parse(lastOut.created_time)<20*HOUR)return{status:'skipped',reason:'written_recently'};
+  // Owner 2026-11-18 (K4): every reminder only 10:00–21:00 Moscow; the 06:00 Yerevan round answers, it does not remind.
+  if(!unanswered){const msk=new Date(now+3*HOUR).getUTCHours();if(msk<10||msk>=21)return{status:'skipped',reason:'outside_reminder_hours'};}
   if(now-Date.parse(lastIn.created_time)>7*DAY)return{status:'skipped',reason:'outside_instagram_window'};
   const payouts=(await env.DB.prepare('SELECT status,amount_minor,paid_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 3').bind(person.id).all()).results??[];
   const context=await prepareContext({task:JSON.stringify({task:'round',stage:person.lifecycle_stage}),githubToken:env.GITHUB_TOKEN,infer});
@@ -86,7 +88,7 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
   const claim=await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(key,JSON.stringify({status:'claimed',at:now}),now).run();
   if(!claim?.meta?.changes)return{status:'skipped',reason:'already_done_this_round'};
   const sent=await sendProactive(fetchImpl,page.access_token,String(lastIn.from.id),reply);
-  await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify(sent?{status:'verified',outgoing_id:sent,at:now}:{status:'unknown',at:now}),Date.now()).run();
+  await env.DB.prepare('UPDATE crm_sync_state SET value=?2,updated_at=?3 WHERE key=?1').bind(key,JSON.stringify(sent?{status:'verified',outgoing_id:sent,at:now,core:context.receipt?.core??null}:{status:'unknown',at:now,core:context.receipt?.core??null}),Date.now()).run();
   // The round answered her message: Diana Direct's alarm for it is closed, so she is not answered twice.
   if(sent&&unanswered){
     try{
@@ -94,5 +96,5 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
       await env.DB.prepare("DELETE FROM crm_sync_state WHERE key=?1 AND json_valid(value) AND json_extract(value,'$.message_id')=?2").bind('diana_round_alarm:'+cid,String(last.id)).run();
     }catch{/* the answer is sent; Direct re-reads the chat and sees our message last */}
   }
-  return sent?{status:unanswered?'answered':'sent',outgoing_id:sent}:{status:'pending',reason:'round_delivery_unknown'};
+  return sent?{status:unanswered?'answered':'sent',outgoing_id:sent,core:context.receipt?.core??null}:{status:'pending',reason:'round_delivery_unknown'};
 }

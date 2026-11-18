@@ -6,6 +6,7 @@ import {reviewRoundPublications} from './lib/diana-round-publications';
 import {recordTaggedReels} from './lib/diana-round-tags';
 import {recordCollabMedia,scanDirectContent} from './lib/ugc-direct-content';
 import {confirmPendingContent,pendingContentIds} from './lib/ugc-content-confirm';
+import {fillMissingViews} from './lib/ugc-views-fill.mjs';
 // @ts-expect-error plain JS module
 import {watchVideo} from './lib/diana-direct-video-watch.mjs';
 // @ts-expect-error plain JS module
@@ -83,6 +84,15 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
     // 2026-11-18 evening: one step died inside Cloudflare and the whole check stopped at 8 reels.
     // The reels are now picked in a cheap step of their own and read two at a time, so a dead step
     // costs two reels (they are tried again next round), never the queue. Three dead steps in a row stop it.
+    // Owner 2026-11-18, priority 1: plays first, newest reel first, ten at a time; a dead step costs ten reels at most.
+    const views={filled:0,pending:0,no_views:0,failed_steps:0};const viewed:string[]=[];
+    for(let n=0;n<3;n++){
+      const part:any=await step.do(`views-fill-${n}`,checkStep,async()=>{try{return await fillMissingViews(this.env,{limit:10,budgetMs:6*60_000,exclude:viewed});}catch{return {failed:true};}}).catch(()=>({failed:true}));
+      if(part.failed){views.failed_steps++;continue;}
+      viewed.push(...(part.ids??[]));
+      views.filled+=Number(part.filled??0);views.pending+=Number(part.pending??0);views.no_views+=Number(part.no_views??0);
+      if(part.budget_exhausted||!(part.ids??[]).length)break;
+    }
     let dead=0;
     for(let n=0;n<20&&!content.budget_exhausted&&dead<3;n++){
       const picked:string[]=await step.do(`content-pick-${n}`,READ,()=>pendingContentIds(this.env,{limit:8,exclude:tried})).catch(()=>[]);
@@ -106,7 +116,7 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
     }
     await step.do('save-round-summary',READ,async()=>{
       await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
-        .bind('diana_round_run:'+run.id,JSON.stringify({status:'complete',id:run.id,scheduled_at:run.scheduled_at,finished_at:Date.now(),cohort:cohort.length,totals,tagged_reels_recorded:tagged.recorded,invites_accepted:tagged.accepted,collab_media_recorded:collabMedia,direct_links:directLinks,direct_videos:directVideos,content_check:content,alarm_chats:extra.length,failures}),Date.now()).run();
+        .bind('diana_round_run:'+run.id,JSON.stringify({status:'complete',id:run.id,scheduled_at:run.scheduled_at,finished_at:Date.now(),cohort:cohort.length,totals,views,tagged_reels_recorded:tagged.recorded,invites_accepted:tagged.accepted,collab_media_recorded:collabMedia,direct_links:directLinks,direct_videos:directVideos,content_check:content,alarm_chats:extra.length,failures}),Date.now()).run();
     });
     return {cohort:cohort.length,totals};
   }

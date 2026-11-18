@@ -30,3 +30,15 @@ test('a publication without a date uses its recorded import time for ordering', 
   assert.deepEqual(result.map(({ item }) => item.id), ['undated', 'dated']);
   assert.equal(result[0].item.published_at, null);
 });
+
+test('a removed reel leaves the table, a closed or unchecked one stays', () => {
+  const reel = (id, link_status) => ({ id, link_status, content_url: `https://www.instagram.com/reel/${id}/` });
+  const result = creatorPublicationLinks([{ content: [reel('gone', 'missing'), reel('live', 'active'), reel('closed', 'restricted'), reel('new', null)] }]);
+  assert.deepEqual(result.map(({ item }) => item.id).sort(), ['closed', 'live', 'new']);
+});
+
+test('removed reels do not take the place of live ones among the five shown', () => {
+  const gone = Array.from({ length: 5 }, (_, i) => ({ id: `gone${i}`, link_status: 'missing', published_at: `2026-11-1${i}`, content_url: `https://www.instagram.com/reel/gone${i}/` }));
+  const live = { id: 'live', link_status: 'active', published_at: '2026-01-01', content_url: 'https://www.instagram.com/reel/live/' };
+  assert.deepEqual(creatorPublicationLinks([{ content: [...gone, live] }]).map(({ item }) => item.id), ['live']);
+});

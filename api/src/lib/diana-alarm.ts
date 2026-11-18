@@ -70,7 +70,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
             const display_name = String(newest.from.name ?? participant?.name ?? '');
             // Owner 2026-11-13 (irina.content.mom): a chat whose newest messages carry payment details goes to
             // Diana first, so the payout button appears the same minute. Only this flag is kept, never the text.
-            const pay = (conversation.messages?.data ?? []).some((m: any) => String(m.from?.id ?? '') !== PAGE && /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}|сбер|т-?банк|тинькоф|втб|альфа/i.test(String(m.message ?? '')));
+            const pay = (conversation.messages?.data ?? []).some((m: any) => String(m.from?.id ?? '') !== PAGE && /(?:\+?7|8)[\s()-]*9(?:[\s()-]*\d){9}|сбер|т-?банк|тинькоф|втб|альфа|озон|ozon|банк/i.test(String(m.message ?? '')));
             const alarm = { handle, display_name, cid: String(conversation.id), message_id: String(newest.id), event_id: 'message:' + newest.id, at: String(newest.created_time), reason: 'new_message', rang_at: new Date(now).toISOString(), ...(pay ? { pay: true } : {}) };
             // An alarm already ringing for this very message is left as it is (its first ring time stays).
             const raised = await env.DB.prepare(`INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)
@@ -160,6 +160,30 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
       if (await sendOwnerTelegram(env, `Реквизиты без кнопки: @${handle || 'блогер'} — ${why[reason] ?? reason}. Повторная попытка не помогла.`, 'diana-helios').catch(() => false)) payout_alerts++;
     }
   } catch { /* the watch never disturbs the message scan; retried next tick */ }
+  // Owner 2026-11-18 (o__kseniaa): Konsol declined, the director sent the money himself and wrote
+  // «перевод отправили» in the chat. That message turns the declined button green and hands the
+  // blogger back to Diana for the scenarios. Only chats with a declined payout are read.
+  let manual_transfers = 0;
+  try {
+    const { declinedPayouts, transferMessage, markManualTransfer } = await import('./ugc-manual-transfer.mjs');
+    const declined = await declinedPayouts(env.DB, now);
+    if (declined.length) {
+      const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
+      const page = token ? await graph(`/${PAGE}?fields=access_token`, token) : null;
+      for (const payout of page?.access_token ? declined : []) {
+        try {
+          const list = await graph(`/${encodeURIComponent(payout.cid)}/messages?fields=id,created_time,from,message&limit=30`, page.access_token);
+          const message = transferMessage(list.data ?? [], [PAGE, BRAND], payout.failed_at, payout.notice_message_id ? [String(payout.notice_message_id)] : []);
+          if (!message || !await markManualTransfer(env.DB, payout, message, now)) continue;
+          manual_transfers++;
+          // An old payment found late is only recorded: its blogger is already past the ideas.
+          if (now - Date.parse(message.created_time) > 24 * 3600_000) continue;
+          const { queueDianaAction } = await import('./diana-compose');
+          await queueDianaAction(env, payout.handle, '', `payout:${payout.id}:manual_followup`, { task: 'payout_manual_followup', payout_id: String(payout.id), cid: payout.cid } as any).catch(() => null);
+        } catch { /* one chat never stops the others; retried next tick */ }
+      }
+    }
+  } catch { /* never disturbs the message scan; retried next tick */ }
   // Owner 2026-11-11: an undelivered answer past the Instagram window gets its final record.
   let delivery_closed = 0;
   try { const { expireUndelivered } = await import('./diana-delivery-expiry.mjs'); delivery_closed = await expireUndelivered(env.DB, now); }
@@ -169,7 +193,7 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
   try { const { runButtonWatch } = await import('./diana-button-watch.mjs'); buttons_missing = await runButtonWatch(env.DB, now); }
   catch { /* the watch never disturbs the message scan */ }
   const pushed = await dispatch();
-  return { inspected, detected, errors, early_dispatched, gold_signals, nudge_signals, payout_retries, payout_alerts, delivery_closed, buttons_missing, ...pushed };
+  return { inspected, detected, errors, early_dispatched, gold_signals, nudge_signals, payout_retries, payout_alerts, manual_transfers, delivery_closed, buttons_missing, ...pushed };
 }
 
 // The 10:00 Yerevan batch opens reminders for this day; incoming messages and payout notices remain independent.

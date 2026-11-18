@@ -74,3 +74,9 @@ test('a start cut off mid-call blocks for six hours, then retries once',async()=
  const r=await instagramPostFallback(env,{url});
  assert.equal(r.status,'ok');assert.equal(r.views,20);assert.equal(calls().starts,1);
 }));
+test('a post reading carries what confirms a reel as ours (Owner 2026-11-18)',()=>{
+ const r=parseApifyPost([{...post,caption:'Чищу зубы TERMO 39 от @dasexperten',timestamp:'2026-11-15T10:00:00.000Z',videoUrl:'https://scontent.cdninstagram.com/v/1.mp4',taggedUsers:[{username:'DasExperten'}],coauthorProducers:[{username:'katy'}],mentions:['dasexperten']}],url);
+ assert.equal(r.v,2);assert.equal(r.postedAt,'2026-11-15T10:00:00.000Z');assert.equal(r.videoUrl,'https://scontent.cdninstagram.com/v/1.mp4');
+ assert.deepEqual(r.tagged,['dasexperten','katy']);assert.match(r.caption,/TERMO/);
+ const bare=parseApifyPost([post],url);assert.equal(bare.caption,null);assert.equal(bare.videoUrl,null);assert.deepEqual(bare.tagged,[]);
+});

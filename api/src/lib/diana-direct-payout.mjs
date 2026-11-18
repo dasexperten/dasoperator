@@ -94,12 +94,19 @@ export async function handoffDirectPayout({env,event,source,refreshOriginal,infe
  if(repeat!==null&&repeat>=SUBQ_REPEAT_BLOCK)return{status:'pending',reason:'payout_already_paid_termo'};
  // Owner 2026-11-12: never a 0.01 ₽ button. No real amount, no button — Diana asks the amount
  // and the button appears once the blogger's amount is in.
+ // Owner 2026-11-18 (ilina.edit38): after a bank decline she only names another bank. The amount of
+ // the declined button stands, so the new button appears at once instead of a question about the sum.
+ let declined=null;
+ if(amount===null&&!existing){
+  const f=await env.DB.prepare("SELECT p.id,p.amount_minor FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.status='failed' AND p.created_at>=?2 ORDER BY p.created_at DESC LIMIT 1").bind(initial.handle,Date.now()-14*86400000).first();
+  if(f&&Number.isSafeInteger(f.amount_minor)&&f.amount_minor>=5000&&f.amount_minor<=299900){declined={payout_id:String(f.id),amount_minor:f.amount_minor};amount=f.amount_minor;}
+ }
  if(amount===null)return{status:'amount_needed'};
  const raw=JSON.stringify({version:1,complete_history:true,conversation_id:event.cid,event_id:event.event_id,cycle_message_id:r.cycle_message_id,messages:fresh.messages,cart,typed});
  const sha256=await digest(raw);
  // Resolver and hash are ephemeral in this process; never write raw to ERP/R2.
  const capability=await createDianaPayoutEvidence(async()=>raw,{conversation_id:event.cid,event_id:event.event_id,source_key:'transient:'+sha256,sha256});
- const result=await savePayout(env,{verified:true,handle:initial.handle,conversation_id:event.cid,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:amount??1,amount_later:amount===null,...(typed&&amount!==null?{text_amount:typed}:{}),phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:r.bank},Date.now(),capability);
+ const result=await savePayout(env,{verified:true,handle:initial.handle,conversation_id:event.cid,cycle_message_id:r.cycle_message_id,source_message_ids:r.source_message_ids,amount_minor:amount??1,amount_later:amount===null,...(typed&&amount!==null&&!declined?{text_amount:typed}:{}),...(declined?{declined_amount:declined}:{}),phone:r.phone,first_name:r.first_name,fps_bank_member_id:r.bank,bank_ref:r.bank},Date.now(),capability);
  if(result?.registered===false)return{status:'incomplete',missing_fields:['recipient_details'],reason:'payout_intake_incomplete'};
  if(!result?.id)throw Error('payout_intake_receipt_missing');
  const row=await env.DB.prepare('SELECT id,status,amount_minor,konsol_payment_id,execute_claim FROM ugc_payouts WHERE id=?1').bind(result.id).first();

@@ -217,6 +217,25 @@ app.route('/internal/diana', dianaWakeRoutes);
 app.route('/internal/wb', internalWbRoutes); // protected read-only return reports
 app.route('/internal/ugc', internalUgcRoutes); // Diana hard-question buttons from Telegram (Owner 2026-10-17)
 app.route('/geo-price', geoPriceRoutes);
+// Owner 2026-11-18: a video a blogger sent in Direct with our product is shown from her Контент.
+// The address carries a 128-bit id nobody can guess; only such a file is ever served here.
+app.get('/ugc-video/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!/^ugcc_dv_[0-9a-f]{32}$/.test(id)) return c.notFound();
+  const range = c.req.header('range');
+  const file = await c.env.DOCS.get('ugc/direct-video/' + id + '.mp4', range ? { range: c.req.raw.headers } : undefined);
+  if (!file) return c.notFound();
+  const headers = new Headers({ 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600', 'x-robots-tag': 'noindex' });
+  const r: any = (file as any).range;
+  if (range && r && typeof r.offset === 'number') {
+    const length = typeof r.length === 'number' ? r.length : file.size - r.offset;
+    headers.set('content-range', `bytes ${r.offset}-${r.offset + length - 1}/${file.size}`);
+    headers.set('content-length', String(length));
+    return new Response((file as R2ObjectBody).body, { status: 206, headers });
+  }
+  headers.set('content-length', String(file.size));
+  return new Response((file as R2ObjectBody).body, { headers });
+});
 app.route('/meta/instagram', metaInstagramWebhook);  // public: Meta webhook for forwarded reels (Owner 2026-11-11), DasWA signature required  // public zonal price feed for dasexperten.com storefront
 app.route('/api/pricing', pricingMatrixRoutes);  // ERP: zonal pricing matrix for /crm
 app.route('/api/products', productsRoutes);

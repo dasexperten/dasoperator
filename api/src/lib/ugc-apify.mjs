@@ -31,7 +31,13 @@ export function parseApifyPost(items, expected) {
   const matching=items.filter(x => x && !x.error && x.shortCode === target.shortcode && (!x.url || instagramPostTarget(x.url)?.shortcode === target.shortcode) && handle(x.ownerUsername));
   if (matching.length !== 1) return null;
   const x=matching[0];
-  return {...target,ownerUsername:handle(x.ownerUsername),views:count(x.videoPlayCount) ?? count(x.videoViewCount),likes:count(x.likesCount),comments:count(x.commentsCount)};
+  // Owner 2026-11-18: the same paid reading also carries what confirms a reel as ours — her caption,
+  // who is tagged or co-authors it, the posting time and the video file. v marks a reading that has them.
+  const names=list=>(Array.isArray(list)?list:[]).map(u=>handle(typeof u==='string'?u.replace(/^@/,''):u?.username)).filter(Boolean);
+  const video=typeof x.videoUrl==='string'&&/^https:\/\//.test(x.videoUrl)?x.videoUrl.slice(0,2000):null;
+  return {...target,ownerUsername:handle(x.ownerUsername),views:count(x.videoPlayCount) ?? count(x.videoViewCount),likes:count(x.likesCount),comments:count(x.commentsCount),
+    v:2,caption:typeof x.caption==='string'?x.caption.slice(0,800):null,tagged:[...new Set([...names(x.taggedUsers),...names(x.coauthorProducers),...names(x.mentions)])].slice(0,20),
+    postedAt:Number.isFinite(Date.parse(x.timestamp))?new Date(x.timestamp).toISOString():null,videoUrl:video};
 }
 const changes = r => Number(r?.meta?.changes || 0);
 export function yerevanBudgetDay(now) { return new Date(now+4*3_600_000).toISOString().slice(0,10); }

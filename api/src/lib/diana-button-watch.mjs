@@ -21,7 +21,7 @@ export async function findMissingButtons(db, now = Date.now()) {
     try { req = latestRequisites(list.map(m => ({ id: String(m.id), direction: m.direction, text: String(m.text ?? ''), created_at: new Date(Date.parse(String(m.created_at).replace(/\+0000$/, 'Z')) || 0).toISOString() }))); } catch { continue; }
     if (!req || !(Number(req.source_at) >= now - WEEK)) continue;
     const paid = await db.prepare(`SELECT 1 AS present FROM ugc_payouts p LEFT JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id AND cp.platform='instagram'
-        WHERE (lower(p.handle)=?1 OR cp.normalized_handle=?1) AND p.created_at >= ?2 LIMIT 1`).bind(handle, Number(req.source_at) - 3 * 86_400_000).first();
+        WHERE (lower(p.handle)=?1 OR cp.normalized_handle=?1) AND p.created_at >= ?2 AND p.status<>'failed' LIMIT 1`).bind(handle, Number(req.source_at) - 3 * 86_400_000).first();
     if (!paid) missing.push({ handle, cid, since: new Date(Number(req.source_at)).toISOString(), first_name: req.first_name ?? null });
   }
   return missing;

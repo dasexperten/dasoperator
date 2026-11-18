@@ -34,8 +34,9 @@ import {prepareDianaContext} from './lib/diana-context.mjs';
 import {runPayoutNotice,runOwnerChoice,runGoldWelcome,runLeadNudge,scheduleLeadNudge,NOTICE_TASKS,OWNER_CHOICE_TASK,GOLD_TASK,NUDGE_TASK,IDEA_LINES} from './lib/diana-direct-notice.mjs';
 // @ts-expect-error plain JS module
 import {directOutcomeState} from './lib/diana-direct-state.mjs';
+import {recordDirectContent} from './lib/ugc-direct-content';
 
-export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number;task?:string;payout_id?:string;question_id?:string;revisit?:boolean};
+export type DianaDirectSignal={cid:string;message_id:string;event_id:string;handle?:string;dryRun?:boolean;attempt?:number;task?:string;payout_id?:string;question_id?:string;revisit?:boolean;look?:number};
 
 export type DianaDirectPayload=DianaDirectSignal|{events:DianaDirectSignal[]};
 export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPayload>{
@@ -84,13 +85,24 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
         }catch{}
        }
        const termoSent=await this.env.DB.prepare('SELECT 1 AS present FROM crm_sync_state WHERE key=?1').bind('termo_info:'+signal.cid).first<any>().catch(()=>null);
-       return decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{}),...(termoSent?{termo_infographic_sent:true}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
+       // Owner 2026-11-18 (o__kseniaa): what Diana sees in the chat is kept for the card as well.
+       let seenVideo:any=null,seenUrl='',seenPublication:any=null;
+       const decided=await decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:loadInstagramImage,env:this.env,facts:{stage:creator?.lifecycle_stage??null,payouts,...(our_articles.length?{our_articles}:{}),...(termoSent?{termo_infographic_sent:true}:{})},finalAttempt:(signal.attempt??1)>=3||signal.revisit===true,revisit:signal.revisit===true,
         // Owner 2026-11-12: blank or video message → her reel from the official lists; an invite is accepted (always yes).
-        watchVideo:(url:string)=>watchVideo({apiKey:this.env.GEMINI_API_KEY,url}),
+        watchVideo:async(url:string)=>{const v=await watchVideo({apiKey:this.env.GEMINI_API_KEY,url});seenVideo=v;seenUrl=url;return v;},
         lookupPublication:async({handle,at}:any)=>{const p:any=await findPublication({token:this.env.META_IG_MESSAGING_TOKEN,handle,at,seen:async(id:string)=>Boolean(await this.env.DB.prepare('SELECT 1 x FROM crm_sync_state WHERE key=?1').bind('diana_publication_seen:'+id).first())});if(!p)return null;
          const accepted=p.kind==='invite'&&!signal.dryRun?await acceptInvite({page:p.page,mediaId:p.media_id}):false;
          await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_publication_seen:'+p.media_id,JSON.stringify({handle,kind:p.kind,media_id:p.media_id,permalink:p.permalink??null,accepted}),Date.now()).run();
+         seenPublication={kind:p.kind,permalink:p.permalink??null,published_at:p.published_at??null};
          return {kind:p.kind,accepted,permalink:p.permalink??null,caption:p.caption,published_at:p.published_at??null};}});
+       if(!signal.dryRun&&name){
+        try{
+         const fileOf=(m:any)=>{const a=(Array.isArray(m?.attachments?.data)?m.attachments.data:[]).find((x:any)=>x?.video_data||String(x?.mime_type??'').startsWith('video/'));return a?String(a.video_data?.url||a.video_data?.video_url||a.file_url||''):'';};
+         const videoMessage=seenVideo&&seenUrl?(source.messages??[]).find((m:any)=>fileOf(m)===seenUrl):null;
+         await recordDirectContent(this.env,{handle:name,messages:source.messages??[],publication:seenPublication,seenVideo:videoMessage?{message_id:String(videoMessage.id),facts:seenVideo}:null,watch:false});
+        }catch{/* her card never blocks Diana's answer; the round reads the chat again */}
+       }
+       return decided;
       },
       handoffPayout:async({event:input,source}:any)=>{const out=await handoffDirectPayout({env:this.env,event:input,source,
        refreshOriginal:async({conversationId,messageId}:any)=>{const source:any=await readDirectOriginal({conversationId,messageId,token:this.env.META_IG_MESSAGING_TOKEN});if(source?.status==='ready')await applyShares(this.env.DB,source.messages).catch(()=>0);return source;},
@@ -171,7 +183,7 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const rows=(source.messages??[]).map((m:any)=>({id:String(m.id),direction:['1697038263872226','17841466350261166'].includes(String(m.from?.id??''))?'out':'in',text:typeof m.message==='string'?m.message:'',created_at:new Date(Date.parse(m.created_time)||0).toISOString()}));
        let req:any=null;try{req=latestRequisites(rows);}catch{}
        if(!req)return false;
-       const paid=await this.env.DB.prepare("SELECT 1 AS present FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 LIMIT 1").bind(name,Number(req.source_at)-3*86400000).first<any>();
+       const paid=await this.env.DB.prepare("SELECT 1 AS present FROM ugc_payouts p JOIN ugc_creator_platforms cp ON cp.creator_id=p.creator_id WHERE cp.platform='instagram' AND cp.normalized_handle=?1 AND p.created_at>=?2 AND p.status<>'failed' LIMIT 1").bind(name,Number(req.source_at)-3*86400000).first<any>();
        return !paid;
       },
       deliver:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,text,token:this.env.META_IG_MESSAGING_TOKEN})
@@ -187,12 +199,12 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
       saveProof:async(proof:any)=>{await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_event_done:'+signal.event_id,JSON.stringify(proof),Date.now()).run();},
       acknowledge:(input:any)=>acknowledgeDianaEvent(this.env,input),
      });
-     if(!signal.dryRun){const saved={...directOutcomeState(result,signal.attempt??1),...(signal.revisit?{revisited:true}:{})};await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
+     if(!signal.dryRun){const saved={...directOutcomeState(result,signal.attempt??1),...(signal.revisit?{revisited:true,looks:Number(signal.look??1)}:{})};await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(saved),Date.now()).run();}
      return result;
     }catch{
      // Never persist exceptions: upstream errors can contain private content.
      // 2026-11-12: a failed second look is final too; without the mark it was retried every 10 minutes for ever.
-     const result={...directOutcomeState({status:'pending',reason:'direct_execution_failed'},signal.attempt??1),...(signal.revisit?{revisited:true}:{})};
+     const result={...directOutcomeState({status:'pending',reason:'direct_execution_failed'},signal.attempt??1),...(signal.revisit?{revisited:true,looks:Number(signal.look??1)}:{})};
      if(!signal.dryRun)await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind('diana_direct_event:'+signal.event_id,JSON.stringify(result),Date.now()).run();
      return result;
     }

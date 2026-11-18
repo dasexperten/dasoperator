@@ -6,7 +6,7 @@ function db() {
   const s = new DatabaseSync(':memory:');
   s.exec(`CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
     CREATE TABLE ugc_ig_messages(id TEXT PRIMARY KEY, conversation_id TEXT, direction TEXT, from_username TEXT, text TEXT, created_at TEXT);
-    CREATE TABLE ugc_payouts(id TEXT, creator_id TEXT, handle TEXT, created_at INTEGER);
+    CREATE TABLE ugc_payouts(id TEXT, creator_id TEXT, handle TEXT, created_at INTEGER, status TEXT DEFAULT 'awaiting_approval');
     CREATE TABLE ugc_creator_platforms(id TEXT, creator_id TEXT, platform TEXT, normalized_handle TEXT);`);
   return { s, prepare(sql) { let v = []; return { bind(...a) { v = a; return this; },
     async first() { return s.prepare(sql).get(...v) ?? null; }, async all() { return { results: s.prepare(sql).all(...v) }; },
@@ -30,6 +30,6 @@ test('a payout from the same cycle clears it; the watch runs once per hour', asy
   const d = db(); seed(d);
   assert.equal(await runButtonWatch(d, now), 1);
   assert.equal(await runButtonWatch(d, now + 60_000), null);
-  d.s.prepare('INSERT INTO ugc_payouts VALUES(?,?,?,?)').run('p', 'cr', '_bikmatinki', now);
+  d.s.prepare('INSERT INTO ugc_payouts(id,creator_id,handle,created_at) VALUES(?,?,?,?)').run('p', 'cr', '_bikmatinki', now);
   assert.equal(await runButtonWatch(d, now + 3_600_000), 0);
 });

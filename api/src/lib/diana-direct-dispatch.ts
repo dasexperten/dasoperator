@@ -22,7 +22,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
   await env.DB.prepare("DELETE FROM crm_sync_state WHERE key='diana_direct_active' AND value=?1").bind(active.value).run();
  }
  // Owner 2026-11-11: payment messages (paid / bank declined) are Diana Direct's first job.
- const notice=(e:any)=>['payout_paid_notice','payout_failed_notice'].includes(e.task)&&typeof e.payout_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
+ const notice=(e:any)=>['payout_paid_notice','payout_failed_notice','payout_manual_followup'].includes(e.task)&&typeof e.payout_id==='string'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  // Owner 2026-11-11: his Telegram decision is carried out by Diana Direct.
  const nudge=(e:any)=>e.task==='lead_nudge'&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
  const gold=(e:any)=>(e.task==='gold_welcome'||nudge(e))&&String(e.event_id).startsWith('action:')&&String(e.queue_key).startsWith('diana_action_pending:')&&typeof e.cid==='string';
@@ -30,21 +30,28 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  const pending=(await pendingDianaMessages(env,now)).filter((e:any)=>notice(e)||choice(e)||gold(e)||
   typeof e.message_id==='string' && e.event_id==='message:'+e.message_id && String(e.queue_key).startsWith('diana_round_alarm:'));
  pending.sort((a:any,b:any)=>Number(notice(b))-Number(notice(a))||Number(!!b.pay)-Number(!!a.pay)||Number(choice(b))-Number(choice(a))||Number(gold(b))-Number(gold(a))||Number(b.event_id===priorityEventId&&!!priorityEventId)-Number(a.event_id===priorityEventId&&!!priorityEventId)||Date.parse(b.at??0)-Date.parse(a.at??0));
- const ready:{item:any;attempt:number;revisit?:boolean}[]=[];let earliest=Infinity;
+ const ready:{item:any;attempt:number;revisit?:boolean;look?:number}[]=[];let earliest=Infinity;
  for(const item of pending){
   let nextAttempt=1;
   const row=await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key=?1').bind('diana_direct_event:'+item.event_id).first<{value:string}>();
   let state:any=null;try{state=row?JSON.parse(row.value):null;}catch{continue;}
-  let revisit=false;
+  let revisit=false,look=0;
   if(state){
    // Owner 2026-11-11: a parked chat is never left alone. Once, 10 minutes after
    // parking, Diana looks again and must answer or ask. An unknown send is never replayed.
    const parked=state.status==='needs_review'||(state.status==='pending'&&Number(state.attempt??1)>=3);
    if(parked){
     const unknownSend=/delivery_unknown|delivery_unconfirmed/.test(String(state.reason??''));
-    if(!state.revisited&&!unknownSend&&!notice(item)&&!choice(item)&&!gold(item)){
-     if(now-Number(state.review_since_ms??0)<600000){earliest=Math.min(earliest,Number(state.review_since_ms??0)+600000);continue;}
-     revisit=true;
+    // Owner 2026-11-18 (makeupleila waited from Monday): the second look was the last one, so a
+    // chat parked twice was never opened again. While her message is still the last word (its
+    // alarm stands), Diana looks again: 10 minutes after the first parking, then once an hour,
+    // however old the message is. An unknown send is still never replayed.
+    // Past seven days Instagram itself refuses our message, so there is nothing left to try.
+    const open=!(now-Date.parse(String(item.at??''))>=7*86400000);
+    if(!unknownSend&&open&&!notice(item)&&!choice(item)&&!gold(item)){
+     const wait=state.revisited?3600000:600000;
+     if(now-Number(state.review_since_ms??0)<wait){earliest=Math.min(earliest,Number(state.review_since_ms??0)+wait);continue;}
+     revisit=true;look=Number(state.looks??(state.revisited?1:0))+1;
     }else{
      // Owner 2026-11-11: no Telegram for parked chats; it stays visible in the ERP.
      continue;
@@ -55,10 +62,10 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
     nextAttempt=Number(state.attempt??1)+1;
    }
   }
-  ready.push({item,attempt:nextAttempt,revisit});if(ready.length>=4)break;
+  ready.push({item,attempt:nextAttempt,revisit,look});if(ready.length>=4)break;
  }
  if(!ready.length)return Number.isFinite(earliest)?{dispatched:false,reason:'media_retry_waiting',retry_at:earliest}:{dispatched:false,reason:'no_direct_signal_ready'};
- const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(ready.map(({item,attempt})=>[item.event_id,attempt]))));
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(ready.map(({item,attempt,look})=>look?[item.event_id,attempt,look]:[item.event_id,attempt]))));
  const id='direct-'+[...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
  const owner={kind:'direct' as const,id};
  if(!await reserveDianaCloud(env,owner))return {dispatched:false,reason:'diana_cloud_locked'};
@@ -67,7 +74,7 @@ export async function dispatchDianaDirect(env:Env,priorityEventId?:string,now=Da
  await env.DB.prepare('INSERT OR IGNORE INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3)')
   .bind('diana_direct_instance:'+id,JSON.stringify({event_ids:ready.map(({item})=>item.event_id),created_at:now}),now).run();
  try{
-  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt,revisit})=>({cid:String(item.cid),message_id:item.message_id??null,event_id:item.event_id,handle:item.handle,attempt,...(notice(item)?{task:item.task,payout_id:item.payout_id}:{}),...(choice(item)?{task:item.task,question_id:item.question_id}:{}),...(gold(item)?{task:item.task}:{}),...(revisit?{revisit:true}:{})}))}});
+  await env.DIANA_DIRECT.create({id,params:{events:ready.map(({item,attempt,revisit,look})=>({cid:String(item.cid),message_id:item.message_id??null,event_id:item.event_id,handle:item.handle,attempt,...(notice(item)?{task:item.task,payout_id:item.payout_id}:{}),...(choice(item)?{task:item.task,question_id:item.question_id}:{}),...(gold(item)?{task:item.task}:{}),...(revisit?{revisit:true,look}:{})}))}});
  }catch{
   // An uncertain create cannot be replayed blindly; preserve claim and lock.
   return {dispatched:false,reason:'workflow_creation_unknown'};

@@ -87,7 +87,13 @@ export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron:
       }
       // Delayed CF deliveries must not catch up historical business work. A known
       // terminal result above may be returned, but an old unclaimed slot is inert.
-      if (normalizedTime !== minuteSlot(Date.now())) {
+      // Owner 2026-11-18 (erp-ugc-postlink): Cloudflare hands this nightly job over about 57 seconds
+      // late; on 13, 14 and 16.11 it crossed the minute and the whole night was dropped without a
+      // trace. A long nightly job has no later slot to catch up with, so it may start up to ten
+      // minutes late. Every other worker keeps the strict current-minute rule.
+      const lateBy = Date.now() - normalizedTime!;
+      const graceMs = cloudflareOnly(worker) ? 10 * 60_000 : 0;
+      if (normalizedTime !== minuteSlot(Date.now()) && !(lateBy >= 0 && lateBy < 60_000 + graceMs)) {
         phase('slot_outside_current_minute');
         return { ok: true, dry, runKey, note: 'SKIPPED — scheduled slot is outside the current minute' };
       }
@@ -210,7 +216,9 @@ function sameSecret(a: string, b: string): boolean {
 export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): ExportedHandler<E> {
   return {
     async scheduled(event, env, ctx) {
-      ctx.waitUntil(
+      // Owner 2026-11-18: the handler waits for its own work. Left to waitUntil alone, the runtime
+      // cut the nightly UGC check about 30 seconds in (17 and 18.11: a started row, never finished).
+      const work =
         runLogged(env, worker, event.cron, job, event.scheduledTime).then((r) => {
           if (!r.ok) {
             if (r.journalError === 'finish' || r.apiPending || r.apiOwned || r.localPending || r.localOwned) {
@@ -225,8 +233,10 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
             }
             throw new Error(r.error);
           }
-        }),
-      );
+        });
+      ctx.waitUntil(work);
+      // The outcome (retry or noRetry) stays with waitUntil; waiting here only keeps the run alive.
+      await work.catch(() => undefined);
     },
 
     async fetch(req, env) {

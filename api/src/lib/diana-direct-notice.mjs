@@ -1,11 +1,12 @@
-import {SCENARIO_CARDS} from './ig-dm-reply-guard.mjs';
+import {SCENARIO_CARDS,TERMO_BENEFITS} from './ig-dm-reply-guard.mjs';
 // Owner 2026-10-18/2026-11-11: once a payout is confirmed paid (or declined by the
 // bank) Diana tells the creator at once, in her own words. Runs inside one Diana
 // Direct workflow step; conversation text stays in memory and is never persisted.
 import {mapKonsolStatus} from './ugc-payouts.mjs';
 const PAGE='1697038263872226', BRAND='17841466350261166';
 const GRAPH='https://graph.facebook.com/v21.0/';
-export const NOTICE_TASKS=new Set(['payout_paid_notice','payout_failed_notice']);
+export const MANUAL_FOLLOWUP_TASK='payout_manual_followup';
+export const NOTICE_TASKS=new Set(['payout_paid_notice','payout_failed_notice',MANUAL_FOLLOWUP_TASK]);
 export const OWNER_CHOICE_TASK='owner_choice';
 export const GOLD_TASK='gold_welcome';
 
@@ -24,6 +25,7 @@ async function graph(fetchImpl,path,key,init){
 
 export async function runPayoutNotice({env,event,token,infer,prepareContext,fetchImpl=fetch,now=Date.now()}){
   if(!NOTICE_TASKS.has(event.task)||!event.payout_id||!event.cid||!String(event.event_id).startsWith('action:'))throw Error('notice_invalid_event');
+  if(event.task===MANUAL_FOLLOWUP_TASK)return runManualFollowup({env,event,token,fetchImpl,now});
   const paid=event.task==='payout_paid_notice';
   const row=await env.DB.prepare('SELECT id,handle,status,amount_minor,konsol_payment_id,konsol_status,paid_at,failed_at,notice_status,notice_message_id FROM ugc_payouts WHERE id=?1').bind(event.payout_id).first();
   if(!row)return{status:'pending',reason:'notice_payout_missing'};
@@ -81,6 +83,34 @@ export async function runPayoutNotice({env,event,token,infer,prepareContext,fetc
     ]);
     return{status:'complete',reason:paid?'paid_notice_delivered':'failed_notice_delivered',outgoing_id:outgoingId};
   }
+}
+
+// Owner 2026-11-18 (o__kseniaa): the director paid by hand and wrote «перевод отправили» himself,
+// so Diana adds no second payment message. She goes straight on: the ideas with the four scenario
+// cards, then the TERMO 39° infographic if this chat has not had it. Each goes once.
+export async function runManualFollowup({env,event,token,fetchImpl=fetch,now=Date.now()}){
+  const row=await env.DB.prepare('SELECT id,handle,status,konsol_status FROM ugc_payouts WHERE id=?1').bind(event.payout_id).first();
+  if(!row)return{status:'pending',reason:'notice_payout_missing'};
+  if(row.status!=='paid'||row.konsol_status!=='paid_outside')return{status:'pending',reason:'notice_outcome_not_confirmed'};
+  const page=await graph(fetchImpl,`${PAGE}?fields=access_token`,token);
+  if(!page.access_token)throw Error('notice_page_token_missing');
+  const list=await graph(fetchImpl,`${encodeURIComponent(event.cid)}/messages?fields=id,created_time,from,message&limit=30`,page.access_token);
+  const creator=(list.data??[]).slice().reverse().filter(m=>![PAGE,BRAND].includes(String(m.from?.id??''))).at(-1);
+  const handle=String(row.handle??'').toLowerCase().replace(/^@/,'');
+  if(!creator?.from?.id||String(creator.from.username??'').toLowerCase()!==handle)return{status:'pending',reason:'notice_conversation_identity_mismatch'};
+  const ideas=await sendIdeas({env,fetchImpl,pageToken:page.access_token,recipientId:creator.from.id,payoutId:row.id,cards:SCENARIO_CARDS,now});
+  if(ideas.status==='unknown')return{status:'pending',reason:'notice_delivery_unknown'};
+  const infoKey='termo_info:'+event.cid;
+  const had=await env.DB.prepare('SELECT 1 AS x FROM crm_sync_state WHERE key=?1').bind(infoKey).first();
+  if(!had){
+    const claim=await env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO NOTHING').bind(infoKey,'sent',now).run();
+    if(claim?.meta?.changes){
+      const send=extra=>graph(fetchImpl,`${PAGE}/messages`,page.access_token,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recipient:{id:String(creator.from.id)},message:{attachment:{type:'image',payload:{url:TERMO_BENEFITS,is_reusable:true}}},...extra})});
+      try{try{await send({messaging_type:'RESPONSE'});}catch(e){if(!/notice_meta_(400|403)/.test(String(e.message)))throw e;await send({messaging_type:'MESSAGE_TAG',tag:'HUMAN_AGENT'});}}
+      catch{/* the picture is an extra; the ideas already went and are never repeated */}
+    }
+  }
+  return{status:'complete',reason:'manual_transfer_followup_sent'};
 }
 
 // Owner 2026-11-05/2026-11-11: Aram taps a Telegram button; Diana Direct writes the

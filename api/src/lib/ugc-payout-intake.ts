@@ -14,6 +14,7 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
   fps_bank_member_id: string; bank_ref: string;
   cart_review?: {source_message_id:string;amount_minor:number;source_kind?:'checkout';evidence?:string;reviewer?:string};
   amount_later?: boolean; text_amount?: {source_message_id:string;amount_minor:number};
+  declined_amount?: {payout_id:string;amount_minor:number};
 }, now = Date.now(), evidenceCapability?: object) {
   const evidence = payoutEvidenceReader(env,input.conversation_id,evidenceCapability,undefined,input.cycle_message_id);
   const handle = String(input.handle ?? '').replace(/^@/, '').toLowerCase();
@@ -121,6 +122,15 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     if(!Number.isSafeInteger(t.amount_minor)||t.amount_minor<5000||t.amount_minor>299900||!source||source.direction!=='in'||source.from_username?.toLowerCase()!==handle||!String(source.text??'').includes(String(rub)))throw Error('invalid_text_amount');
     cartAmount=t.amount_minor;
   }
+  // Owner 2026-11-18 (ilina.edit38): her bank declined the transfer and she names another bank
+  // «по этому же номеру». The amount is the one already checked for the declined button; it is
+  // read back from that very row, never taken on trust.
+  if(input.declined_amount&&cartAmount==null){
+    const d=input.declined_amount;
+    const declined=await env.DB.prepare("SELECT amount_minor FROM ugc_payouts WHERE id=?1 AND creator_id=?2 AND status='failed'").bind(d.payout_id,creatorId).first<{amount_minor:number}>();
+    if(!declined||declined.amount_minor!==d.amount_minor||d.amount_minor<5000||d.amount_minor>299900)throw Error('invalid_declined_amount');
+    cartAmount=d.amount_minor;
+  }
   // Never create a financial row from the one-kopeck 'unknown' sentinel.
   // Preserve an existing Owner amount; current-cart review remains the existing
   // amount authority. A raw observed/parser number is not a replacement for it.
@@ -151,7 +161,17 @@ export async function prepareCreatorPayout(env: Pick<Env, 'DB'>, input: {
     return {outcome:'clarification_required',registered:false,missing_fields:missing,
       dispatch_status:'not_dispatched'};
   }
-  const id = open?.id ?? await stable('ugcpay',creatorId+':'+input.cycle_message_id);
+  let id = open?.id ?? await stable('ugcpay',creatorId+':'+input.cycle_message_id);
+  // Owner 2026-11-18 (ilina.edit38): the same phone with a new bank has the same cycle message,
+  // so it used to land on the declined row, write nothing and fail. A declined row is history:
+  // the new details get their own button.
+  if(!open){
+    for(let n=0;n<5;n++){
+      const taken=await env.DB.prepare('SELECT status FROM ugc_payouts WHERE id=?1').bind(id).first<{status:string}>();
+      if(taken?.status!=='failed')break;
+      id=await stable('ugcpay',id+':after_decline');
+    }
+  }
   const pendingKey = 'diana_payout_intake_pending:' + creatorId + ':' + input.cycle_message_id;
   const proof = JSON.stringify({verified:true,payout_id:id,handle,conversation_id:input.conversation_id,
     source_message_ids:sources,cycle_message_id:input.cycle_message_id,source_at:lastAt,

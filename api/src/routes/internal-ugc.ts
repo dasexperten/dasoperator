@@ -32,6 +32,36 @@ route.post('/direct-subscription-check', async c => {
     return c.json({ok:imageOk&&out.text.trim().toLowerCase().startsWith('ok'),model_verified:out.receipt.model==='gpt-6.1-terra',image_verified:imageOk});
   } catch (error) { const code=String((error as Error)?.message??''); return c.json({ok:false,error:/^direct_(?:inference_http_\d{3}|upstream_http_\d{3}|upstream_model_not_verified|upstream_empty_answer(?:_(?:completed|failed|incomplete|no_terminal))?|upstream_codex_no_pass|inference_invalid_receipt|subscription_unavailable|invalid_model|invalid_image)$/.test(code)?code:'subscription_check_failed',stage},503); }
 });
+// Owner 2026-11-18 acceptance test for Diana's permanent layer (CORE): a made-up conversation, no real
+// creator, no send, no payout. The blogger has the cart with our product and price, then sends an article
+// number. Diana must ask for payment details at once (phone, bank, name) and never ask about the seller.
+route.post('/core-test', async c => {
+  const expected=c.env.CODEX_ROUTE_SECRET ?? '';
+  const given=c.req.header('X-Codex-Route-Secret') ?? '';
+  let diff=expected.length ^ given.length;
+  for(let i=0;i<Math.min(expected.length,given.length);i++)diff|=expected.charCodeAt(i)^given.charCodeAt(i);
+  if(!expected||diff)return c.json({ok:false,error:'unauthorized'},401);
+  try {
+    const {decideDirect}=await import('../lib/diana-direct-decide.mjs');
+    const {prepareDianaContext}=await import('../lib/diana-context.mjs');
+    const {directThink}=await import('../lib/diana-direct-think.mjs');
+    const infer=(messages:any,options:any={})=>directThink(c.env,options.model==='gpt-6.1-terra'?'reply':options.model==='gpt-6-luna'?'image':'context')(messages,options);
+    const PAGE='1697038263872226', her={id:'core-test-blogger',username:'core_test'};
+    const t=(m:number)=>new Date(Date.now()-m*60_000).toISOString();
+    const messages=[
+      {id:'t1',from:{id:PAGE},created_time:t(40),message:'Отлично! Пришлите, пожалуйста, скрин корзины и цену нашей пасты цифрами.'},
+      {id:'t2',from:her,created_time:t(30),message:'Положила в корзину на Ozon: TERMO 39 Das Experten, цена 489 ₽.'},
+      {id:'t3',from:{id:PAGE},created_time:t(20),message:'Спасибо! Видим TERMO и цену 489 ₽.'},
+      {id:'t4',from:her,created_time:t(2),message:'Артикул 3497962138'},
+    ];
+    const source={status:'ready',messageId:'t4',messages};
+    const d:any=await decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:async()=>{throw Error('no_image');},env:c.env,facts:{stage:'agreed',payouts:[]},finalAttempt:true});
+    const reply=String(d.reply??d.amountQuestion??'');
+    const asksRequisites=/телефон|номер|банк|имя|реквизит/i.test(reply);
+    const asksSeller=/продав|магазин/i.test(reply)||/артикул[^.!]*\?/i.test(reply);
+    return c.json({ok:asksRequisites&&!asksSeller,action:d.action,core:d.receipt?.core??null,asks_requisites:asksRequisites,asks_seller:asksSeller,reply});
+  } catch (error) { return c.json({ok:false,error:String((error as Error)?.message??error).slice(0,120)},503); }
+});
 // Read-only stopwatch for the UGC list (Owner 2026-11-17: the list hung on «Загрузка…»).
 // Builds the same payload the screen gets and returns only step times, size and counts — no blogger data.
 route.post('/list-timing', async c => {

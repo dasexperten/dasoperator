@@ -1,0 +1,21 @@
+name: Diana CORE acceptance test
+# Owner 2026-11-18: a made-up conversation (cart, price, then an article number) through the live Diana
+# Direct decision. No real creator, no send, no payout. Pass: she asks for payment details, not the seller.
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the test conversation
+        env:
+          ROUTE_SECRET: ${{ secrets.CODEX_ROUTE_SECRET }}
+        run: |
+          set -eu
+          test -n "$ROUTE_SECRET"
+          response=$(curl --max-time 280 -sS -X POST -H "X-Codex-Route-Secret: $ROUTE_SECRET" \
+            https://dasoperator-api.dasexperten.workers.dev/internal/ugc/core-test)
+          printf '%s\n' "$response"
+          printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") and str(d.get("core","")).startswith("core: loaded"), d'

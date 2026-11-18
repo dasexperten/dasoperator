@@ -1,7 +1,8 @@
 export function contentConfirmed(item) { return item?.product_status==='identified'; }
+// Owner 2026-11-19: «grey can be only the reels that are not passing the link check». The colour
+// follows the link alone; whether the product is confirmed no longer greys a working reel.
 export function contentState(item) {
-  if(!contentConfirmed(item)) return 'pending';
-  return ['missing','restricted','invalid'].includes(item.link_status)?'dead':'live';
+  return ['missing','restricted','invalid'].includes(item?.link_status)?'dead':'live';
 }
 export function publicationNetwork(href) {
   let host;try{host=new URL(href).hostname.toLowerCase().replace(/^www\./,'');}catch{return '';}

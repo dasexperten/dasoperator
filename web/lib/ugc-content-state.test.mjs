@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { publicationNetwork } from './ugc-content-state.mjs';
+import { contentState, publicationNetwork } from './ugc-content-state.mjs';
 
 test('TikTok short links select the same platform mark as direct video links', () => {
   for (const href of [
@@ -16,4 +16,11 @@ test('TikTok short links select the same platform mark as direct video links', (
 test('TikTok-looking domains keep the generic link mark', () => {
   assert.equal(publicationNetwork('https://vt.tiktok.com.example.org/video/123'), '');
   assert.equal(publicationNetwork('https://example.org/?url=https://vt.tiktok.com/123'), '');
+});
+
+test('only a link that fails its check is grey; an unconfirmed working reel is live', () => {
+  assert.equal(contentState({ product_status: 'queued', link_status: 'active' }), 'live');
+  assert.equal(contentState({ product_status: null, link_status: null }), 'live');
+  assert.equal(contentState({ product_status: 'identified', link_status: 'unknown' }), 'live');
+  for (const link_status of ['missing', 'restricted', 'invalid']) assert.equal(contentState({ product_status: 'identified', link_status }), 'dead');
 });

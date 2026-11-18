@@ -922,12 +922,12 @@ function Publication({ item, href, compact = false }: { item: ContentObservation
         {item.collab_status ? <span className="ugc-chip-collab" data-collab={item.collab_status} title={item.collab_status === 'confirmed' ? 'Collab: мы соавтор публикации' : 'Collab: блогер пригласил нас, приглашение не принято'}><Handshake aria-hidden="true" /></span> : null}
       </a>
       <span className="ugc-chip-date" title={postedAt ? `Опубликовано ${postedAt.toLocaleDateString('ru-RU')}` : undefined}>{posted || '\u00a0'}</span>
-      {failed || jobError ? <ReelFailure reason={failureReason} /> : null}
+      {(failed || jobError) && state !== 'dead' ? <ReelFailure reason={failureReason} /> : null}
     </span>;
   }
   return <span className="ugc-pub" data-state={state} data-net={net || undefined} data-reel-status={failed ? undefined : jobStatus || undefined} data-reel-failed={failed || undefined} data-reel-skipped={skipped || undefined}>
     <span className="ugc-pub-icon"><a href={href} target="_blank" rel="noopener noreferrer" onClick={onIconClick} onDoubleClick={(event) => { if (isAdmin) { event.preventDefault(); event.stopPropagation(); } }} onKeyDown={(event) => { if (isAdmin && event.altKey && event.key === 'Enter') { event.preventDefault(); void enqueue(); } }} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}${jobLabel ? ` · ${jobLabel}` : ''}`} title={['UGC Selection (UGC-селекция)', jobLabel, jobError || (failed ? failureReason : item.reel_error), isAdmin ? 'Двойной клик или Alt+Enter — в очередь Дитера' : null, net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, er ? `ER ${er}` : null, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{er ? <span className="ugc-pub-er" aria-label={`ER ${er}`}>{er}</span> : Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>{posted && postedAt ? <span className="ugc-pub-date" title={`Опубликовано ${postedAt.toLocaleDateString('ru-RU')}`}>{posted}</span> : null}{watchDay >= 1 && watchDay <= 5 ? <span className="ugc-pub-day" title="День наблюдения Дианы">{watchDay}/5</span> : null}</span>
-    {failed || jobError ? <ReelFailure reason={failureReason} /> : null}
+    {(failed || jobError) && state !== 'dead' ? <ReelFailure reason={failureReason} /> : null}
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>

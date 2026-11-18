@@ -416,6 +416,12 @@ export async function handleScheduled(
   // Each lane runs only when due — 3 min after activity, then 15, then 30.
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
+    // Owner 2026-11-19: the one-off reading of views for the newest 500 reels moves one step a minute and ends itself.
+    try {
+      // @ts-ignore plain JS module
+      const { tickViewsJob } = await import('./lib/ugc-views-job.mjs');
+      await tickViewsJob(env as any, { now: Date.now() });
+    } catch (e) { recordFailure(e); console.error('[ugc-views-job] failed'); }
     try {
       const {scheduleDianaRound}=await import('./lib/diana-cloud-round-schedule');
       await scheduleDianaRound(env,event.scheduledTime || Date.now());

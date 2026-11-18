@@ -270,7 +270,8 @@ test('list projects only contractor presence; amount review does not disclose pr
  const result=await f.request('GET','/payouts/p/amount-review');assert.equal(result.result.can_edit,false);
  assert.doesNotMatch(JSON.stringify(result),/synthetic-private-contractor|konsol_contractor_id/);
  const routeSource=readFileSync(new URL('../routes/ugc.ts',import.meta.url),'utf8');
- const projection=routeSource.slice(routeSource.indexOf('let payoutRows:'),routeSource.indexOf('const sourceIndex ='));
+ const from=routeSource.indexOf('const payoutRead ='),to=routeSource.indexOf('const sourceIndex =');assert.ok(from>0&&to>from,'payout projection not found in the list');
+ const projection=routeSource.slice(from,to);
  assert.match(projection,/CASE WHEN COALESCE\(p\.konsol_contractor_id,''\)<>'' THEN 1 ELSE 0 END\) has_konsol_contractor/);
  assert.doesNotMatch(projection,/[, ]p\.konsol_contractor_id,/);
 });

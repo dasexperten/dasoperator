@@ -10,6 +10,8 @@ import { queueDianaAction } from './diana-compose';
 export const HARD_REASON = 'return or money back, Owner decides';
 const QUESTION_KEY = (messageId: number) => `ig_hard:${messageId}`;
 const SELF = 'Напишу сам';
+// Owner 2026-11-18: a blogger returns money only to T-Bank, by this number. No other bank, no other number.
+export const REFUND_TO = 'Т-Банк, по номеру +7 930 955-40-25';
 
 type Question = { cid: string; handle: string; at: string; options: Record<string, string[] | null>; answered_at?: string; choice?: string;decision_at?:string };
 
@@ -22,7 +24,7 @@ export function hardAnswers(firstName: string | null, paidMinor: number | null):
   if (paidMinor && paidMinor > 0) {
     return {
       'Не возвращать': [`${name}${cap('возвращать ничего не нужно.')}`, 'Снимите, пожалуйста, ролик по-своему, как вам удобно. Будем ждать!'],
-      'Вернуть деньги': [`${name}${cap('хорошо, поняла вас.')}`, `Когда Ozon вернёт деньги, переведите, пожалуйста, ${rub(paidMinor)} обратно. Номер для перевода пришлю.`],
+      'Вернуть деньги': [`${name}${cap('хорошо, поняла вас.')}`, `Когда Ozon вернёт деньги, переведите, пожалуйста, ${rub(paidMinor)} обратно: ${REFUND_TO}.`],
       [SELF]: null,
     };
   }

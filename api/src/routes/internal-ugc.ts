@@ -57,8 +57,11 @@ route.post('/core-test', async c => {
     const source={status:'ready',messageId:'t4',messages};
     const d:any=await decideDirect({source,prepareContext:prepareDianaContext,infer,readImage:async()=>{throw Error('no_image');},env:c.env,facts:{stage:'agreed',payouts:[]},finalAttempt:true});
     const reply=String(d.reply??d.amountQuestion??'');
-    const asksRequisites=/телефон|номер|банк|имя|реквизит/i.test(reply);
-    const asksSeller=/продав|магазин/i.test(reply)||/артикул[^.!]*\?/i.test(reply);
+    // A real request for payment details: the word «реквизиты», or at least two of phone, bank and name.
+    const parts=[/телефон/i,/банк/i,/(?:^|[^а-яё])(?:им[яени]|фио)(?![а-яё])/i].filter(r=>r.test(reply)).length;
+    const asksRequisites=/реквизит/i.test(reply)||parts>=2;
+    // Anything else asked about the product or the cart fails the test (Codex review on #256).
+    const asksSeller=/продав|магазин/i.test(reply)||/артикул[^.!]*\?/i.test(reply)||/номер\s+(?:товара|заказа)|цен[уы]\b|скрин/i.test(reply);
     return c.json({ok:asksRequisites&&!asksSeller,action:d.action,core:d.receipt?.core??null,asks_requisites:asksRequisites,asks_seller:asksSeller,reply});
   } catch (error) { return c.json({ok:false,error:String((error as Error)?.message??error).slice(0,120)},503); }
 });

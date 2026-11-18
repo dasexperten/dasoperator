@@ -43,3 +43,11 @@ test('the 06:00 Yerevan round (05:00 Moscow) sends no reminder (Owner 2026-11-18
  const early=Date.parse('2026-11-11T02:00:00Z');
  const f=setup({lastOutAgo:45*H,lastInAgo:50*H});const r=await runRoundCreator({...f.args,now:early});assert.equal(r.reason,'outside_reminder_hours');assert.equal(f.sent.length,0);
 });
+test('needing no answer is a receipt; a refund question stays in the Owner\'s sight; an alarm chat is only ever answered (2026-11-18)',async()=>{
+ const b=setup({lastFrom:'her',herAgo:3*H,decision:{action:'none',reply:null}});await runRoundCreator(b.args);
+ assert.equal(b.s.prepare("SELECT value FROM crm_sync_state WHERE key='diana_message_done:chat'").get().value,'i2');
+ const o=setup({lastFrom:'her',herAgo:3*H,decision:{action:'owner',reply:null}});
+ assert.equal((await runRoundCreator(o.args)).reason,'waits_for_owner');assert.equal(o.sent.length,0);
+ assert.equal(o.s.prepare("SELECT 1 x FROM crm_sync_state WHERE key='diana_message_done:chat'").get(),undefined);
+ const z=setup({lastOutAgo:30*H});assert.equal((await runRoundCreator({...z.args,answerOnly:true})).reason,'already_answered');assert.equal(z.sent.length,0);
+});

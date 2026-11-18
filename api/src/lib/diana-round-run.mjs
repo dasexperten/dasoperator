@@ -59,6 +59,8 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
     if(await env.DB.prepare("SELECT 1 AS x FROM crm_sync_state WHERE key=?1").bind('diana_direct_active').first())return{status:'skipped',reason:'direct_working_now'};
     if(await env.DB.prepare('SELECT 1 AS x FROM crm_sync_state WHERE key=?1').bind('diana_round_seen:'+last.id).first())return{status:'skipped',reason:'round_already_decided_no_answer'};
   }else if(now-Date.parse(lastOut.created_time)<20*HOUR)return{status:'skipped',reason:'written_recently'};
+  // Owner 2026-11-18 (K4): every reminder only 10:00–21:00 Moscow; the 06:00 Yerevan round answers, it does not remind.
+  if(!unanswered){const msk=new Date(now+3*HOUR).getUTCHours();if(msk<10||msk>=21)return{status:'skipped',reason:'outside_reminder_hours'};}
   if(now-Date.parse(lastIn.created_time)>7*DAY)return{status:'skipped',reason:'outside_instagram_window'};
   const payouts=(await env.DB.prepare('SELECT status,amount_minor,paid_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 3').bind(person.id).all()).results??[];
   const context=await prepareContext({task:JSON.stringify({task:'round',stage:person.lifecycle_stage}),githubToken:env.GITHUB_TOKEN,infer});

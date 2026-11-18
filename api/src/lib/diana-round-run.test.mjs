@@ -38,3 +38,11 @@ test('a reply Diana Direct is already sending is never doubled; a message that n
  assert.equal((await runRoundCreator(b.args)).reason,'unanswered_needs_no_reply');
  assert.equal((await runRoundCreator({...b.args,runId:'r2'})).reason,'round_already_decided_no_answer');assert.equal(b.sent.length,0);
 });
+test('needing no answer is a receipt; a refund question stays in the Owner\'s sight; an alarm chat is only ever answered (2026-11-18)',async()=>{
+ const b=setup({lastFrom:'her',herAgo:3*H,decision:{action:'none',reply:null}});await runRoundCreator(b.args);
+ assert.equal(b.s.prepare("SELECT value FROM crm_sync_state WHERE key='diana_message_done:chat'").get().value,'i2');
+ const o=setup({lastFrom:'her',herAgo:3*H,decision:{action:'owner',reply:null}});
+ assert.equal((await runRoundCreator(o.args)).reason,'waits_for_owner');assert.equal(o.sent.length,0);
+ assert.equal(o.s.prepare("SELECT 1 x FROM crm_sync_state WHERE key='diana_message_done:chat'").get(),undefined);
+ const z=setup({lastOutAgo:30*H});assert.equal((await runRoundCreator({...z.args,answerOnly:true})).reason,'already_answered');assert.equal(z.sent.length,0);
+});

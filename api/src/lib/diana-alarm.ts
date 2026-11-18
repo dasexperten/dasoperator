@@ -90,6 +90,13 @@ export async function detectDianaMessages(env: Env, now = Date.now()) {
     if (Date.now() - scanStarted >= 90_000 && pageNo + 1 < DIANA_SCAN_PAGES) { errors++; break; }
   }
   // Preserve outstanding alarms even when conversations move beyond the scan window.
+  // 2026-11-18 (e_zulia.20): an alarm that rang in the same seconds Diana closed that very message stayed
+  // forever, because a handled message was simply passed over. A message with Diana's receipt is not waiting.
+  try {
+    await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND json_valid(value)
+      AND EXISTS (SELECT 1 FROM crm_sync_state d WHERE d.key='diana_message_done:'||json_extract(crm_sync_state.value,'$.cid')
+        AND d.value=json_extract(crm_sync_state.value,'$.message_id'))`).run();
+  } catch { errors++; }
 
   } catch {
     errors++;

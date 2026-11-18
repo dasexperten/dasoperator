@@ -23,6 +23,20 @@ export function oursByText(caption: unknown, tagged: unknown): boolean {
   return OURS.test(String(caption ?? '')) || names.some(n => BRAND_ACCOUNTS.includes(n.toLowerCase()));
 }
 
+// The waiting reels due for a check, newest first, Collab ones before the rest. A cheap read on its
+// own, so a caller can note what it is about to check before the slow reading starts.
+export async function pendingContentIds(env: Env, options: { limit?: number; exclude?: string[] } = {}): Promise<string[]> {
+  const limit = Math.max(1, Math.min(30, Math.trunc(options.limit ?? 10))), exclude = (options.exclude ?? []).slice(-400);
+  const marks = exclude.map((_, i) => '?' + (i + 2)).join(',');
+  const rows = (await env.DB.prepare(`SELECT x.id FROM ugc_content x JOIN ugc_creators c ON c.id=x.creator_id AND c.archived_at IS NULL
+    WHERE COALESCE(x.product_status,'')<>'identified' AND x.content_url LIKE '%instagram.com/%'
+      AND COALESCE(x.link_status,'') NOT IN ('missing','invalid')
+      AND (x.product_checked_at IS NULL OR julianday('now')-julianday(x.product_checked_at)>=7)${exclude.length ? ` AND x.id NOT IN (${marks})` : ''}
+    ORDER BY (COALESCE(x.collab_status,'')='confirmed') DESC, x.imported_at DESC, x.id LIMIT ?1`)
+    .bind(limit, ...exclude).all<{ id: string }>()).results ?? [];
+  return rows.map(r => String(r.id));
+}
+
 export async function confirmPendingContent(env: Env, options: { limit?: number; budgetMs?: number; exclude?: string[]; ids?: string[]; watch?: (url: string) => Promise<any> } = {}): Promise<ConfirmTotals> {
   const limit = Math.max(1, Math.min(30, Math.trunc(options.limit ?? 10)));
   const started = Date.now(), budgetMs = options.budgetMs ?? 4 * 60_000;

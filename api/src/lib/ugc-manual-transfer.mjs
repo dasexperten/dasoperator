@@ -2,11 +2,13 @@
 // would send the money himself from his own number, and the Owner then writes in the same chat
 // «перевод отправили». That message is the payment fact: the declined button turns green
 // (paid outside the ERP), the creator's status follows, and Diana carries on with the scenarios.
+// Owner 2026-11-19: his real words were «Отправили частным переводом» and the button stayed red;
+// one or two words between the verb and «перевод(ом)» are now read as the same fact.
 // Only our own outgoing message written after the bank decline counts; a question, a promise
 // («отправим», «директор отправит») or a denial («не перевели») never does.
 import {followPayoutStage} from './ugc-payout-stage.mjs';
 
-const SENT=/(?:перевод\S*\s+(?:вам\s+)?(?:уже\s+)?отправ(?:или|ил|ила|лен)(?![а-яё])|отправ(?:или|ил|ила)\s+(?:вам\s+)?перевод|перев(?:ели|ёл|ел|ела)(?![а-яё])|оплат(?:или|ил|ила)(?![а-яё])|деньги\s+(?:вам\s+)?(?:уже\s+)?отправ(?:или|ил|ила|лены)(?![а-яё]))/i;
+const SENT=/(?:перевод\S*\s+(?:вам\s+)?(?:уже\s+)?отправ(?:или|ил|ила|лен)(?![а-яё])|отправ(?:или|ил|ила)\s+(?:вам\s+)?(?:[а-яё]+\s+){0,2}перевод(?:ом)?(?![а-яё])|перев(?:ели|ёл|ел|ела)(?![а-яё])|оплат(?:или|ил|ила)(?![а-яё])|деньги\s+(?:вам\s+)?(?:уже\s+)?отправ(?:или|ил|ила|лены)(?![а-яё]))/i;
 // Diana's own «банк отклонил перевод» notice also contains the words; a decline is never a payment.
 const NOT=/\?|отклон|отказ|не\s+прош|не\s+удал|не\s+получил|вернул|другой\s+банк|(?:^|[^а-яё])(?:не|ещ[её]\s+не|пока\s+не)\s+(?:перев|оплат|отправ)|отправ(?:им|ит|лю|ят)(?![а-яё])|перевед(?:[её]м|[её]т|у|ут)(?![а-яё])|оплат(?:им|ит|ят)(?![а-яё])/i;
 

@@ -18,4 +18,4 @@ jobs:
           response=$(curl --max-time 280 -sS -X POST -H "X-Codex-Route-Secret: $ROUTE_SECRET" \
             https://dasoperator-api.dasexperten.workers.dev/internal/ugc/core-test)
           printf '%s\n' "$response"
-          printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") and str(d.get("core","")).startswith("core: loaded"), d'
+          printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") and str(d.get("core","")).startswith("core: loaded") and str(d["refund"].get("core","")).startswith("core: loaded"), d'

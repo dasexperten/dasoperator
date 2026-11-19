@@ -51,3 +51,11 @@ test('needing no answer is a receipt; a refund question stays in the Owner\'s si
  assert.equal(o.s.prepare("SELECT 1 x FROM crm_sync_state WHERE key='diana_message_done:chat'").get(),undefined);
  const z=setup({lastOutAgo:30*H});assert.equal((await runRoundCreator({...z.args,answerOnly:true})).reason,'already_answered');assert.equal(z.sent.length,0);
 });
+test('Owner 2026-11-19 (dasha_vous): her unanswered refund-number question is answered with the number by the round',async()=>{
+ const f=setup({lastFrom:'her',herAgo:9*H,lastOutAgo:10*H,decision:{action:'owner',reply:null}});
+ f.args.infer=async()=>{throw Error('model must not be called');};
+ const orig=f.args.fetchImpl;
+ f.args.fetchImpl=async(url,init)=>{if(String(url).includes('/messages?')){const j=await (await orig(url,init)).json();j.data[0].message='на какой номер вернуть деньги?';return Response.json(j);}return orig(url,init);};
+ const r=await runRoundCreator(f.args);assert.equal(r.status,'answered');assert.equal(f.sent.length,1);
+ assert.equal(f.sent[0].message.text,'Вот номер для возврата: Т-Банк, +7 930 955-40-25');
+});

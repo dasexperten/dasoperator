@@ -62,7 +62,15 @@ route.post('/core-test', async c => {
     const asksRequisites=/реквизит/i.test(reply)||parts>=2;
     // Anything else asked about the product or the cart fails the test (Codex review on #256).
     const asksSeller=/продав|магазин/i.test(reply)||/артикул[^.!]*\?/i.test(reply)||/номер\s+(?:товара|заказа)|цен[уы]\b|скрин/i.test(reply);
-    return c.json({ok:asksRequisites&&!asksSeller,action:d.action,core:d.receipt?.core??null,asks_requisites:asksRequisites,asks_seller:asksSeller,reply});
+    // Owner 2026-11-19 (dasha_vous): «на какой номер вернуть деньги?» → «Вот номер для возврата: Т-Банк, +7 930 955-40-25».
+    const refundSource={status:'ready',messageId:'r2',messages:[
+      {id:'r1',from:{id:PAGE},created_time:t(30),message:'Перевели 489 ₽.'},
+      {id:'r2',from:her,created_time:t(2),message:'на какой номер вернуть деньги?'},
+    ]};
+    const r:any=await decideDirect({source:refundSource,prepareContext:prepareDianaContext,infer,readImage:async()=>{throw Error('no_image');},env:c.env,facts:{stage:'paid',payouts:[{status:'paid',amount_minor:48900}]},finalAttempt:true});
+    const refundOk=r.action==='reply'&&r.reply==='Вот номер для возврата: Т-Банк, +7 930 955-40-25';
+    return c.json({ok:asksRequisites&&!asksSeller&&refundOk,action:d.action,core:d.receipt?.core??null,asks_requisites:asksRequisites,asks_seller:asksSeller,reply,
+      refund:{ok:refundOk,action:r.action,core:r.receipt?.core??null,reply:r.reply??null}});
   } catch (error) { return c.json({ok:false,error:String((error as Error)?.message??error).slice(0,120)},503); }
 });
 // Read-only stopwatch for the UGC list (Owner 2026-11-17: the list hung on «Загрузка…»).

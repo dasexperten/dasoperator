@@ -7,6 +7,7 @@ const DIRECTIONS=new Set(['reply','payout','wait','cards','none','fee','info']);
 const RECOGNITION_VERSION='direct-vision-1';
 async function sha256(data){const bytes=Uint8Array.from(atob(String(data??'')),c=>c.charCodeAt(0));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');}
 import {dropName} from './diana-no-name.mjs';
+import {asksRefundNumber,REFUND_ANSWER} from './diana-refund.mjs';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
 
 export const OWNER_HOLDING='Передали вопрос, ответим сегодня.';
@@ -61,6 +62,8 @@ export async function decideDirect({source,prepareContext,infer,readImage,env,fa
   const history=source.messages.map(m=>({id:String(m.id),direction:[PAGE,BRAND].includes(String(m.from?.id??''))?'out':'in',text:typeof m.message==='string'&&m.message?m.message:(m.shares?.data??[]).map(s=>s.link).filter(Boolean).join('\n'),attachment_count:Array.isArray(m.attachments?.data)?m.attachments.data.length:0,unsupported:m.is_unsupported===true}));
   const task=JSON.stringify({conversation:history});
   const context=await prepareContext({task,githubToken:env.GITHUB_TOKEN,infer});
+  // Owner 2026-11-19: «на какой номер вернуть деньги?» — the refund number at once, before any model or Owner hold.
+  if(asksRefundNumber(newest.message))return {action:'reply',reply:REFUND_ANSWER,recipientId:String(newest.from.id),receipt:{...context.receipt,refund_number:true}};
   const vision=[];
   const trace=[];
   const readOne=async(image)=>{

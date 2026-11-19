@@ -94,7 +94,7 @@ jobs:
         run: node --test api/src/lib/mail-images.test.mjs
 
       - name: Test active Diana Direct and save-only payout preparation
-        run: node --test api/src/lib/diana-direct-*.test.mjs api/src/lib/diana-context.test.mjs
+        run: node --test api/src/lib/diana-direct-*.test.mjs api/src/lib/diana-context.test.mjs api/src/lib/diana-refund.test.mjs
 
       - name: Test Diana cloud execution and delivery recovery
         run: node --test api/src/lib/diana-cloud*.test.mjs api/src/lib/diana-round*.test.mjs api/src/lib/ugc-views-fill.test.mjs api/src/lib/ugc-views-job.test.mjs api/src/lib/diana-work-window.test.mjs api/src/lib/ig-dm-delivery.test.mjs api/src/lib/diana-alarm.test.mjs api/src/lib/diana-subscription-transport.test.mjs

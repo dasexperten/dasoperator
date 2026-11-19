@@ -26,7 +26,7 @@ test('registered retail sender is allowed and restored Reply-all keeps historica
  const before=globalThis.fetch;let payload;
  globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');payload=JSON.parse(options.body);return new Response(JSON.stringify({id:'fixture'}),{status:200});};
  try{
-  const env={RESEND_API_KEY:'fixture',ARCHIVE:{get:async()=>null}};
+  const env={RESEND_API_KEY:'fixture',ARCHIVE:{get:async()=>null,put:async()=>{},delete:async()=>{}}};
   const result=await sendHumanResend(env,{from:'retail@dasexperten.ru',to:['buyer@example.com'],cc:['dasexperten@gmail.com','colleague@example.com'],subject:'RE: Existing conversation',text:'Requested logistics file is attached.',preserveThreadRecipients:true});
   assert.equal(result.success,true);
   assert.deepEqual(payload.cc,['dasexperten@gmail.com','colleague@example.com']);

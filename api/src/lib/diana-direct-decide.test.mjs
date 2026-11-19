@@ -45,3 +45,10 @@ test('Owner 2026-11-12: a video sent into the chat is watched, then answered —
   watchVideo:async()=>({summary:'чистит зубы TERMO',our_product:'yes',face_visible:'yes',in_use:'yes',unboxing_only:'no',kind:'draft_reel'})});
  assert.equal(out.action,'reply');assert.equal(seen.verified_erp_facts.verified_video.our_product,'yes');
 });
+test('Owner 2026-11-19 (dasha_vous): «на какой номер вернуть деньги?» gets the refund number, no model, no Owner hold',async()=>{
+ const f=env();f.options.source.messages[0].message='на какой номер вернуть деньги?';f.options.facts={payouts:[{status:'paid',amount_minor:48900}]};
+ f.options.prepareContext=async()=>({system:'Diana profile',receipt:{core:'core: loaded 13/15 sha=b488f0fd'}});
+ const d=await decideDirect(f.options);
+ assert.equal(d.action,'reply');assert.equal(d.reply,'Вот номер для возврата: Т-Банк, +7 930 955-40-25');assert.equal(d.recipientId,'creator');
+ assert.equal(d.receipt.core,'core: loaded 13/15 sha=b488f0fd');assert.equal(f.calls.length,0);
+});

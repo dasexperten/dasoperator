@@ -3127,7 +3127,7 @@ function getMobileSnapshot() {
   return window.matchMedia('(max-width: 960px)').matches;
 }
 
-export default function MailApp({ initialMailbox, initialFolder = 'inbox' }: { initialMailbox?: string | undefined; initialFolder?: FolderId } = {}) {
+export default function MailApp({ initialMailbox, initialFolder = 'inbox', initialDraftId }: { initialMailbox?: string | undefined; initialFolder?: FolderId; initialDraftId?: string } = {}) {
   const initialScope = useMemo<MailboxScope>(() => {
     if (!initialMailbox) return null;
     const address = initialMailbox.trim().toLowerCase();
@@ -3141,6 +3141,28 @@ export default function MailApp({ initialMailbox, initialFolder = 'inbox' }: { i
   const isMobile = useSyncExternalStore(subscribeMobile, getMobileSnapshot, () => false);
   const [snackbar, setSnackbar] = useState<{ text: string; undo?: () => void } | null>(null);
   const snackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [linkedDraft, setLinkedDraft] = useState<ComposeInit | null>(null);
+
+  useEffect(() => {
+    if (!initialDraftId) return;
+    let cancelled = false;
+    void (async () => {
+      let offset = 0;
+      for (;;) {
+        const result = await getMailDrafts(offset);
+        if (cancelled || !result.success || !result.result) return;
+        const draft = result.result.drafts.find(item => item.id === initialDraftId);
+        if (draft) {
+          setLinkedDraft({ draftId: draft.id, from: draft.mailbox, to: draft.to_addr, cc: draft.cc_addr, bcc: draft.bcc_addr,
+            subject: draft.subject, text: draft.body, title: 'Черновик', ...(draft.in_reply_to ? { in_reply_to: draft.in_reply_to } : {}) });
+          return;
+        }
+        if (result.result.nextOffset === null) return;
+        offset = result.result.nextOffset;
+      }
+    })().catch(() => { if (!cancelled) setSnackbar({ text: 'Не удалось открыть черновик. Откройте папку «Черновики».' }); });
+    return () => { cancelled = true; };
+  }, [initialDraftId]);
 
   const toast = useCallback((text: string, undo?: () => void) => {
     if (snackTimer.current) clearTimeout(snackTimer.current);
@@ -3152,6 +3174,7 @@ export default function MailApp({ initialMailbox, initialFolder = 'inbox' }: { i
     <MailCrashBoundary>
     <div className="dxmail">
       {isMobile ? <MobileMail key={`${initialScope?.address || "all"}:${initialFolder}`} data={data} toast={toast} initialScope={initialScope} initialFolder={initialFolder} /> : <DesktopMail key={`${initialScope?.address || "all"}:${initialFolder}`} data={data} toast={toast} initialScope={initialScope} initialFolder={initialFolder} />}
+      {linkedDraft && <ComposeModal initial={linkedDraft} onClose={() => setLinkedDraft(null)} onSent={message => { setLinkedDraft(null); toast(message); }} />}
 
       {snackbar && (
         <div className="snackbar">

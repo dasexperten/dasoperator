@@ -26,6 +26,7 @@ import { sendHumanResend, isAllowedHumanFrom, extractEmailAddr } from '../lib/re
 import { mailRequestHash, withMailSendReceipt } from '../lib/mail-send-receipt';
 import { loadDraftAttachments } from '../lib/mail-draft-files';
 import type { RawAttachment } from '../lib/inbox-archive';
+import { readDraftReplyContext, restoreDraftReply } from '../lib/mail-draft-reply';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -101,6 +102,14 @@ route.post('/reply', async (c) => {
     catch { return c.json({ success: false, error: 'Attachments are missing or inaccessible. Reload the draft before sending.' }, 422); }
   }
   const requestHash = d.send_id ? await mailRequestHash(`${user.id}:${d.send_id}`) : undefined;
+  let savedReply: Awaited<ReturnType<typeof restoreDraftReply>> = {};
+  if (d.draft_id) {
+    try {
+      savedReply = await restoreDraftReply(await readDraftReplyContext(c.env, user.id, d.draft_id), { from, text: d.text, in_reply_to: d.in_reply_to });
+    } catch {
+      return c.json({ success: false, error: 'Saved reply context is unavailable. Reload the draft before sending.' }, 422);
+    }
+  }
   const dispatch = () => sendHumanResend(c.env, {
     from,
     to: d.to,
@@ -115,6 +124,7 @@ route.post('/reply', async (c) => {
     // Every human reply gets a tag, first contact included: the thread we most
     // want to follow is the one that has not started yet.
     replyToTag: d.reply_to_tag || requestHash?.slice(0, 8) || newThreadTag(),
+    ...savedReply,
     origin: 'human',
     trigger: 'emailer-reply',
   });

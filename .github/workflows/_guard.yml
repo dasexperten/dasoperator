@@ -115,6 +115,7 @@ jobs:
         run: |
           node api/scripts/test-mail-attachments.mjs
           node --test api/src/lib/mail-archive-recovery.test.mjs api/src/lib/resend-human-archive.test.mjs api/src/routes/email-archive-backfill.test.mjs
+          node --test api/src/lib/mail-draft-reply.test.mjs api/src/routes/email-reply-context.test.mjs
 
       - name: Test unified Sent pagination and archive identities
         working-directory: api

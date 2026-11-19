@@ -5,6 +5,7 @@ import { ok, fail } from '../lib/responses';
 import { issueOperationReference } from '../lib/operation-reference';
 import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
 import { getRatesFor } from '../lib/fx-store';
+import { planDestinationChange, type ArrivalRow, type CorrectionSpec } from '../lib/warehouse-to-change';
 
 const operations = new Hono<{ Bindings: Env }>();
 operations.use('*',async(c,next)=>{
@@ -1274,6 +1275,104 @@ operations.patch('/:id/delivery-status', async (c) => {
     'UPDATE operations SET delivery_status = ?, updated_at = ? WHERE id = ?'
   ).bind(parsed.data.delivery_status, now, id).run();
   return ok(c, { id, delivery_status: parsed.data.delivery_status, updated_at: now });
+});
+
+// PATCH /:id/warehouse-to — change the destination warehouse by hand.
+// Before arrival: only the field changes. After arrival: a dated correction
+// pair moves the received stock (see lib/warehouse-to-change.ts).
+operations.patch('/:id/warehouse-to', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null);
+  const schema = z.object({
+    warehouse_to_id: z.string().min(1),
+    reason: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, parsed.error.errors.map((e) => ({
+      code: 'validation', message: e.message, path: e.path.join('.'),
+    })));
+  }
+  const op = await c.env.DB.prepare(
+    'SELECT id, operation_type, warehouse_to_id FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(id).first<{ id: string; operation_type: string; warehouse_to_id: string | null }>();
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+  if (op.operation_type !== 'purchase' && op.operation_type !== 'transfer') {
+    return fail(c, 422, [{ code: 'not_a_delivery', message: 'Only purchases and transfers have a destination warehouse' }]);
+  }
+  const target = parsed.data.warehouse_to_id;
+  const wh = await c.env.DB.prepare('SELECT id FROM warehouses WHERE id = ?').bind(target).first();
+  if (!wh) {
+    return fail(c, 404, [{ code: 'warehouse_not_found', message: `Warehouse ${target} does not exist` }]);
+  }
+  if (op.warehouse_to_id === target) {
+    return ok(c, { id, warehouse_to_id: target, movements_written: 0, unchanged: true });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const stmts: D1PreparedStatement[] = [];
+  const movementType = op.operation_type === 'transfer' ? 'transfer_in' as const : 'arrival' as const;
+  let specs: CorrectionSpec[] = [];
+
+  if (op.warehouse_to_id) {
+    const arrivals = await c.env.DB.prepare(`
+      SELECT product_id, quantity, performed_at FROM stock_movements
+      WHERE source_ref_id = ? AND warehouse_id = ? AND movement_type = ? AND stock_state = 'on_hand'
+    `).bind(id, op.warehouse_to_id, movementType).all<ArrivalRow>();
+    const rows = arrivals.results ?? [];
+    if (rows.length > 0) {
+      const oldOnHand: Record<string, number> = {};
+      for (const pid of new Set(rows.map((r) => r.product_id))) {
+        const s = await c.env.DB.prepare(
+          "SELECT on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ? AND stock_state = 'on_hand'"
+        ).bind(op.warehouse_to_id, pid).first<{ on_hand: number }>();
+        oldOnHand[pid] = s?.on_hand ?? 0;
+      }
+      const plan = planDestinationChange({
+        fromWarehouseId: op.warehouse_to_id, toWarehouseId: target, movementType, arrivals: rows, oldOnHand,
+      });
+      if (plan.shortages.length > 0) {
+        return fail(c, 422, [{
+          code: 'insufficient_stock',
+          message: `Goods already left ${op.warehouse_to_id}; moving the receipt would drive it negative`,
+          details: { shortages: plan.shortages },
+        }]);
+      }
+      specs = plan.specs;
+    }
+  }
+
+  const note = `Destination ${op.warehouse_to_id ?? '—'} → ${target}${parsed.data.reason ? `: ${parsed.data.reason}` : ''}`;
+  for (const spec of specs) {
+    const stock = await getOrCreateStockWithState(c.env.DB, spec.warehouseId, spec.productId, 'on_hand', now);
+    const balanceAfter = stock.on_hand + spec.qty;
+    stmts.push(c.env.DB.prepare(`
+      INSERT INTO stock_movements
+        (id, warehouse_id, product_id, movement_type, quantity, source,
+         source_ref_type, source_ref_id, reason, notes, performed_by,
+         performed_at, balance_after, stock_state, created_at)
+      VALUES (?, ?, ?, ?, ?, 'operation', 'operation', ?, ?, ?, 'manual', ?, ?, 'on_hand', ?)
+    `).bind(`mov_${crypto.randomUUID()}`, spec.warehouseId, spec.productId, spec.movementType,
+      spec.qty, id, spec.reason, note, spec.performedAt, balanceAfter, now));
+    stmts.push(c.env.DB.prepare(
+      "UPDATE stocks SET on_hand = ?, last_movement_at = ?, updated_at = ? WHERE warehouse_id = ? AND product_id = ? AND stock_state = 'on_hand'"
+    ).bind(balanceAfter, now, now, spec.warehouseId, spec.productId));
+  }
+  stmts.push(c.env.DB.prepare(
+    "UPDATE operations SET warehouse_to_id = ?, notes = COALESCE(notes, '') || ? , updated_at = ? WHERE id = ?"
+  ).bind(target, `\n[${new Date(now * 1000).toISOString().slice(0, 10)}] ${note}`, now, id));
+
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'update_failed', message: 'Failed to change destination warehouse',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+  return ok(c, { id, warehouse_to_id: target, previous: op.warehouse_to_id, movements_written: specs.length });
 });
 
 // PATCH /:id/gtd — set or update the customs declaration number on a purchase.

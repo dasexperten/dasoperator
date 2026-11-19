@@ -131,6 +131,9 @@ export default function OperationDetailClient({
   /** id → code map for warehouses, used to detect factory warehouses
    * (GZH/YZH) so the Shipped button can disable itself. */
   const [warehouseCodes, setWarehouseCodes] = useState<Record<string, string>>({});
+  const [warehouseList, setWarehouseList] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [destBusy, setDestBusy] = useState(false);
+  const [destMsg, setDestMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('documents');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +171,9 @@ export default function OperationDetailClient({
             if (w.id && w.code) map[w.id] = w.code;
           }
           setWarehouseCodes(map);
+          setWarehouseList(whRes.result.warehouses
+            .filter((w: { id?: string }) => !!w.id)
+            .map((w: { id: string; code?: string; name?: string }) => ({ id: w.id, code: w.code ?? w.id, name: w.name ?? w.id })));
         }
 
         if (opRes.success && opRes.result) {
@@ -477,11 +483,52 @@ export default function OperationDetailClient({
           </p>
         </div>
         <div>
-          <p style={{ fontSize: '14px' }}>Warehouse</p>
+          <p style={{ fontSize: '14px' }}>
+            {operation.operation_type === 'purchase' || operation.operation_type === 'transfer' ? 'From' : 'Warehouse'}
+          </p>
           <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
             {operation.warehouse_from_id ?? '—'}
           </p>
         </div>
+        {(operation.operation_type === 'purchase' || operation.operation_type === 'transfer') && <div>
+          <p style={{ fontSize: '14px' }}>Delivery to</p>
+          <select
+            className="mt-1"
+            value={operation.warehouse_to_id ?? ''}
+            disabled={destBusy}
+            style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)', background: 'transparent', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', maxWidth: '100%' }}
+            onChange={async (e) => {
+              const target = e.target.value;
+              if (!target || target === operation.warehouse_to_id) return;
+              setDestBusy(true); setDestMsg(null);
+              try {
+                const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+                const res = await fetch(`${API_BASE}/api/operations/${operationId}/warehouse-to`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ warehouse_to_id: target }),
+                }).then((r) => r.json());
+                if (res?.success) {
+                  setOperation({ ...operation, warehouse_to_id: target });
+                  const moves = await getStockMovements({ source_ref_id: operationId, source: 'operation' });
+                  if (moves.success && moves.result) setStockMovements(moves.result.movements);
+                  setDestMsg(res.result?.movements_written ? 'Received stock moved' : null);
+                } else {
+                  setDestMsg(res?.errors?.[0]?.message ?? 'Change failed');
+                }
+              } catch {
+                setDestMsg('Change failed');
+              } finally {
+                setDestBusy(false);
+              }
+            }}
+          >
+            {!operation.warehouse_to_id && <option value="">—</option>}
+            {warehouseList.map((w) => (
+              <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
+            ))}
+          </select>
+          {destMsg && <p className="mt-1" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{destMsg}</p>}
+        </div>}
         <div>
           <p style={{ fontSize: '14px' }}>Currency</p>
           <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>

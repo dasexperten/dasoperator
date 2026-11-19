@@ -10,6 +10,9 @@ import {fillMissingViews} from './lib/ugc-views-fill.mjs';
 // @ts-expect-error plain JS module
 import {watchVideo} from './lib/diana-direct-video-watch.mjs';
 // @ts-expect-error plain JS module
+import {matchDirectVideos} from './lib/ugc-direct-video-match.mjs';
+import {instagramPostFallback} from './lib/ugc-apify.mjs';
+// @ts-expect-error plain JS module
 import {runRoundCreator,roundConversationId} from './lib/diana-round-run.mjs';
 // @ts-expect-error plain JS module
 import {directThink} from './lib/diana-direct-think.mjs';
@@ -114,9 +117,12 @@ export class DianaCloudRoundWorkflow extends WorkflowEntrypoint<Env,RoundInput> 
       if(part.failed){dead++;content.failed_steps++;continue;}
       content.confirmed+=Number(part.confirmed??0);content.not_ours+=Number(part.not_ours??0);content.not_hers+=Number(part.not_hers??0);
     }
+    // Owner 2026-11-19: a video she sent in Direct and then published the same, frame for frame, is shown once.
+    // Each sent file is compared with her live publications; only «identical» links the two.
+    const videoMatch:any=await step.do('direct-video-match',checkStep,async()=>{try{return await matchDirectVideos(this.env,{limit:6,budgetMs:8*60_000,read:instagramPostFallback});}catch{return {failed:true};}}).catch(()=>({failed:true}));
     await step.do('save-round-summary',READ,async()=>{
       await this.env.DB.prepare('INSERT INTO crm_sync_state(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
-        .bind('diana_round_run:'+run.id,JSON.stringify({status:'complete',id:run.id,scheduled_at:run.scheduled_at,finished_at:Date.now(),cohort:cohort.length,totals,views,tagged_reels_recorded:tagged.recorded,invites_accepted:tagged.accepted,collab_media_recorded:collabMedia,direct_links:directLinks,direct_videos:directVideos,content_check:content,alarm_chats:extra.length,failures}),Date.now()).run();
+        .bind('diana_round_run:'+run.id,JSON.stringify({status:'complete',id:run.id,scheduled_at:run.scheduled_at,finished_at:Date.now(),cohort:cohort.length,totals,views,tagged_reels_recorded:tagged.recorded,invites_accepted:tagged.accepted,collab_media_recorded:collabMedia,direct_links:directLinks,direct_videos:directVideos,direct_video_match:videoMatch,content_check:content,alarm_chats:extra.length,failures}),Date.now()).run();
     });
     return {cohort:cohort.length,totals};
   }

@@ -42,3 +42,16 @@ test('removed reels do not take the place of live ones among the five shown', ()
   const live = { id: 'live', link_status: 'active', published_at: '2026-01-01', content_url: 'https://www.instagram.com/reel/live/' };
   assert.deepEqual(creatorPublicationLinks([{ content: [...gone, live] }]).map(({ item }) => item.id), ['live']);
 });
+
+test('a sent Direct file identical to a live publication is not shown a second time', () => {
+  const reel = { id: 'ugcc_dm_reel', link_status: 'active', content_url: 'https://www.instagram.com/reel/AAAAAA/' };
+  const file = (published_as) => ({ id: 'ugcc_dv_file', link_status: 'active', content_url: 'https://example.org/ugc-video/ugcc_dv_file', product_evidence: JSON.stringify({ discovery: 'instagram_direct_file', ...(published_as ? { published_as } : {}) }) });
+  const ids = (content) => creatorPublicationLinks([{ content }]).map(({ item }) => item.id).sort();
+  assert.deepEqual(ids([reel, file('ugcc_dm_reel')]), ['ugcc_dm_reel']);
+  // not compared yet, or found to be another cut: both stay
+  assert.deepEqual(ids([reel, file(null)]), ['ugcc_dm_reel', 'ugcc_dv_file']);
+  // the publication was removed: her file is the only thing left to show
+  assert.deepEqual(ids([{ ...reel, link_status: 'missing' }, file('ugcc_dm_reel')]), ['ugcc_dv_file']);
+  // broken evidence never hides anything
+  assert.deepEqual(ids([reel, { ...file(null), product_evidence: '{oops' }]), ['ugcc_dm_reel', 'ugcc_dv_file']);
+});

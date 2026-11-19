@@ -201,7 +201,17 @@ export function konsolPhone(value) {
   if (digits.length === 10 && digits.startsWith('9')) digits = `7${digits}`;
   if (digits.length === 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
   if (digits.length !== 11 || !digits.startsWith('79')) return null;
+  // 2026-11-19 (iameva__2017): +7 940 is Abkhazia. It looks Russian, but SBP refuses it
+  // («Неправильный формат телефона СБП»), so it is not a payout phone.
+  if (digits.startsWith('7940')) return null;
   return `+${digits}`;
+}
+
+/** A +7 940 (Abkhazia) number: written like a Russian one, not served by SBP. */
+export function isAbkhazPhone(value) {
+  let digits = String(value ?? '').replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+  return (digits.length === 11 && digits.startsWith('7940')) || (digits.length === 10 && digits.startsWith('940'));
 }
 
 /** Masked for the ERP and reports: +7930*****25 (first four digits, last two). */

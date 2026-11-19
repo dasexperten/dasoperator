@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {publicationLink,publicationLinks,contentReviewKey} from './ugc-publication-links.mjs';
 import {contentEngagement} from './ugc-content-metrics.mjs';
-import {contentState,publicationNetwork} from '../../../web/lib/ugc-content-state.mjs';
+import {contentConfirmed,contentState,publicationNetwork} from '../../../web/lib/ugc-content-state.mjs';
 const {build}=createRequire(import.meta.url)('esbuild');
 const dir=mkdtempSync(join(tmpdir(),'ugc-pending-'));
 for(const file of ['ugc-dm-links','ugc-content-review'])await build({entryPoints:[fileURLToPath(new URL('./'+file+'.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile:join(dir,file+'.mjs')});
@@ -35,7 +35,7 @@ test('discovery inserts one pending row, preserves stage/unknown metrics, keeps 
  let r=f.rows()[0];assert.equal(r.product_status,'queued');assert.equal(r.engagement_rate,null);assert.equal(r.published_at,null);assert.equal(f.stage(),'creation');assert.equal(r.creator_platform_id,'p-alice');assert.equal(JSON.parse(r.product_evidence).author_verified,false);
  assert.ok(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get('diana_round_alarm:chat-alice'));
  f.db.prepare("UPDATE ugc_content SET link_status='active',likes=20,comments=5").run();
- r=f.rows()[0];assert.equal(contentState(r),'pending');assert.equal(contentEngagement(r,1000,'instagram'),null);
+ r=f.rows()[0];assert.equal(contentConfirmed(r),false);assert.equal(contentState(r),'live');assert.equal(contentEngagement(r,1000,'instagram'),null);
  assert.deepEqual(await captureDmLinks(f.env),{added:0});assert.equal(f.rows().length,1);
 });
 test('confirmation requires evidence, preserves id and observed date, then confirmed platform state and posted',async()=>{
@@ -51,7 +51,7 @@ test('Marysa: verified live publication advances creation without inventing a pr
  const input={verdict:'published',evidence:'Existing verified Diana event: creator shared her published reel; original thread and URL recorded',author_verified:true,publication_verified:true,published_at:'2026-11-08T05:53:02Z'};
  await reviewContent(f.env,id,input);
  const r=f.rows()[0];assert.equal(f.stage('marysa.shat'),'posted');assert.equal(r.link_status,'active');assert.equal(r.published_at,input.published_at);
- assert.equal(r.product_status,'unknown');assert.equal(r.product_evidence,null);assert.equal(r.product_checked_at,null);assert.equal(contentState(r),'pending');
+ assert.equal(r.product_status,'unknown');assert.equal(r.product_evidence,null);assert.equal(r.product_checked_at,null);assert.equal(contentConfirmed(r),false);assert.equal(contentState(r),'live');
  const receipt=JSON.parse(f.db.prepare('SELECT value FROM crm_sync_state WHERE key=?').get(contentReviewKey('c-marysa.shat',publicationLink(url).key)).value);
  assert.equal(receipt.publication_verified,true);assert.equal(receipt.our_product,null);
  await reviewContent(f.env,id,input);assert.equal(f.rows().length,1);assert.equal(f.stage('marysa.shat'),'posted');
@@ -97,7 +97,7 @@ test('bounded parameter batches and canonical variants do not duplicate large im
 });
 test('supported publication platforms have exact canonical identity; pending/confirmed state follows review not HTTP',()=>{
  const cases=[['https://instagram.com/reels/ABCDEF1/?igsh=x','instagram'],['https://www.tiktok.com/@creator/video/12345','tiktok'],['https://t.me/mychannel/123','telegram'],['https://vk.com/wall-123_456','vk'],['https://vk.com/clip-123_456','vk'],['https://facebook.com/reel/123456/','facebook']];
- for(const [href,network] of cases){assert.equal(publicationLinks(href)[0].platform,network);assert.equal(publicationNetwork(href),network);assert.equal(contentState({product_status:'queued',link_status:'active'}),'pending');assert.equal(contentState({product_status:'identified',link_status:'active'}),'live');}
+ for(const [href,network] of cases){assert.equal(publicationLinks(href)[0].platform,network);assert.equal(publicationNetwork(href),network);assert.equal(contentConfirmed({product_status:'queued',link_status:'active'}),false);assert.equal(contentState({product_status:'queued',link_status:'active'}),'live');assert.equal(contentState({product_status:'identified',link_status:'active'}),'live');}
  assert.equal(publicationLink('https://t.me/+invite'),null);assert.equal(publicationLink('https://instagram.com:443/reel/AAAAAA1/')?.platform,'instagram');
 });
 

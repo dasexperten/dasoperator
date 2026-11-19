@@ -10,7 +10,7 @@ export function contentHref(value) {
 }
 
 /**
- * @template {{ id: string, content_url?: string | null, published_at?: string | null, imported_at?: string | number | null }} T
+ * @template {{ id: string, content_url?: string | null, link_status?: string | null, published_at?: string | null, imported_at?: string | number | null }} T
  * @param {{ content: T[] }[]} profiles
  * @returns {{ item: T, href: string }[]}
  */
@@ -18,7 +18,9 @@ export function creatorPublicationLinks(profiles) {
   const seen = new Set();
   const links = profiles.flatMap((profile) => profile.content.flatMap((item) => {
     const href = contentHref(item.content_url);
-    if (!href || seen.has(item.id)) return [];
+    // Owner 2026-11-19: «if the reel does not exist do not show it anymore». A publication the check
+    // found removed (link_status 'missing') leaves the table; the record and its figures stay in ERP.
+    if (!href || seen.has(item.id) || item.link_status === 'missing') return [];
     seen.add(item.id);
     return [{ item, href }];
   }));

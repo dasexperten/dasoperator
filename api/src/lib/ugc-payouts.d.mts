@@ -23,6 +23,7 @@ export const OVERDRAFT_EXCEPTION_UNTIL: number;
 export function checkOwnRub(accountsBody: unknown, amountMinor: number, now?: number): OwnRub;
 export function mapKonsolStatus(status: unknown): 'paid' | 'failed' | 'sent';
 export function konsolPhone(value: unknown): string | null;
+export function isAbkhazPhone(value: unknown): boolean;
 export function maskPhoneWide(value: unknown): string | null;
 export function isFpsBankMemberId(value: unknown): boolean;
 export function yerevanDay(msValue: number): string;

@@ -90,6 +90,7 @@ test('phones: Konsol form and the ERP mask', () => {
   assert.equal(konsolPhone('8 900 000-00-11'), PHONE);
   assert.equal(konsolPhone('9000000011'), PHONE);
   assert.equal(konsolPhone('+374 94 000000'), null);
+  assert.equal(konsolPhone('+7 940 000-00-06'), null); // Abkhazia: SBP refuses it
   assert.equal(maskPhoneWide(PHONE), '+7900*****11');
 });
 

@@ -41,6 +41,7 @@ export function agentAvatarUrl(slug: string): string {
  */
 export const MAILBOX_REGISTRY: MailboxDef[] = [
   // ── Agents (named identities) ───────────────────────────────────────────
+  { address: 'retail@dasexperten.ru', kind: 'agent', slug: 'denis-vasilevski', label: 'Denis Vasilevskiy', role: 'Sales Manager · RU Offline Retail', showInUi: true, inbound: 'worker' },
   { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker', aliases: ['lauda@dasexperten.com', 'sales@my.dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content', showInUi: true, inbound: 'worker' },
   { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', showInUi: true, inbound: 'worker', aliases: ['tamara@dasexperten.com'] },

@@ -37,6 +37,7 @@ export async function restoreDraftReply(context: DraftReplyContext | null, input
   return {
     in_reply_to: context.in_reply_to,
     references,
+    preserveThreadRecipients: true,
     ...(context.reply_to_tag ? { replyToTag: context.reply_to_tag } : {}),
     ...(sameSender ? { from: context.from_addr } : {}),
     // An edited message must never send the old HTML instead of the user's text.

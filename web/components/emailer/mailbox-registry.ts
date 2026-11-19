@@ -27,6 +27,7 @@ export function agentAvatarUrl(slug: string): string {
 
 /** Named agent mailboxes — always show avatar chip when present. */
 export const AGENT_MAILBOXES: UiMailbox[] = [
+  { address: 'retail@dasexperten.ru', kind: 'agent', slug: 'denis-vasilevski', label: 'Denis Vasilevskiy', role: 'Sales Manager · RU Offline Retail' },
   { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', aliases: ['lauda@dasexperten.com', 'sales@my.dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content' },
   { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', aliases: ['tamara@dasexperten.com'] },

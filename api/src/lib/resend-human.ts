@@ -87,6 +87,8 @@ export interface HumanSendParams {
    *  References, not from In-Reply-To — a chain of one collapses long threads
    *  into loose letters once more than two people answer. */
   references?: string[] | undefined;
+  /** A restored, saved Reply-all must not silently lose a historical CC (§6.0k). */
+  preserveThreadRecipients?: boolean;
   /** Thread tag to publish in Reply-To as box+<tag>@domain. Their answer comes
    *  back carrying it, which is the only edge that does not depend on what the
    *  provider decides to put in Message-ID. */
@@ -196,7 +198,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
 
   const fromAddr = extractEmailAddr(fromRaw);
   const toList = asList(params.to).filter((a) => extractEmailAddr(a) !== 'dasexperten@gmail.com');
-  const ccList = stripPersonalGmail(asList(params.cc));
+  const ccList = params.preserveThreadRecipients ? asList(params.cc) : stripPersonalGmail(asList(params.cc));
   // Владелец 17.09.2026: «please send support@ correspondence to me as bcc».
   // Всё, что уходит с ящика заботы, получает его Gmail скрытой копией — это
   // автоматическое исключение. Явно запрошенная скрытая копия Владельцу также

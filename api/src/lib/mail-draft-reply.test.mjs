@@ -21,7 +21,7 @@ const context = { draft_id: 'saved', user_id: 'owner', from_addr: 'Manager <reta
 test('reopened draft restores full ancestry, original tag and verified HTML', async () => {
   const result = await restoreDraftReply(context, { from: 'retail@example.com', text, in_reply_to: context.in_reply_to });
   assert.deepEqual(result, { from: context.from_addr, html: context.html, in_reply_to: context.in_reply_to,
-    references: ['<root@example.com>', '<parent@example.com>'], replyToTag: 'oldtag' });
+    references: ['<root@example.com>', '<parent@example.com>'], replyToTag: 'oldtag', preserveThreadRecipients: true });
 });
 test('editing the draft preserves threading but never sends stale HTML', async () => {
   const result = await restoreDraftReply(context, { from: 'retail@example.com', text: 'Edited reply' });

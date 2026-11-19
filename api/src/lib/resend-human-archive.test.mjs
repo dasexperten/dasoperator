@@ -9,7 +9,7 @@ const require=createRequire(import.meta.url);
 const dir=mkdtempSync(join(tmpdir(),'sent-archive-'));
 const outfile=join(dir,'sent.mjs');
 await require('esbuild').build({entryPoints:[fileURLToPath(new URL('./resend-human.ts',import.meta.url))],bundle:true,platform:'node',format:'esm',outfile,plugins:[{name:'archive-failure',setup(build){build.onResolve({filter:/^\.\/inbox-archive$/},()=>({path:'archive',namespace:'fixture'}));build.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export async function archiveEmail(env){if(env.archiveFailure)throw Error(env.archiveFailure);return "stored";}'}));}}]});
-const {sendHumanResend}=await import(pathToFileURL(outfile));
+const {sendHumanResend,isAllowedHumanFrom}=await import(pathToFileURL(outfile));
 rmSync(dir,{recursive:true});
 const params={from:'logistics@dasexperten.com',to:['recipient@example.com'],subject:'Archive existing delivery',text:'Existing delivered body for the requested archive.',messageId:'already-delivered',archive_only:true};
 test('read failure preserves delivery and returns actual archive cause without sending again',async()=>{
@@ -20,4 +20,15 @@ test('write failure reports actual cause; successful backfill has no error',asyn
  const env={ARCHIVE:{get:async()=>null},archiveFailure:'put: archive unavailable'};
  const failed=await sendHumanResend(env,params);assert.equal(failed.archived,false);assert.equal(failed.archiveError,'put: archive unavailable');
  const ok=await sendHumanResend({...env,archiveFailure:null},params);assert.equal(ok.archived,true);assert.equal(ok.archiveError,undefined);
+});
+test('registered retail sender is allowed and restored Reply-all keeps historical Owner CC',async()=>{
+ assert.equal(isAllowedHumanFrom('Denis <retail@dasexperten.ru>'),true);
+ const before=globalThis.fetch;let payload;
+ globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');payload=JSON.parse(options.body);return new Response(JSON.stringify({id:'fixture'}),{status:200});};
+ try{
+  const env={RESEND_API_KEY:'fixture',ARCHIVE:{get:async()=>null}};
+  const result=await sendHumanResend(env,{from:'retail@dasexperten.ru',to:['buyer@example.com'],cc:['dasexperten@gmail.com','colleague@example.com'],subject:'RE: Existing conversation',text:'Requested logistics file is attached.',preserveThreadRecipients:true});
+  assert.equal(result.success,true);
+  assert.deepEqual(payload.cc,['dasexperten@gmail.com','colleague@example.com']);
+ }finally{globalThis.fetch=before;}
 });

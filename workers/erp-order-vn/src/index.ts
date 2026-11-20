@@ -1,13 +1,14 @@
 import { erpWorker, type BaseEnv } from '../../_shared/run';
-import { NAME, PREFIX, dayKey, signal, validEvidence } from './alarm.mjs';
+import { NAME, PREFIX, dayKey, expireAbandonedClaims, signal, validEvidence } from './alarm.mjs';
 
 const timer = erpWorker<BaseEnv>(NAME, async (env, dry, _cron, context) => {
   if (dry) return { note: 'dry · alarm not queued' };
+  const expired = await expireAbandonedClaims(env.DB, new Date());
   const now = new Date(context.scheduledTime ?? Date.now());
   const row = signal(now);
   const result = await env.DB.prepare(`INSERT OR IGNORE INTO crm_sync_state (key,value,updated_at) VALUES (?,?,?)`)
     .bind(dayKey(now), JSON.stringify(row), Math.floor(Date.now()/1000)).run();
-  return { rows: result.meta.changes, note: 'Tet wakeup queued; order/invoice work is separate' };
+  return { rows: result.meta.changes, note: `Tet wakeup queued · abandoned claims closed=${expired}` };
 });
 const reply = (data: unknown, status = 200) => Response.json(data, {status, headers:{'Cache-Control':'no-store'}});
 export default {

@@ -23,7 +23,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/alarm') {
       const rows = await env.DB.prepare(`SELECT key,value FROM crm_sync_state WHERE key LIKE ? ORDER BY key`).bind(PREFIX+'%').all<{key:string;value:string}>();
       const signals = rows.results.map(r=>({key:r.key,...JSON.parse(r.value)}));
-      return reply({ok:true,name:NAME,target:'tet',finance:'justina-timber',schedule:'06:00 Asia/Yerevan',signals});
+      return reply({ok:true,name:NAME,target:'tet',finance:'justina-timber',schedule:'22:00 Asia/Ho_Chi_Minh (19:00 Asia/Yerevan)',signals});
     }
     const body = await request.json().catch(()=>null) as any;
     if (!body || typeof body.key !== 'string' || !/^erp-order-vn:\d{4}-\d{2}-\d{2}$/.test(body.key)) return reply({ok:false,error:'exact_day_key_required'},422);

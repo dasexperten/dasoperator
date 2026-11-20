@@ -11,5 +11,5 @@ database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 [triggers]
-# Owner 8 November: daily 06:00 Asia/Yerevan. Alarm only; Tet does the work.
-crons = ["0 2 * * *"]
+# Daily at 22:00 Vietnam time (19:00 Yerevan). Alarm only.
+crons = ["0 15 * * *"]

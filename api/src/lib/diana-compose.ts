@@ -15,6 +15,12 @@ export async function queueDianaAction(env: Env, handle: string, brief: string, 
     const alarm = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'diana_round_alarm:%' AND json_valid(value) AND lower(json_extract(value,'$.handle'))=?1 ORDER BY updated_at DESC LIMIT 1`).bind(normalized).first<{ value: string }>();
     try { const v = JSON.parse(alarm?.value ?? 'null'); if (v?.cid && v?.message_id) found = { id: v.message_id, conversation_id: v.cid, created_at: v.at ?? new Date().toISOString() }; } catch {}
   }
+  // 2026-11-20 (poyluyy): a blogger whose chat began after the archive stopped on 10.11 is found
+  // through her payout's chat, the way the round finds her; her Gold welcome was never queued before.
+  if (!found) {
+    const paid = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key LIKE 'diana_payout_cid:%' AND json_valid(value) AND lower(json_extract(value,'$.handle'))=?1 ORDER BY updated_at DESC LIMIT 1`).bind(normalized).first<{ value: string }>();
+    try { const v = JSON.parse(paid?.value ?? 'null'); if (v?.cid && v?.message_id) found = { id: v.message_id, conversation_id: v.cid, created_at: new Date().toISOString() }; } catch {}
+  }
   // Owner 2026-11-13: a lead nudge knows its conversation; it needs no incoming copy in the ERP.
   if (!found && typeof (metadata as any)?.cid === 'string') found = { id: 'nudge:' + (metadata as any).cid, conversation_id: (metadata as any).cid, created_at: new Date().toISOString() };
   if (!found) return { ok: false, error: 'Не найден исходный диалог для задачи Диане' };

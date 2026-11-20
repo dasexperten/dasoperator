@@ -72,3 +72,13 @@ test('protected status can receive CORS headers even when the DO response header
  const dispatch=await app.request('https://api.test/internal/diana/dispatch',{method:'POST',headers:{Authorization:'Bearer test-only',Origin:'https://erp.dasexperten.com'},body:'{}'},env);assert.equal(dispatch.status,200);assert.equal(dispatch.headers.get('Access-Control-Allow-Origin'),'https://erp.dasexperten.com');
  const denied=await app.request('https://api.test/internal/diana/dispatch',{method:'POST',body:'{}'},env);assert.equal(denied.status,401);
 });
+
+test('a blogger with no archived message is found through her payout chat (Gold welcome)', async () => {
+  const {db,env}=fixture();
+  db.prepare('INSERT INTO crm_sync_state VALUES(?,?,?)').run('diana_payout_cid:pay9',JSON.stringify({cid:'chat9',message_id:'m9',handle:'NewGold'}),5);
+  const out=await queueDianaAction(env,'newgold','','gold:ugc_9',{task:'gold_welcome'});
+  assert.equal(out.ok,true);
+  const alarm=JSON.parse(db.prepare("SELECT value FROM crm_sync_state WHERE key LIKE 'diana_action_pending:%'").get().value);
+  assert.equal(alarm.cid,'chat9');assert.equal(alarm.message_id,'m9');assert.equal(alarm.task,'gold_welcome');
+  db.close();
+});

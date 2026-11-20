@@ -23,6 +23,15 @@ export function oursByText(caption: unknown, tagged: unknown): boolean {
   return OURS.test(String(caption ?? '')) || names.some(n => BRAND_ACCOUNTS.includes(n.toLowerCase()));
 }
 
+// 2026-11-20: four old rows keep the link as it was pasted («/reels/…», a stray letter after it, three
+// links in one cell) and were never read. The publication address is taken out of whatever is stored.
+export function postUrl(value: unknown): string | null {
+  const m = String(value ?? '').match(/https:\/\/(?:www\.)?instagram\.com\/(p|reels?|tv)\/([A-Za-z0-9_-]{6,})/i);
+  if (!m) return null;
+  const kind = m[1]!.toLowerCase();
+  return `https://www.instagram.com/${kind === 'reels' ? 'reel' : kind}/${m[2]}/`;
+}
+
 // The waiting reels due for a check, newest first, Collab ones before the rest. A cheap read on its
 // own, so a caller can note what it is about to check before the slow reading starts.
 export async function pendingContentIds(env: Env, options: { limit?: number; exclude?: string[] } = {}): Promise<string[]> {
@@ -67,9 +76,12 @@ export async function confirmPendingContent(env: Env, options: { limit?: number;
     totals.ids.push(row.id);
     try {
       const handle = String(row.h ?? '').toLowerCase();
-      let seen: any = await instagramPostFallback(env, { url: row.content_url, cacheForMs: DAY });
+      const url = postUrl(row.content_url);
+      // A profile or a Direct address is not a publication: written down once, looked at again in a week.
+      if (!url) { await note(row.id, 'queued', { author_verified: null, our_product: null, not_a_publication: true }); continue; }
+      let seen: any = await instagramPostFallback(env, { url, cacheForMs: DAY });
       // A reading saved before 18.11 has no caption or video; it is read once more.
-      if (seen?.status === 'ok' && seen.v !== 2 && row.collab_status !== 'confirmed') seen = await instagramPostFallback(env, { url: row.content_url, cacheForMs: 0 });
+      if (seen?.status === 'ok' && seen.v !== 2 && row.collab_status !== 'confirmed') seen = await instagramPostFallback(env, { url, cacheForMs: 0 });
       if (seen?.status === 'budget_exhausted') { totals.budget_exhausted = true; totals.waiting++; if (row.collab_status !== 'confirmed') continue; }
       else if (seen?.status === 'pending') { totals.waiting++; totals.pending_ids.push(row.id); if (row.collab_status !== 'confirmed') continue; }
       const read = seen?.status === 'ok';
@@ -82,7 +94,9 @@ export async function confirmPendingContent(env: Env, options: { limit?: number;
         await confirm(row, 'metadata_text', `Instagram lists @dasexperten as co-author of ${row.content_url}; publication of @${handle || 'creator'}.`, read ? seen.postedAt : null);
         continue;
       }
-      if (!read) { totals.unread++; continue; }
+      // Instagram gives nothing for this address (removed or closed): the paid reading is not repeated
+      // every round; the reel is tried again in a week.
+      if (!read) { totals.unread++; if (seen?.status === 'unknown') await note(row.id, 'queued', { author_verified: null, our_product: null, unreadable: true }); continue; }
       if (!handle || seen.ownerUsername !== handle) {
         totals.not_hers++; await note(row.id, 'unknown', { author_verified: false, our_product: null, owner: seen.ownerUsername ?? null, expected: handle || null }); continue;
       }

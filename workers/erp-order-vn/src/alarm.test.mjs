@@ -23,7 +23,7 @@ test('an abandoned claim stops blocking the queue without becoming eligible for 
   const put=sqlite.prepare('INSERT INTO crm_sync_state VALUES (?, ?, 0)');
   for (const [key,state,started_at] of [
     ['erp-order-vn:2026-11-18','working','2026-11-18T15:00:00.000Z'],
-    ['erp-order-vn:2026-11-19','working','2026-11-19T16:00:00.000Z'],
+    ['erp-order-vn:2026-11-19','working','2026-11-20T10:00:00.000Z'],
     ['erp-order-vn:2026-11-20','pending',null],
     ['another-job:2026-11-18','working','2026-11-18T15:00:00.000Z'],
   ]) put.run(key,JSON.stringify({state,started_at}));

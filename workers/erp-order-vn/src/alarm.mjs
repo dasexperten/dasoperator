@@ -1,6 +1,6 @@
 export const NAME = 'erp-order-vn';
 export const PREFIX = `${NAME}:`;
-export const ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
+export const ABANDONED_AFTER_MS = 6 * 60 * 60 * 1000;
 
 export async function expireAbandonedClaims(db, now) {
   const expiredBefore = new Date(now.getTime() - ABANDONED_AFTER_MS).toISOString();

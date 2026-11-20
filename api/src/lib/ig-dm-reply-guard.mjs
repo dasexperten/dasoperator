@@ -71,12 +71,15 @@ ${SCENARIO_RULES}
 // The answer format is the code's, never the profile's: the guard below parses it.
 // Owner 2026-10-18 (mashaa_ugc: refused at 15:47, paid at 21:21): a clear refusal holds every open payout.
 export const REFUSAL = /(не\s+рассматриваю|передумала|передумал|отказываюсь|откажусь|не\s+буду\s+участвовать|не\s+хочу\s+участвовать|не\s+интересно|не\s+хочу\s+брать)/i;
-export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "send_ozon_photo": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», «могу выложить», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "send_ozon_photo": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. Если блогер назвала несколько банков, в requisites.bank перечисли все названные через запятую, сам не выбирай. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», «могу выложить», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
+// Owner 2026-11-20: «если называют два банка, выбираешь Тинькофф; если нет Тинькова — тот, с кем
+// мы больше работали». The first match wins, so the order IS the rule: Т-Банк, then the banks by
+// the number of our paid transfers on 20.11.2026 (Сбер 136, Озон 73, ВТБ 16, Альфа 10), then the rest.
 const BANKS = [
-  [/сбер/i, '100000000111'], [/т[-\s]?банк|тинькоф|тиньков|tbank|tinkoff/i, '100000000004'], [/втб|vtb/i, '100000000005'],
-  [/озон|ozon/i, '100000000273'], [/альфа|alfa/i, '100000000008'], [/райф/i, '100000000007'], [/газпром/i, '100000000001'],
+  [/т[-\s]?банк|тинькоф|тиньков|tbank|tinkoff/i, '100000000004'], [/сбер/i, '100000000111'], [/озон|ozon/i, '100000000273'],
+  [/втб|vtb/i, '100000000005'], [/альфа|alfa/i, '100000000008'], [/райф/i, '100000000007'], [/газпром/i, '100000000001'],
   [/совком/i, '100000000013'], [/мтс|mts/i, '100000000017'], [/почта/i, '100000000016'], [/росбанк/i, '100000000012'],
   [/яндекс|yandex/i, '100000000150'], [/открыти/i, '100000000015'], [/уралсиб/i, '100000000026'], [/россельхоз/i, '100000000020'],
 ];

@@ -4,6 +4,7 @@
 // Conversation text stays in memory; only status and ids are persisted.
 import {asksRefundNumber,REFUND_ANSWER} from './diana-refund.mjs';
 import {sendProactive} from './diana-direct-notice.mjs';
+import {ownerSaidGold,markOwnerGold} from './ugc-owner-gold.mjs';
 const PAGE='1697038263872226', BRAND='17841466350261166';
 const GRAPH='https://graph.facebook.com/v21.0/';
 const HOUR=3600_000, DAY=24*HOUR;
@@ -47,6 +48,8 @@ export async function runRoundCreator({env,runId,person,token,infer,prepareConte
   const messages=(list.data??[]).slice().reverse();
   const ours=m=>[PAGE,BRAND].includes(String(m.from?.id??''));
   const last=messages.at(-1), lastIn=messages.filter(m=>!ours(m)).at(-1), lastOut=messages.filter(ours).at(-1);
+  // Owner 2026-11-20: his own «золотой список» in the chat puts her on the Gold list.
+  if(person.id&&person.lifecycle_stage!=='gold'&&ownerSaidGold(messages.filter(ours).map(m=>m.message)))await markOwnerGold(env,person.id,now).catch(()=>false);
   if(!last||!lastIn?.from?.id)return{status:'skipped',reason:'no_creator_message'};
   const unanswered=!ours(last);
   if(unanswered){

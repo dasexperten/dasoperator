@@ -199,3 +199,14 @@ test('Ozon card photo is sent only when Diana flags a how-to-find request (Owner
   assert.equal(guardReply(JSON.stringify({reply:'Наберите на Ozon: энзимная зубная паста.',escalate:false})).sendOzonPhoto,false);
   assert.doesNotMatch(DIANA_RULES_BODY, /отправляет человек/);
 });
+
+test('Owner 2026-11-20: of two named banks Т-Банк wins, otherwise the bank we paid through more', async () => {
+  const { cleanRequisites } = await import('./ig-dm-reply-guard.mjs');
+  const bank = (b) => cleanRequisites({ amount_rub: 411, phone: '+79154888911', bank: b, first_name: 'Саидмухидин' })?.bank;
+  assert.equal(bank('Тинькофф сбербанк'), '100000000004');
+  assert.equal(bank('Сбербанк, Т-банк'), '100000000004');
+  assert.equal(bank('Т-банк ,озон банк'), '100000000004');
+  assert.equal(bank('Озон или Сбер'), '100000000111');
+  assert.equal(bank('ВТБ, Озон банк'), '100000000273');
+  assert.equal(bank('Альфа или ВТБ'), '100000000005');
+});

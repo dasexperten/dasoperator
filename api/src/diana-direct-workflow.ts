@@ -26,6 +26,7 @@ import {runDirect} from './lib/diana-direct-run.mjs';
 import {agreedExtra as findAgreedExtra} from './lib/ugc-agreed-extra.mjs';
 // @ts-expect-error plain JS module
 import {leadStage} from './lib/ugc-lead-stage.mjs';
+import {ownerSaidGold,markOwnerGold} from './lib/ugc-owner-gold.mjs';
 // @ts-expect-error plain JS module
 import {handoffDirectPayout} from './lib/diana-direct-payout.mjs';
 // @ts-expect-error plain JS module
@@ -133,9 +134,11 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const ours=new Set(['1697038263872226','17841466350261166']);
        const msgs=source.messages??[];let k=msgs.length-1;const mine:string[]=[];
        while(k>=0&&!ours.has(String(msgs[k].from?.id??''))){if(typeof msgs[k].message==='string')mine.unshift(msgs[k].message);k--;}
-       const stage=leadStage(mine);if(!stage)return;
        const now=Date.now();
        const known=await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage s FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>();
+       // Owner 2026-11-20: his own «золотой список» in the chat puts her on the Gold list.
+       if(known&&known.s!=='gold'&&ownerSaidGold(msgs.filter((m:any)=>ours.has(String(m.from?.id??''))).map((m:any)=>m.message))){await markOwnerGold(this.env,known.id,now).catch(()=>false);return;}
+       const stage=leadStage(mine);if(!stage)return;
        if(known){
         // Only a scouting card moves up; a working or hand-set status is never touched.
         // Owner 2026-11-20: a clear «no» closes a card that never reached money; a paid or hand-set one is never touched.

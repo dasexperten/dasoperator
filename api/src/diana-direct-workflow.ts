@@ -138,10 +138,15 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        const known=await this.env.DB.prepare("SELECT c.id,c.lifecycle_stage s FROM ugc_creators c JOIN ugc_creator_platforms p ON p.creator_id=c.id WHERE p.platform='instagram' AND p.normalized_handle=?1 LIMIT 1").bind(name).first<any>();
        if(known){
         // Only a scouting card moves up; a working or hand-set status is never touched.
+        // Owner 2026-11-20: a clear «no» closes a card that never reached money; a paid or hand-set one is never touched.
+        if(stage==='refused'){await this.env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage='refused',updated_at=?2 WHERE id=?1 AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','silent','replied','agreed')
+          AND NOT EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=ugc_creators.id)
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(known.id,now).run();return;}
         await this.env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2,updated_at=?3 WHERE id=?1 AND COALESCE(lifecycle_stage,'') IN ('','found','first_contact','invited','silent',CASE WHEN ?2='agreed' THEN 'replied' ELSE '' END)
           AND NOT EXISTS (SELECT 1 FROM crm_sync_state WHERE key='manual_stage:'||ugc_creators.id)`).bind(known.id,stage,now).run();
         return;
        }
+       if(stage==='refused')return; // no card for a blogger who declined the first invitation
        const sid=async(prefix:string,input:string)=>{const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input));return prefix+'_'+[...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,24);};
        const cid=await sid('ugc','instagram:'+name),pid=await sid('ugcp','instagram:'+name);
        await this.env.DB.batch([

@@ -53,6 +53,8 @@ async function addLink(env: Env, profile: { id: string; creator_id: string; h: s
 async function addVideoFile(env: Env, profile: { id: string; creator_id: string; h: string }, message: any, seen: any): Promise<boolean> {
   const url = videoUrl(message);
   if (!url || seen?.our_product !== 'yes') return false;
+  // Owner 2026-11-20: a screen recording of the Ozon cart is a receipt, not her content.
+  if (seen?.kind === 'other') return false;
   const id = await sha('ugcc_dv_', profile.creator_id + ':' + String(message.id));
   if (await env.DB.prepare('SELECT 1 x FROM ugc_content WHERE id=?1').bind(id).first()) return false;
   const host = new URL(url).hostname;

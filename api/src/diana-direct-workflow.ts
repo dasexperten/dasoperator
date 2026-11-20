@@ -198,8 +198,8 @@ export class DianaDirectWorkflow extends WorkflowEntrypoint<Env,DianaDirectPaylo
        // Owner 2026-11-13: after Diana writes to a lead, a nudge is due in 3 hours unless she answers.
        .then(async(r:any)=>{if(r?.status==='verified')await scheduleLeadNudge(this.env.DB,{cid:conversationId,handle:signal.handle}).catch(()=>false);return r;}),
       // Owner 2026-11-12: the four approved scenario cards (DIRECT_RULES «Сценарии»), two short lines first.
-      deliverCards:({conversationId,messageId,recipientId}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
-       text:IDEA_LINES[0],followTexts:IDEA_LINES.slice(1),images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN}),
+      deliverCards:({conversationId,messageId,recipientId,lines}:any)=>{const L=Array.isArray(lines)&&lines.length?lines:IDEA_LINES;return signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
+       text:L[0],followTexts:L.slice(1),images:SCENARIO_CARDS,token:this.env.META_IG_MESSAGING_TOKEN});},
       // Owner 2026-11-15: one lead-in line and Otto's TERMO 39° infographic; once per chat.
       deliverInfo:({conversationId,messageId,recipientId,text}:any)=>signal.dryRun?Promise.resolve({status:'preview'}):deliverDirectReply({db:this.env.DB,conversationId,messageId,recipientId,
        text,images:[TERMO_BENEFITS],token:this.env.META_IG_MESSAGING_TOKEN})

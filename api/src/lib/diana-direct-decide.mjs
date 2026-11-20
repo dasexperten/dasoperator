@@ -11,6 +11,9 @@ import {asksRefundNumber,REFUND_ANSWER} from './diana-refund.mjs';
 import {latestRequisites} from './ugc-latest-requisites.mjs';
 
 export const OWNER_HOLDING='Передали вопрос, ответим сегодня.';
+// Owner 2026-11-12, widened 19.11 (_b_e_a_u_t_y_9 «Есть ли тз?»): a question about the brief gets the four cards at once.
+export const BRIEF_LINES=['Вот четыре идеи для ролика.','Можно выбрать любую или предложить свою.'];
+export const BRIEF_ASK=/(^|[^а-яё])(тз|т\.з\.?|техзадани\S*|техническ\S*\s+задани\S*|требовани\S*|что\s+(нужно\s+|надо\s+)?снимать|как(ие|ое|ой)\s+(условия|задани\S*))([^а-яё]|$)/i;
 export async function decideDirect({source,prepareContext,infer,readImage,env,facts={},finalAttempt=false,revisit=false,lookupPublication=null,watchVideo=null}) {
   if(source?.status!=='ready'||!Array.isArray(source.messages))throw Error('direct_source_not_ready');
   const newest=source.messages.at(-1);
@@ -139,6 +142,7 @@ export async function decideDirect({source,prepareContext,infer,readImage,env,fa
   if(decision.reply&&['reply','fee','payout','info'].includes(decision.action))decision={...decision,reply:dropName(decision.reply,history.map((m,i)=>({...m,at:Date.parse(source.messages[i]?.created_time)})),{payment:decision.action==='payout'})};
   if(decision.action==='none')return {action:'none',reason:'no_reply_needed'};
   // Owner 2026-11-18 (K8): while a paid creator's money question waits for the Owner, she gets one line, the Owner still decides.
+  if(!ownerDecides&&decision.action!=='payout'&&decision.action!=='cards'&&BRIEF_ASK.test(String(newest.message??'')))return {action:'cards',reason:'brief_cards',lines:BRIEF_LINES,recipientId:String(newest.from.id),receipt:{...context.receipt}};
   if(ownerDecides)return {action:'wait',reason:'owner_decides_money',holding:OWNER_HOLDING,recipientId:String(newest.from.id),receipt:{...context.receipt}};
   if(decision.action==='fee')return {action:'reply',fee:true,reply:decision.reply.trim(),recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:0,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};
   if(decision.action==='info')return {action:'info',reason:'termo_infographic',reply:decision.reply.trim(),recipientId:String(newest.from.id),receipt:{...context.receipt,images_read:vision.length,images_uncertain:vision.filter(v=>v.uncertain).length,images_unavailable:unavailableImages,image_diagnostics:imageDiagnostics,image_trace:trace}};

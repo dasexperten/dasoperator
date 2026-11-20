@@ -24,9 +24,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const asked=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.amountQuestion});
       if(asked.status==='preview')return {status:'preview',payout_id:handoff.payout_id};
       if(asked.status!=='verified')return {status:'pending',reason:'delivery_'+asked.status,payout_id:handoff.payout_id};
-      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow',payout_id:handoff.payout_id});
+      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow',core:decision.receipt?.core??null,payout_id:handoff.payout_id});
       const acknowledged=await acknowledge(event);
-      return acknowledged?{status:'complete',reason:'payout_button_amount_asked',payout_id:handoff.payout_id,outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+      return acknowledged?{status:'complete',reason:'payout_button_amount_asked',core:decision.receipt?.core??null,payout_id:handoff.payout_id,outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
     if(handoff?.status==='amount_needed') {
       // Owner 2026-11-12: no 0.01 ₽ button. One simple question asks the amount; her answer makes the button.
@@ -34,9 +34,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const asked=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text:decision.amountQuestion});
       if(asked.status==='preview')return {status:'preview'};
       if(asked.status!=='verified')return {status:'pending',reason:'delivery_'+asked.status};
-      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow'});
+      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow',core:decision.receipt?.core??null});
       const acknowledged=await acknowledge(event);
-      return acknowledged?{status:'complete',reason:'payout_amount_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+      return acknowledged?{status:'complete',reason:'payout_amount_asked',core:decision.receipt?.core??null,outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
     if(handoff?.status==='incomplete') {
       // Owner 2026-11-13: never silent. Ask for exactly the missing detail; her answer makes the button.
@@ -45,9 +45,9 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
       const asked=await deliver({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,text});
       if(asked.status==='preview')return {status:'preview'};
       if(asked.status!=='verified')return {status:'pending',reason:'delivery_'+asked.status};
-      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow'});
+      await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:asked.outgoingId,executor:'diana_direct_workflow',core:decision.receipt?.core??null});
       const acknowledged=await acknowledge(event);
-      return acknowledged?{status:'complete',reason:'payout_details_asked',outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
+      return acknowledged?{status:'complete',reason:'payout_details_asked',core:decision.receipt?.core??null,outgoing_id:asked.outgoingId}:{status:'pending',reason:'newer_event_preserved'};
     }
     // The exact stop reason is kept, so the payout watch can retry and name it (Owner 2026-11-14).
     return {status:'pending',reason:String(handoff?.reason??'').startsWith('payout_')?handoff.reason:'payout_verification_pending'};
@@ -72,7 +72,7 @@ export async function runDirect({event,readOriginal,decide,handoffPayout,deliver
   }
   // Owner 2026-11-12 (argnvd): the approved scenario set, word for word, never an invented idea.
   if(decision.action==='cards'&&!event.dryRun&&typeof deliverCards==='function'){
-    const sent=await deliverCards({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId});
+    const sent=await deliverCards({conversationId:event.cid,messageId:event.message_id,recipientId:decision.recipientId,...(Array.isArray(decision.lines)?{lines:decision.lines}:{})});
     if(sent.status!=='verified')return {status:'pending',reason:'delivery_'+sent.status};
     await saveProof({event_id:event.event_id,cid:event.cid,message_id:event.message_id,verified:true,proof:'Original Meta outgoing receipt read back',outgoing_id:sent.outgoingId,executor:'diana_direct_workflow',cards:true});
     const acknowledged=await acknowledge(event);

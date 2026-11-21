@@ -1051,8 +1051,16 @@ export default function UgcPage() {
 
   // Owner 2026-10-15: render at once from this tab's cached copy, revalidate in
   // the background. Cache per user and filter; phones and bank data are stripped.
+  // Owner 2026-11-21: «After each change it goes complete auto reload… especially when you are working
+  // in the middle of the table.» A repeat reading of the view already on screen (after a save, by the
+  // 2-minute timer, on return to the tab) is silent: the rows stay where they are and the new data
+  // replaces them in place — no «Загрузка…», no step back to the saved copy, no jump to the top.
+  // Only a different filter may show the saved copy or the wait. A late answer for a view that is no
+  // longer the current reading is dropped.
+  const shownKey = useRef<string | null>(null);
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
-    setError(null);
+    const seq = ++loadSeq.current;
     const params = new URLSearchParams();
     if (platform !== 'all') params.set('platform', platform);
     if (search.trim()) params.set('search', search.trim());
@@ -1060,9 +1068,13 @@ export default function UgcPage() {
     if (product) params.set('product', product);
     if (inactive) params.set('inactive', '1');
     const key = `ugc-cache:v3:${getUser()?.id ?? 'anon'}:${params.toString()}`;
+    const silent = shownKey.current === key;
     let cached: UgcPayload | null = null;
-    try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
-    if (cached) { setData(applySavedAmounts(cached)); setLoading(false); } else setLoading(true);
+    if (!silent) {
+      setError(null);
+      try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
+      if (cached) { setData(applySavedAmounts(cached)); setLoading(false); shownKey.current = key; } else { setLoading(true); shownKey.current = null; }
+    }
     // Owner 2026-11-17: the list hung on «Загрузка…» for good when the answer never came. The wait
     // now ends by itself: after 30 s, or on any network failure, the screen says so instead of spinning.
     try {
@@ -1070,9 +1082,11 @@ export default function UgcPage() {
         apiGet<UgcPayload>(`/api/ugc?${params.toString()}`),
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('timeout')), 30_000)),
       ]);
-      if (!response.success || !response.result) setError(response.errors?.[0]?.message ?? 'UGC data could not be loaded');
+      if (seq !== loadSeq.current) return;
+      if (!response.success || !response.result) { if (!silent) setError(response.errors?.[0]?.message ?? 'UGC data could not be loaded'); }
       else {
         setData(applySavedAmounts(response.result));
+        shownKey.current = key;
         const copy = JSON.stringify(cacheSafe(response.result));
         try { sessionStorage.setItem(key, copy); } catch {
           // The tab's store was full of copies for other filters, so the next opening had nothing to show
@@ -1084,9 +1098,9 @@ export default function UgcPage() {
         }
       }
     } catch (failure) {
-      if (!cached) setError(failure instanceof Error && failure.message === 'timeout' ? 'Список не загрузился за 30 секунд. Обновите страницу.' : 'Список не загрузился. Проверьте связь и обновите страницу.');
+      if (seq === loadSeq.current && !cached && !silent) setError(failure instanceof Error && failure.message === 'timeout' ? 'Список не загрузился за 30 секунд. Обновите страницу.' : 'Список не загрузился. Проверьте связь и обновите страницу.');
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [platform, search, stage, product, inactive, applySavedAmounts]);
 

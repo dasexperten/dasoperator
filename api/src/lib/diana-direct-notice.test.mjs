@@ -37,3 +37,12 @@ test('Owner 2026-11-12: a Gold welcome for a blogger silent over 7 days waits in
  const again=await runGoldWelcome({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent),now:Date.parse('2026-11-25T08:05:00Z')});
  assert.equal(again.reason,'gold_welcome_queued');assert.equal(JSON.parse(d.prepare("SELECT value FROM crm_sync_state WHERE key='browser_queue:alice'").get().value).items.length,1);
 });
+
+test('Owner 2026-11-14 / 21.11: a Gold welcome that is a service note is never sent',async()=>{
+ const {d,env}=db();const sent=[];
+ const infer=async()=>({text:JSON.stringify({reply:'Нужно имя блогера: в переписке оно не указано.'})});
+ const ev={cid:'c1',message_id:null,event_id:'action:gold-svc',task:'gold_welcome',handle:'alice'};
+ const r=await runGoldWelcome({env,event:ev,token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent),now:Date.parse('2026-11-12T08:00:00Z')});
+ assert.equal(r.status,'pending');assert.equal(r.reason,'gold_reply_service_note');assert.equal(sent.length,0);
+ assert.equal(d.prepare("SELECT value FROM crm_sync_state WHERE key='browser_queue:alice'").get(),undefined);
+});

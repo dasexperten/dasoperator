@@ -18,7 +18,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { name: 'Home',         icon: Home,          href: '/' },
-  { name: 'Products & Partners', icon: Package, href: '/products' },
+  { name: 'P&P',          icon: Package,       href: '/products' }, // Products & Partners — short name (Owner 2026-11-21)
   { name: 'Operations',   icon: FileText,      href: '/operations' },
   { name: 'Planner',      icon: Calculator,    href: '/planner' },
   { name: 'Warehouses',   icon: Warehouse,     href: '/warehouses' },

@@ -12,7 +12,7 @@ parser.add_argument('operation', choices='job tickets run catalog card reserve t
 op = parser.parse_args().operation
 local = Path.home() / '.local/share/dasexperten/ozon-copy'
 headers = {'Authorization': 'Bearer ' + (local/'device-token').read_text().strip(),
-           'Content-Type': 'application/json'}
+           'Content-Type': 'application/json', 'User-Agent': 'DasExperten-ERP-Ozon/1.0'}
 body = None if op in ('job', 'tickets') else ({} if op == 'run' else json.load(sys.stdin))
 req = Request('https://erp-ozon-copy-check.dasexperten.workers.dev/' + op,
               data=None if body is None else json.dumps(body).encode(), headers=headers)

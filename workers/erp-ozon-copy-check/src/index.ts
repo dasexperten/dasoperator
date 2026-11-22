@@ -26,7 +26,7 @@ async function handle(request: Request, env: Env) {
   if (request.method === 'GET' && path === '/tickets')
     return reply((await db.prepare('SELECT sku,original_sku,seller,evidence,reserved_at,ticket,thread FROM ozon_copy_tickets ORDER BY reserved_at DESC').all()).results);
   if (request.method === 'GET' && path === '/job') {
-    const row = await db.prepare('SELECT day,catalog FROM ozon_copy_days WHERE finished_at IS NULL ORDER BY day DESC LIMIT 1').first<{day:string,catalog:string|null}>();
+    const row = await db.prepare('SELECT day,catalog FROM ozon_copy_days WHERE finished_at IS NULL AND day=?').bind(dayOf(Date.now())).first<{day:string,catalog:string|null}>();
     if (!row) return reply({day:null});
     const cards = (await db.prepare('SELECT sku,status,detail FROM ozon_copy_cards WHERE day=?').bind(row.day).all()).results;
     return reply({day:row.day,skus:row.catalog ? JSON.parse(row.catalog) : null,cards});
@@ -49,8 +49,15 @@ async function handle(request: Request, env: Env) {
   const skus: string[] = JSON.parse(run.catalog);
   if (path === '/card') {
     if (!skus.includes(b.sku) || !['checked','error','unread'].includes(b.status) || !okText(b.detail,12000)) return reply({error:'invalid card'},400);
-    await db.prepare(`INSERT INTO ozon_copy_cards(day,sku,status,detail) VALUES(?,?,?,?)
-      ON CONFLICT(day,sku) DO UPDATE SET status=excluded.status,detail=excluded.detail,updated_at=CURRENT_TIMESTAMP`).bind(b.day,b.sku,b.status,b.detail).run();
+    await db.batch([db.prepare(`INSERT INTO ozon_copy_cards(day,sku,status,detail) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM ozon_copy_days WHERE day=? AND finished_at IS NULL)
+      ON CONFLICT(day,sku) DO UPDATE SET status=excluded.status,detail=excluded.detail,updated_at=CURRENT_TIMESTAMP
+      WHERE ozon_copy_cards.status<>'checked' OR excluded.status='checked'`).bind(b.day,b.sku,b.status,b.detail,b.day),
+      db.prepare(`UPDATE erp_cron_runs SET rows=(SELECT COUNT(*) FROM ozon_copy_cards WHERE day=? AND status='checked'),
+      note=printf('Проверено %d из %d. Требуют повторной проверки: %d.',
+        (SELECT COUNT(*) FROM ozon_copy_cards WHERE day=? AND status='checked'),?,
+        (SELECT COUNT(*) FROM ozon_copy_cards WHERE day=? AND status<>'checked')) WHERE run_key=?`)
+        .bind(b.day,b.day,skus.length,b.day,worker+':'+b.day)
+    ]);
     return reply({saved:b.sku});
   }
   if (path === '/reserve') {
@@ -68,8 +75,13 @@ async function handle(request: Request, env: Env) {
     const expected = 'https://seller.ozon.ru/app/messenger';
     const found = typeof b.thread === 'string' && b.thread.startsWith(expected+'?') && new URL(b.thread).searchParams.has('id');
     if (!found) return reply({error:'verified support thread required'},400);
-    const res = await db.prepare(`UPDATE ozon_copy_tickets SET ticket=?,thread=? WHERE sku=? AND
-      (ticket IS NULL OR ticket=?) AND (token=? OR ?=1)`).bind(b.ticket,b.thread,b.sku,b.ticket,b.token || '',Number(b.reconciled === true)).run();
+    const [res] = await db.batch([db.prepare(`UPDATE ozon_copy_tickets SET ticket=?,thread=? WHERE sku=? AND
+      (ticket IS NULL OR ticket=?) AND (token=? OR ?=1)`).bind(b.ticket,b.thread,b.sku,b.ticket,b.token || '',Number(b.reconciled === true)),
+      db.prepare(`INSERT OR IGNORE INTO erp_cron_runs(worker,cron,started_at,finished_at,ok,rows,note,run_key)
+        SELECT ?, 'manual', ?, ?, 1, 1, 'Ozon №' || ticket || ' · ' || seller || ' · SKU ' || sku, ? || ticket
+        FROM ozon_copy_tickets WHERE sku=? AND ticket=?`)
+        .bind(worker,new Date().toISOString(),new Date().toISOString(),worker+':ticket:',b.sku,b.ticket)
+    ]);
     return res.meta.changes ? reply({sku:b.sku,ticket:b.ticket}) : reply({error:'missing reservation or ticket conflict'},409);
   }
   const stats = await db.prepare(`SELECT count(*) checked FROM ozon_copy_cards WHERE day=? AND status='checked'`).bind(b.day).first<{checked:number}>();

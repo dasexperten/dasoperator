@@ -429,7 +429,9 @@ export async function handleScheduled(
     // Owner 2026-11-07: ERP owns erp-ugc-diter; the local tool-capable
     // diter-ugc-round receives the exact accepted job from a live consumer.
     try {
-      const { tickDiterUgcAlarm } = await import('./lib/ugc-reel-store');
+      const { tickDiterUgcAlarm,tickDieterQueueRecovery } = await import('./lib/ugc-reel-store');
+      // A slow, read-only runtime probe must not hold up other ERP minute jobs.
+      _ctx.waitUntil(tickDieterQueueRecovery(env).catch(()=>console.error('[dieter-recovery] check unavailable')));
       await tickDiterUgcAlarm(env,new Date(event.scheduledTime || Date.now()));
     } catch (e) { recordFailure(e); console.error('[erp-ugc-diter] failed'); }
     // Owner 2026-10-16: the Direct and payout lanes moved to their own ERP workers

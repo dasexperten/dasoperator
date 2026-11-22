@@ -13,7 +13,7 @@ await build({ entryPoints: [new URL('./ugc-reel-store.ts', import.meta.url).path
 await build({ entryPoints: [new URL('../routes/ugc.ts', import.meta.url).pathname], bundle:true, platform:'node', format:'esm', outfile:join(temp,'ugc.mjs'),logLevel:'silent' });
 const ownerRoute = (await import(pathToFileURL(join(temp,'ugc.mjs')).href)).default;
 const route = (await import(pathToFileURL(join(temp,'route.mjs')).href)).default;
-const { tickDiterAlarm, tickDiterUgcAlarm, diterWindow, acceptLegacyReel } = await import(pathToFileURL(join(temp,'store.mjs')).href);
+const { tickDiterAlarm, tickDiterUgcAlarm, tickDieterQueueRecovery, diterWindow, acceptLegacyReel } = await import(pathToFileURL(join(temp,'store.mjs')).href);
 const sqlite = new DatabaseSync(':memory:');
 sqlite.exec('CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER)');
 sqlite.exec(`CREATE TABLE ugc_content(id TEXT PRIMARY KEY,creator_platform_id TEXT,content_url TEXT,content_type TEXT); CREATE TABLE ugc_creator_platforms(id TEXT PRIMARY KEY,handle TEXT,platform TEXT);`);
@@ -358,4 +358,18 @@ test('Alexandra Astra headline is source-bound, saved once and retained across c
  sqlite.prepare('UPDATE ugc_reel_jobs SET claim_id=? WHERE content_id=?').run('retry',id);
  const retry=await(await request('/reel-jobs/'+id+'/headline',{claim_id:'retry',brief})).json();assert.equal(retry.headline,first.headline);assert.equal(calls,1);
  delete env.CODEX_DOOR;delete env.CODEX_ROUTE_SECRET;
+});
+
+
+test('minute watchdog runs outside publication windows without dispatching or accepting caller commands',async()=>{
+ sqlite.prepare("INSERT OR REPLACE INTO crm_sync_state VALUES('dieter_cloud_mode','enabled',0)").run();
+ sqlite.prepare("INSERT OR REPLACE INTO crm_sync_state VALUES('dieter_cloud_runtime_stop','{}',0)").run();
+ let checks=0;env.DIETER_WAKE={idFromName(n){assert.equal(n,'dieter');return n;},get(){return {async fetch(req){assert.equal(new URL(req.url).pathname,'/recover');assert.equal(req.method,'POST');assert.equal(await req.text(),'');checks++;return Response.json({ok:true,status:'waiting'});}};}};
+ assert.equal(diterWindow(Date.parse('2026-11-23T00:01:00Z')),false);
+ assert.equal((await tickDieterQueueRecovery(env)).status,'waiting');assert.equal(checks,1);
+ assert.equal((await request('/cloud/recover',{command:'publish'},false)).status,401);assert.equal(checks,1);
+ assert.equal((await request('/cloud/recover',{command:'publish'})).status,200);assert.equal(checks,2);
+ sqlite.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_runtime_stop'").run();
+ assert.equal((await tickDieterQueueRecovery(env)).status,'healthy');assert.equal(checks,2);
+ sqlite.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_mode'").run();delete env.DIETER_WAKE;
 });

@@ -421,6 +421,12 @@ route.post('/cloud/preflight',async c=>{
  const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/preflight',{method:'POST'}));
  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
 });
+// Existing authenticated service boundary; no caller-controlled command, model,
+// recipient or source is accepted. Healthy queues perform no runtime calls.
+route.post('/cloud/recover',async c=>{
+ const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/recover',{method:'POST'}));
+ return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});
+});
 // Owner-authorized incident acceptance: only the fixed read-only preflight,
 // never a work call, claim, publication or implicit stop removal.
 route.post('/cloud/repair-preflight',async c=>{

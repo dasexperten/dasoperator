@@ -6,6 +6,7 @@ import {reelScope,reelPublicationProof} from './lib/ugc-reel-jobs.mjs';
 import {diterWindow,START_INTERVAL_MS} from './lib/ugc-reel-store';
 import {runDieterTikTokTransport,awaitsDieterApiCompletion,finalizeDieterApiPublication,type TikTokTransportEvent} from './dieter-tiktok-workflow';
 import {reconcileDieterRutubeStatus} from './lib/dieter-rutube-status';
+import {recoverDieterQueue,announceDieterRuntimeStop,announceDieterPreflightStop} from './lib/dieter-queue-recovery';
 
 const CONSUMER='cloudflare-dieter-v1';
 type Event={content_id:string;claim_id:string;continuation_id?:string;transport?:'tiktok';transport_id?:string};
@@ -31,6 +32,9 @@ async function stopRuntime(env:Env,input:Event,record:unknown){
  // An uncertain work outcome cannot be bypassed by a later clock/claim even
  // after the shared runtime is repaired. Reconciliation retains this claim.
  await putRecord(env,executionHold(input.content_id),value);
+ // Notification is independent of the subsequent reconciliation. A runtime
+ // incident must not silently park the entire queue until the next work slot.
+ try{await announceDieterRuntimeStop(env,value);}catch{console.error('[dieter-recovery] notice persistence unavailable');}
 }
 // Explicit Owner-authorized last claim after two verified pre-provider turns.
 // A raw attempt counter is never proof that a provider send did or did not occur.
@@ -98,7 +102,8 @@ export async function readDieterNativeResult(env:Env,requestId:string,mode:strin
 function transportUnknown(failure:{error:string;diagnostic?:{phase:string;code:string}}){
  return failure.error==='native_call_outcome_unknown'&&!failure.diagnostic||['deployment_reset','dieter_outcome_unknown_reconcile_only'].includes(failure.error)||failure.error==='native_runner_unavailable'&&failure.diagnostic?.phase==='container_proxy'&&failure.diagnostic?.code==='http_unavailable';
 }
-export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms)),repairClaimId?:string){
+export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms)),repairClaimId?:string,attemptLimit=3){
+ if(![1,3].includes(attemptLimit))throw Error('dieter_invalid_preflight_budget');
  if(await runtimeStopped(env)){
   const stopped=await getRecord(env,RUNTIME_STOP);
   if(!repairClaimId||stopped?.claim_id!==repairClaimId)throw Error('dieter_runtime_incident_stop');
@@ -107,12 +112,14 @@ export async function preflightDieter(env:Env,pause=(ms:number)=>new Promise(res
  let result:any;
  // This read-only tool/source probe may recover a transient container HTTP
  // failure. Never apply this retry to a work/reconciliation call.
- for(let attempt=0;attempt<3;attempt++){
+ for(let attempt=0;attempt<attemptLimit;attempt++){
   try{result=await infer(env,'dieter-preflight-'+crypto.randomUUID(),{mode:'preflight'});break;}
   catch(error){
    if(!String((error as Error).message).includes('"error":"native_runner_unavailable"'))throw error;
+   if(attemptLimit===1)throw error; // Recovery owns its durable total budget.
    if(attempt===2){
     await env.DB.prepare("INSERT INTO crm_sync_state(key,value,updated_at) VALUES('dieter_cloud_preflight_blocked',?1,?2) ON CONFLICT(key) DO NOTHING").bind(JSON.stringify({reason:'native_runner_unavailable',failed_attempts:3,at:new Date().toISOString(),automatic_retry:false}),Date.now()).run();
+    await announceDieterPreflightStop(env);
     throw error;
    }
    await pause(1000);
@@ -132,6 +139,7 @@ export class DieterWake {
  fetch(request:Request){const next=this.queue.then(()=>this.handle(request));this.queue=next.catch(()=>undefined);return next;}
  async handle(request:Request){
   const url=new URL(request.url);
+  if(url.pathname==='/recover')return Response.json({ok:true,...await recoverDieterQueue(this.env,claim=>preflightDieter(this.env,undefined,claim,1))});
   if(url.pathname==='/preflight')return Response.json({ok:true,...await preflightDieter(this.env)});
   if(url.pathname==='/repair-preflight'){
    const body=await request.json() as {claim_id?:string};
@@ -164,8 +172,10 @@ export class DieterWake {
   if(!pending)return Response.json({ok:true,accepted:false,note:'empty'});
   const verifiedRetry=manual&&once?.verified_retry_key?await verifiedPreProviderRetry(this.env,pending,once):null;
   if(manual&&once?.verified_retry_key&&!verifiedRetry)return Response.json({ok:true,accepted:false,note:'verified_retry_not_authorized'});
-  const readiness=await preflightDieter(this.env); // A red job is never claimed for an unavailable runtime.
-  if(readiness.activation_ready!==true)return Response.json({ok:true,accepted:false,note:'cloud_source_access_not_ready',reason:readiness.drive?.reason});
+  let readiness:any;
+  try{readiness=await preflightDieter(this.env);} // A red job is never claimed for an unavailable runtime.
+  catch(error){await announceDieterPreflightStop(this.env);throw error;}
+  if(readiness.activation_ready!==true){await announceDieterPreflightStop(this.env,'source_access_unavailable');return Response.json({ok:true,accepted:false,note:'cloud_source_access_not_ready',reason:readiness.drive?.reason});}
   if(!manual&&!diterWindow(Date.now()))return Response.json({ok:true,accepted:false,note:'preflight_finished_outside_window'});
   if(await runtimeStopped(this.env))return Response.json({ok:true,accepted:false,note:'runtime_incident_stop'});
   const claim=crypto.randomUUID(),at=new Date(now).toISOString(),workflowId='dieter-'+claim;

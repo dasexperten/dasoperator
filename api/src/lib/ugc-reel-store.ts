@@ -1,10 +1,24 @@
 import type { Env } from '../types';
 import { ALARM, ROUND, inMoscowWindow, START_GAP_MS, freshSignal, isTriggerMinute } from './diter-ugc-alarm.mjs';
+import {flushDieterQueueNotices} from './dieter-queue-recovery';
 import { reelTaskText, reelScope } from './ugc-reel-jobs.mjs';
 
 export const CONSUMER_TTL_MS = 90_000;
 export const START_INTERVAL_MS = START_GAP_MS;
 export function diterWindow(now: number): boolean { return inMoscowWindow(new Date(now)); }
+
+// Runs on the existing minute clock, including outside publication windows.
+// It only repairs runtime readiness/queue state and retries bounded notices;
+// claiming, downloading and publishing remain on the existing fixed clock.
+export async function tickDieterQueueRecovery(env:Env){
+ if((await env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value!=='enabled')return {status:'disabled'};
+ await flushDieterQueueNotices(env);
+ const stop=await env.DB.prepare("SELECT key FROM crm_sync_state WHERE key IN ('dieter_cloud_runtime_stop','dieter_cloud_preflight_blocked') LIMIT 1").first();
+ if(!stop)return {status:'healthy'};
+ const response=await env.DIETER_WAKE.get(env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/recover',{method:'POST'}));
+ if(!response.ok)throw Error('dieter_queue_recovery_unconfirmed');
+ return response.json();
+}
 
 // No /adhoc, model, download or publication here. Only accept one concrete job
 // for a registered live executor, before the executor starts its round.

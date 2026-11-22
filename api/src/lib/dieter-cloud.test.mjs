@@ -376,3 +376,19 @@ test('previous caption plan, provider receipt or changed scope denies verified r
  }
  f.put(f.key,{...f.definition,first_send_destinations:['tiktok']});assert.equal((await(await f.dispatch()).json()).note,'verified_retry_not_authorized');assert.equal(nativeCalls,0);assert.equal(f.created.length,0);assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,2);
 });
+
+test('watchdog single-attempt probe never hides three retries inside its durable budget',async t=>{
+ const f=fixture(t);let calls=0;f.env.DIETER_SUBSCRIPTION.fetch=async()=>{calls++;return Response.json({error:'native_runner_unavailable'},{status:503});};
+ await assert.rejects(preflightDieter(f.env,async()=>{},undefined,1),/native_runner_unavailable/);assert.equal(calls,1);
+ assert.equal(f.db.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_preflight_blocked'").get(),undefined);
+});
+test('serialized recovery ticks cannot start two probes or publish any video',async t=>{
+ const f=fixture(t);let probes=0;f.env.DASORG_API_KEY='fixture';f.env.ORGANIZATION={async fetch(){return Response.json({ok:true,message_id:1});}};
+ f.env.DIETER_CLOUD.get=async()=>({async status(){return {status:'complete'};}});
+ for(const [k,v] of [['dieter_cloud_runtime_stop',{kind:'runtime_incident_stop',claim_id:'claim',content_id:'one'}],['dieter_cloud_assignment:claim',{claim_id:'claim',content_id:'one',workflow_id:'dieter-claim'}]])f.db.prepare('INSERT INTO crm_sync_state VALUES(?,?,0)').run(k,JSON.stringify(v));
+ f.env.DIETER_SUBSCRIPTION.fetch=async()=>{probes++;return Response.json({text:JSON.stringify({ready:true,activation_ready:true,native_tools_verified:true,drive:{ready:true}}),receipt:{transport:'codex-native',auth:'subscription',model:'gpt-6.1-terra',mode:'preflight'}});};
+ const req=()=>new Request('https://dieter.internal/recover',{method:'POST'});
+ const responses=await Promise.all([f.wake.fetch(req()),f.wake.fetch(req())]);const results=await Promise.all(responses.map(r=>r.json()));
+ assert.deepEqual(results.map(x=>x.status),['recovered','healthy']);assert.equal(probes,1);assert.equal(f.created.length,0);
+ assert.equal(f.db.prepare("SELECT attempts FROM ugc_reel_jobs WHERE content_id='one'").get().attempts,0);
+});

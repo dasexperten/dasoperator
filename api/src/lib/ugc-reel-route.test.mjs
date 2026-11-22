@@ -373,3 +373,11 @@ test('minute watchdog runs outside publication windows without dispatching or ac
  assert.equal((await tickDieterQueueRecovery(env)).status,'healthy');assert.equal(checks,2);
  sqlite.prepare("DELETE FROM crm_sync_state WHERE key='dieter_cloud_mode'").run();delete env.DIETER_WAKE;
 });
+
+test('recovery notification check uses fixed text and recipient through the deployed bot binding',async()=>{
+ let sends=0;env.DASORG_API_KEY='fixture';env.ORGANIZATION={async fetch(_url,init){const b=JSON.parse(init.body);assert.equal(b.slug,'mina-rutunya');assert.notEqual(b.text,'untrusted');assert.equal(b.report,true);assert.equal(b.to,undefined);sends++;return Response.json({ok:true,message_id:123});}};
+ assert.equal((await request('/cloud/recovery-notification-test',{text:'untrusted',to:'other'},false)).status,401);assert.equal(sends,0);
+ assert.equal((await request('/cloud/recovery-notification-test',{text:'untrusted',to:'other'})).status,200);assert.equal(sends,1);
+ env.ORGANIZATION.fetch=async()=>Response.json({ok:false});assert.equal((await request('/cloud/recovery-notification-test',{})).status,502);
+ delete env.DASORG_API_KEY;delete env.ORGANIZATION;
+});

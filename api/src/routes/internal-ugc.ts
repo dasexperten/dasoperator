@@ -1,3 +1,4 @@
+import {sendOwnerTelegram} from '../lib/owner-telegram';
 import {writeAlexandraHeadline} from '../lib/alexandra-headline.mjs';
 import {finishDieterUploads} from '../lib/dieter-upload-completion';
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
@@ -423,6 +424,12 @@ route.post('/cloud/preflight',async c=>{
 });
 // Existing authenticated service boundary; no caller-controlled command, model,
 // recipient or source is accepted. Healthy queues perform no runtime calls.
+// Fixed notification acceptance check uses the same deployed service binding.
+// No recipient, text, command, model or queue mutation is caller controlled.
+route.post('/cloud/recovery-notification-test',async c=>{
+ const sent=await sendOwnerTelegram(c.env,'Шеф, защита очереди загрузки включена. Это проверка доставки уведомления: при сбое сообщу сразу, спорный ролик повторно не отправлю.');
+ return c.json({ok:sent,destination:'@dasexpertenbot'},sent?200:502);
+});
 route.post('/cloud/recover',async c=>{
  const response=await c.env.DIETER_WAKE.get(c.env.DIETER_WAKE.idFromName('dieter')).fetch(new Request('https://dieter.internal/recover',{method:'POST'}));
  return new Response(response.body,{status:response.status,headers:new Headers(response.headers)});

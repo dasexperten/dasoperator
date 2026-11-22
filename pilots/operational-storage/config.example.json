@@ -1,0 +1,7 @@
+{
+  "namespace": "pilot-diana-angela",
+  "agents": {
+    "diana-helios": "off",
+    "angela": "off"
+  }
+}

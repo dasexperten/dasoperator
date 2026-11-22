@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';
 import {runPayoutNotice,runGoldWelcome} from './diana-direct-notice.mjs';
-function db(){const d=new DatabaseSync(':memory:');d.exec(`CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,handle TEXT,status TEXT,amount_minor INTEGER,product TEXT,konsol_payment_id TEXT,konsol_status TEXT,paid_at TEXT,failed_at TEXT,notice_status TEXT,notice_message_id TEXT,notice_error TEXT,notice_at TEXT,paid_notice_at TEXT,updated_at INTEGER);CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);`);
+function db(){const d=new DatabaseSync(':memory:');d.exec(`CREATE TABLE ugc_payouts(id TEXT PRIMARY KEY,handle TEXT,status TEXT,amount_minor INTEGER,product TEXT,note TEXT,konsol_payment_id TEXT,konsol_status TEXT,paid_at TEXT,failed_at TEXT,notice_status TEXT,notice_message_id TEXT,notice_error TEXT,notice_at TEXT,paid_notice_at TEXT,updated_at INTEGER);CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);`);
  const wrap=s=>({bind:(...a)=>({first:async()=>d.prepare(s).get(...a)??null,run:async()=>({meta:{changes:d.prepare(s).run(...a).changes}}),_s:s,_a:a})});
  return{d,env:{GITHUB_TOKEN:'t',DB:{prepare:wrap,batch:async st=>st.map(x=>({meta:{changes:d.prepare(x._s).run(...x._a).changes}}))}}};}
 function meta(sent, earlier=[]){return async(url,init)=>{const u=String(url);
@@ -53,4 +53,17 @@ test('a previously selected idea is visible to both payout paths and suppresses 
   assert.equal(result.status,'complete');
   assert.equal(sent.length,manual?0:1);
  }
+});
+
+test('a brush-only manual payout uses the internal note even with no product column value',async()=>{
+ const {d,env}=db();
+ d.prepare("INSERT INTO ugc_payouts(id,handle,status,konsol_status,note) VALUES('p2','alice','paid','paid_outside','SENSITIV 4 щётки')").run();
+ const sent=[];
+ const infer=async m=>{
+   assert.equal(JSON.parse(m[1].content).payout_note,'SENSITIV 4 щётки');
+   assert.equal(JSON.parse(m[1].content).product,null);
+   return {text:JSON.stringify({send_cards:true,send_termo_info:true})};
+ };
+ const r=await runPayoutNotice({env,event:{cid:'c1',event_id:'action:p2',task:'payout_manual_followup',payout_id:'p2'},token:'t',infer,prepareContext:ctx,fetchImpl:meta(sent)});
+ assert.equal(r.status,'complete');assert.equal(sent.length,0);
 });

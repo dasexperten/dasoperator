@@ -1,3 +1,4 @@
+import {isTikTokPeakTime} from './tiktok-peak-hours.mjs';
 // Owner-authorized API transport, not another native/model work attempt.
 // Contract accepted 2026-11-09: TikTok Business Accounts v1.3, owned @dasbroadcast.
 // A durable publish_requested precedes the ONLY POST. Unknown outcomes never resend.
@@ -134,6 +135,7 @@ export async function runDieterTikTokApi(env:Env,args:TikTokSource,mode:Mode,opt
   if(ledger&&JSON.stringify(ledger.identity)!==JSON.stringify(identity))stop('tiktok_immutable_source_or_caption_conflict');
   if(ledger?.state==='failed')return {status:'failed',code:'tiktok_provider_failed_no_resend',ledgerKey};
   if(ledger&&['publish_requested','uncertain'].includes(ledger.state))return {status:'uncertain',code:'tiktok_no_resend_without_saved_share_id',ledgerKey};
+  if(mode==='publish'&&(!ledger||ledger.state==='reserved')&&!isTikTokPeakTime(now()))return {status:'blocked',code:'tiktok_outside_audience_peak',ledgerKey};
   phase='grant_read';
   const grant=await loadGrant(env,fetcher,now()),api=client(grant,fetcher);
   phase='account_read';
@@ -158,11 +160,16 @@ export async function runDieterTikTokApi(env:Env,args:TikTokSource,mode:Mode,opt
    stored=await read();if(!stored)stop('tiktok_working_claim_changed');ledger=JSON.parse(stored.value);
    if(JSON.stringify(ledger.identity)!==JSON.stringify(identity))stop('tiktok_immutable_source_or_caption_conflict');
    // The reservation winner alone can cross the external side-effect boundary.
+   if(!isTikTokPeakTime(now()))return {status:'blocked',code:'tiktok_peak_closed_before_intent',ledgerKey};
    phase='provider_intent';
    const requested={...ledger,state:'publish_requested',publishRequestedAt:now()};
    const requestedRaw=ledger.state==='reserved'?await cas(stored.value,requested,true):null;
    if(!requestedRaw)return {status:'pending',code:'tiktok_concurrent_or_existing_intent_readback_only',ledgerKey};
    const post_info={caption,is_brand_organic:true,is_branded_content:false,disable_comment:settings.comment_disabled,disable_duet:settings.duet_disabled,disable_stitch:settings.stitch_disabled,is_ai_generated:false,upload_to_draft:false,is_ads_only:false};
+   if(!isTikTokPeakTime(now())){
+    await cas(requestedRaw,{...ledger,state:'reserved',deferred_before_provider:true});
+    return {status:'blocked',code:'tiktok_peak_closed_before_send',ledgerKey};
+   }
    phase='provider_publish';
    let published:any;
    try{published=await api('business/video/publish',{video_url:args.sourceAssetUrl,post_info},true);}

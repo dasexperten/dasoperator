@@ -8,6 +8,7 @@ const asset=`https://org.dasexperten.com/assets/ugc/${sha}/original.mp4`,source=
 const caption=`creator_fixture original ${source} #oralcare`,videoId='7706215046463999252',publicUrl=`https://www.tiktok.com/@dasbroadcast/video/${videoId}`;
 const args={contentId:'content-one',claimId:'claim-one',sourceSha256:sha,sourceAssetUrl:asset,sourceDurationSeconds:13,sourceAuthor:'creator_fixture',sourceUrl:source,sourceDriveId:'fixture-drive-original'};
 function fixture(t,options={}){
+ t.mock.method(Date,'now',()=>options.time??Date.parse('2026-11-23T12:00:00Z'));
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec('CREATE TABLE crm_sync_state(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER);CREATE TABLE ugc_reel_jobs(content_id TEXT PRIMARY KEY,status TEXT,claim_id TEXT,required_destinations TEXT,publications TEXT,updated_at TEXT)');
  const prior=[{platform:'instagram',url:'https://www.instagram.com/reel/ExistingFixture/'}];
@@ -23,7 +24,9 @@ function fixture(t,options={}){
     if(options.stopBeforeRequestCAS&&sql.startsWith('UPDATE crm_sync_state')&&JSON.parse(values[0]).state==='publish_requested')db.prepare('INSERT OR IGNORE INTO crm_sync_state VALUES(?,?,0)').run('dieter_cloud_runtime_stop','{}');
     if(options.failRequestCAS&&sql.startsWith('UPDATE crm_sync_state')&&JSON.parse(values[0]).state==='publish_requested')throw Error('synthetic crash before provider intent');
     if(options.proofConflict&&sql.startsWith('UPDATE ugc_reel_jobs SET publications'))return {meta:{changes:0}};
-    return {meta:{changes:Number(db.prepare(sql).run(...values).changes)}};
+    const changed=db.prepare(sql).run(...values).changes;
+    if(options.closePeakDuringRequestCAS&&sql.startsWith('UPDATE crm_sync_state')&&JSON.parse(values[0]).state==='publish_requested')options.time=Date.parse('2026-11-23T16:00:00Z');
+    return {meta:{changes:Number(changed)}};
    }
   };}
  }};
@@ -136,3 +139,16 @@ test('global stop appearing at the final publish-request CAS prevents the provid
 });
 
 test('successful provider acceptance returns immediately without moderation read or invented public proof',async t=>{const f=fixture(t,{pending:true});const result=await runDieterTikTokApi(f.env,args,'publish',{fetchImpl:f.fetchImpl});assert.equal(result.status,'accepted');assert.equal(f.stats().posts,1);assert.equal(f.stats().statusReads,0);assert.equal(f.ledger().state,'accepted');assert.equal(f.ledger().shareId,'v_pub_url~fixture');assert.deepEqual(JSON.parse(f.db.prepare('SELECT publications FROM ugc_reel_jobs').get().publications),f.prior);});
+
+
+test('morning or night publication is blocked before grant/source/provider access',async t=>{
+ const f=fixture(t,{time:Date.parse('2026-11-23T06:00:00Z')});const r=await f.run();assert.equal(r.code,'tiktok_outside_audience_peak');assert.equal(f.stats().requests.length,0);assert.equal(f.stats().posts,0);assert.equal(f.ledger(),null);
+});
+test('accepted posts are reconciled outside peaks without a repeated provider POST',async t=>{
+ const options={},f=fixture(t,options);assert.equal((await f.run()).status,'verified');options.time=Date.parse('2026-11-23T21:00:00Z');assert.equal((await f.run('reconcile')).status,'verified');assert.equal(f.stats().posts,1);
+});
+test('a peak closing during provider-intent CAS preserves a resumable reservation with zero POSTs',async t=>{
+ const options={time:Date.parse('2026-11-23T15:59:59Z'),closePeakDuringRequestCAS:true},f=fixture(t,options);
+ assert.equal((await f.run()).code,'tiktok_peak_closed_before_send');assert.equal(f.stats().posts,0);assert.equal(f.ledger().state,'reserved');
+ options.time=Date.parse('2026-11-24T12:00:00Z');options.closePeakDuringRequestCAS=false;assert.equal((await f.run()).status,'verified');assert.equal(f.stats().posts,1);
+});

@@ -1,14 +1,15 @@
+import {YEREVAN_SCHEDULE} from './tiktok-peak-hours.mjs';
+export {YEREVAN_SCHEDULE};
 // Owner 2026-11-08: Moscow-time alarm windows; the round starts on its signal.
 export const ALARM = 'erp-ugc-diter';
 export const LEGACY_ALARM = 'diter-ugc-alarm';
 export const ROUND = 'diter-ugc-round';
 export const START_GAP_MS = 15 * 60_000;
 export const SIGNAL_TTL_MS = 3 * 60_000;
-// Owner 10.11.2026: one 90-minute cadence in Europe/Moscow.
-export const MOSCOW_SCHEDULE = {
-  weekdays: ['09:00','10:30','12:00','13:30','15:00','16:30','18:00','19:30','21:00','22:30'],
-  weekends: ['10:00','11:30','13:00','14:30','16:00','17:30','19:00','20:30','22:00'],
-};
+// Existing shared UGC round: retain only audience-peak starts (Owner 23.11).
+// The clock's historical Moscow calculation stays compatible; face is Yerevan.
+const moscow=time=>{const [h,m]=time.split(':');return String(Number(h)-1).padStart(2,'0')+':'+m;};
+export const MOSCOW_SCHEDULE={weekdays:YEREVAN_SCHEDULE.weekdays.map(moscow),weekends:YEREVAN_SCHEDULE.weekends.map(moscow)};
 export function triggerSlot(now = new Date()) {
   const moscow = new Date(now.getTime() + 3 * 3600_000);
   const day = moscow.getUTCDay();

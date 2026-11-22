@@ -4,7 +4,7 @@ import {finishDieterUploads} from '../lib/dieter-upload-completion';
 // Owner 2026-10-17: a tap on a Diana hard-question button in Telegram arrives here
 // from the organizacia bot (service binding EMAILER, same service secret as mail).
 import { Hono } from 'hono';
-import { ALARM, freshSignal, alarmWireName, MOSCOW_SCHEDULE } from '../lib/diter-ugc-alarm.mjs';
+import { ALARM, freshSignal, alarmWireName, YEREVAN_SCHEDULE } from '../lib/diter-ugc-alarm.mjs';
 import { reelPublicationProof, appendPublicationProofs, reelTaskText, reelScope, reelJobScopeView, REEL_SCOPE_VERSION, type ReelPublication } from '../lib/ugc-reel-jobs.mjs';
 import { tickDiterAlarm, reelAssignment, CONSUMER_TTL_MS, acceptLegacyReel } from '../lib/ugc-reel-store';
 import type { Env } from '../types';
@@ -157,7 +157,7 @@ route.post('/reel-jobs/:id/claim', async (c) => {
 route.get('/alarm/status', async (c) => {
   const state = await c.env.DB.prepare('SELECT * FROM ugc_reel_alarm WHERE id=1').first<Record<string, any>>();
   const jobs = await c.env.DB.prepare("SELECT status,COUNT(*) count FROM ugc_reel_jobs GROUP BY status").all();
-  return c.json({ok:true,alarm:ALARM,schedule:{timezone:'Europe/Moscow',...MOSCOW_SCHEDULE},runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
+  return c.json({ok:true,alarm:ALARM,schedule:{timezone:'Asia/Yerevan',...YEREVAN_SCHEDULE},runner:'diter-ugc-round',default_destination_scope:reelScope(),consumer_ttl_ms:CONSUMER_TTL_MS,state,jobs:jobs.results ?? []});
 });
 route.post('/alarm/pulse', async (c) => {
   if((await c.env.DB.prepare("SELECT value FROM crm_sync_state WHERE key='dieter_cloud_mode'").first<{value:string}>())?.value==='enabled')return c.json({ok:false,error:'cloud_executor_selected'},409);

@@ -56,3 +56,10 @@ test('Owner 2026-11-19 (dasha_vous): «на какой номер вернуть
 test('Owner 2026-11-19 (_b_e_a_u_t_y_9): «Есть ли тз?» gets the four cards and the choose-any line at once',async()=>{const f=env();f.options.source.messages[0].message='Есть ли тз?';f.options.infer=async()=>({text:JSON.stringify({action:'reply',reply:'Какой у вас формат?'})});const d=await decideDirect(f.options);assert.equal(d.action,'cards');assert.equal(d.lines[1],'Можно выбрать любую или предложить свою.');});
 test('Owner 2026-11-19: «какие требования к ролику» gets the cards too',async()=>{const f=env();f.options.source.messages[0].message='А какие требования к ролику?';f.options.infer=async()=>({text:JSON.stringify({action:'reply',reply:'Ролик должен быть классным'})});const d=await decideDirect(f.options);assert.equal(d.action,'cards');});
 test('a plain word containing «тз» is not a brief question',async()=>{const f=env();f.options.source.messages[0].message='Отзыв напишу завтра';const d=await decideDirect(f.options);assert.notEqual(d.action,'cards');});
+
+test('mentioning an already received brief does not override a contextual reply',async()=>{
+ const f=env();
+ f.options.source.messages[0].message='Я уже выбрала первый вариант, зачем снова присылать ТЗ?';
+ f.options.infer=async()=>({text:JSON.stringify({action:'reply',reply:'Первый вариант записали.'})});
+ assert.equal((await decideDirect(f.options)).action,'reply');
+});

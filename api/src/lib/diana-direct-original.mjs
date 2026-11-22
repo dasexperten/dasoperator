@@ -18,18 +18,7 @@ export async function readDirectOriginal({conversationId, messageId, token, fetc
   }
   const page = await graph(`${PAGE}?fields=access_token`, token);
   if (!page.access_token) throw Error('direct_page_token_missing');
-  const items = [];
-  const cursors = new Set();
-  let after = '';
-  while (true) {
-    const response = await graph(`${encodeURIComponent(conversationId)}/messages?fields=${FIELDS}&limit=100${after ? '&after=' + encodeURIComponent(after) : ''}`, page.access_token);
-    if (!Array.isArray(response.data)) throw Error('direct_original_invalid');
-    items.push(...response.data);
-    if (!response.paging?.next) break;
-    const next = response.paging?.cursors?.after;
-    if (!next || cursors.has(next) || !response.data.length) throw Error('direct_original_incomplete');
-    cursors.add(next); after = next;
-  }
+  const items = await readConversationMessages(conversationId, path => graph(path, page.access_token));
   // Owner 2026-11-12 (svetlanakogai2018): the chat list can show a screenshot as an empty
   // «unsupported» message while the same message, asked for by its own id, carries the picture.
   // Ask again for the newest empty incoming messages so Diana reads the cart instead of «сумма?».
@@ -51,4 +40,20 @@ export async function readDirectOriginal({conversationId, messageId, token, fetc
   if (!latest?.id || !latest?.from?.id) throw Error('direct_original_identity_missing');
   if (String(latest.id) !== String(messageId) || [PAGE, BRAND].includes(String(latest.from.id))) return {status:'superseded'};
   return {status:'ready', conversationId:String(conversationId), messageId:String(messageId), messages:items.reverse()};
+}
+
+export async function readConversationMessages(conversationId, read) {
+  const items = [];
+  const cursors = new Set();
+  let after = '';
+  while (true) {
+    const response = await read(`${encodeURIComponent(conversationId)}/messages?fields=${FIELDS}&limit=100${after ? '&after=' + encodeURIComponent(after) : ''}`);
+    if (!Array.isArray(response.data)) throw Error('direct_original_invalid');
+    items.push(...response.data);
+    if (!response.paging?.next) break;
+    const next = response.paging?.cursors?.after;
+    if (!next || cursors.has(next) || !response.data.length) throw Error('direct_original_incomplete');
+    cursors.add(next); after = next;
+  }
+  return items;
 }

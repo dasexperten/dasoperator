@@ -5,7 +5,7 @@ const stubs={
  'diana-alarm':`export const acknowledgeDianaEvent=()=>{throw Error('payout must not ACK reply')}`,
  'diana-cloud-lock':`export const finishDianaCloud=async env=>{env.released++}`,
  'ig-dm-image-cache':`export const loadInstagramImage=async()=>{throw Error('unexpected image')}`,
- 'diana-direct-original.mjs':`export const readDirectOriginal=async({conversationId,messageId})=>({status:'ready',conversationId,messageId,messages:[{id:messageId,from:{id:'person',username:'creator'},message:'PRIVATE SOURCE'}]})`,
+ 'diana-direct-original.mjs':`export const readConversationMessages=()=>{throw Error('unexpected notice history')};export const readDirectOriginal=async({conversationId,messageId})=>({status:'ready',conversationId,messageId,messages:[{id:messageId,from:{id:'person',username:'creator'},message:'PRIVATE SOURCE'}]})`,
  'diana-direct-think.mjs':`export const directThink=()=>()=>{throw Error('unexpected inference')}`,
  'diana-direct-decide.mjs':`export const decideDirect=async()=>({action:'payout',reason:'payout_handoff_pending'})`,
  'diana-direct-deliver.mjs':`export const deliverDirectReply=()=>{throw Error('payout must not send')}`,

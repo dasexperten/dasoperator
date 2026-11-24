@@ -21,8 +21,8 @@ const dayLabel = (date: string) => `${date.slice(8, 10)}.${date.slice(5, 7)}`;
 
 const ROWS: Array<{ key: string; label: string; short: string; value: (d: ShopDay) => string }> = [
   { key: 'orders', label: 'Заказы', short: 'Заказы', value: d => int(d.orders) },
-  { key: 'revenue', label: 'Выручка, тыс ₽', short: 'Выручка, тыс', value: d => thousands(d.revenue_rub) },
-  { key: 'avg', label: 'Средняя цена, ₽', short: 'Ср. цена', value: d => int(d.avg_price_rub) },
+  { key: 'revenue', label: 'Сумма заказов до скидок, тыс ₽', short: 'Сумма до скидок, тыс', value: d => thousands(d.revenue_rub) },
+  { key: 'avg', label: 'Средняя цена до скидок, ₽', short: 'Цена до скидок', value: d => int(d.avg_price_rub) },
   { key: 'views', label: 'Показы, тыс', short: 'Показы, тыс', value: d => thousands(d.views) },
   { key: 'carts', label: 'Корзины', short: 'Корзины', value: d => int(d.carts) },
 ];

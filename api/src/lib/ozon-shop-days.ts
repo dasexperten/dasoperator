@@ -4,8 +4,9 @@
 //
 // One row per complete Moscow calendar day, newest last:
 //   orders  — ordered_units   (Ozon «Заказано, шт»)
-//   revenue — revenue, ₽      (Ozon «Заказано на сумму»)
-//   avg     — revenue / orders, ₽
+//   revenue — revenue, ₽      (Ozon «Заказано на сумму» at the price before any discount;
+//                              NOT what the buyer paid — the public API has no such day metric)
+//   avg     — revenue / orders, ₽ (before discounts)
 //   views   — hits_view       (all impressions: search, category, card)
 //   carts   — hits_tocart     (adds to cart, not unique buyers)
 // Today is never included: a half day beside full days reads as a fall.

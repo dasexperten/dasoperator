@@ -111,6 +111,18 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // Loaded once when opType becomes 'purchase'. Used by handleProductChange.
   const [purchasePrices, setPurchasePrices] = useState<Record<string, number>>({});
 
+  // Raw text of decimal cells while they are being typed, keyed "<col>:<productId>".
+  // Without it a controlled numeric value eats "0" and a trailing "." (0.5 / 1.5
+  // could never be entered). Cleared on blur so the cell shows the stored number.
+  const [decimalDrafts, setDecimalDrafts] = useState<Record<string, string>>({});
+  function setDecimalDraft(key: string, raw: string | null) {
+    setDecimalDrafts((prev) => {
+      const next = { ...prev };
+      if (raw === null) delete next[key]; else next[key] = raw;
+      return next;
+    });
+  }
+
   // Per-warehouse on-hand stock map: productId → on_hand pieces.
   // Reloaded whenever warehouseFromId changes. Used to render the "In stock"
   // column in the line items grid so user sees what's available at the
@@ -1555,10 +1567,13 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                       inputMode="decimal"
                                       data-grid-col="cartons"
                                       onKeyDown={handleGridKeyDown}
-                                      value={cartonsDisplay || ''}
+                                      value={decimalDrafts[`cartons:${p.id}`] ?? (cartonsDisplay || '')}
+                                      onBlur={() => setDecimalDraft(`cartons:${p.id}`, null)}
                                       onChange={(ev) => {
                                         const raw = ev.target.value.replace(',', '.').trim();
-                                        if (raw === '') { updateEntry(p.id, { pieces: 0 }); return; }
+                                        if (!/^\d*\.?\d*$/.test(raw)) return;
+                                        setDecimalDraft(`cartons:${p.id}`, raw);
+                                        if (raw === '' || raw === '.') { updateEntry(p.id, { pieces: 0 }); return; }
                                         const c = parseFloat(raw);
                                         if (isNaN(c) || c < 0) return;
                                         const newPieces = Math.round(c * ctnQty);
@@ -1598,10 +1613,13 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                     inputMode="decimal"
                                     data-grid-col="price"
                                     onKeyDown={handleGridKeyDown}
-                                    value={e.unit_price || ''}
+                                    value={decimalDrafts[`price:${p.id}`] ?? (e.unit_price || '')}
+                                    onBlur={() => setDecimalDraft(`price:${p.id}`, null)}
                                     onChange={(ev) => {
                                       const raw = ev.target.value.replace(',', '.').trim();
-                                      if (raw === '') { updateEntry(p.id, { unit_price: 0 }); return; }
+                                      if (!/^\d*\.?\d*$/.test(raw)) return;
+                                      setDecimalDraft(`price:${p.id}`, raw);
+                                      if (raw === '' || raw === '.') { updateEntry(p.id, { unit_price: 0 }); return; }
                                       const v = parseFloat(raw);
                                       if (isNaN(v) || v < 0) return;
                                       updateEntry(p.id, { unit_price: v });

@@ -15,6 +15,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Loader2, X, Package, ShoppingBag, BarChart3 } from 'lucide-react';
 import OzonBoostSales from '@/components/marketplaces/ozon-boost-sales';
+import OzonShopDays from '@/components/marketplaces/ozon-shop-days';
 
 const COLOR_OZON = '#185FA5';
 const COLOR_OZON_LIGHT = '#85B7EB';
@@ -183,6 +184,7 @@ export default function MarketplacePulse() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 dx-stack-mobile">
         <SalesTodayCard data={salesToday} loading={loading} refreshing={refreshing} onRefresh={handleRefresh} />
         <TrendCard data={trend} loading={loading} />
+        <OzonShopDays />
         <OzonBoostSales top10 />
       </div>
     </section>

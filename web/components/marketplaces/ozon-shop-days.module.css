@@ -1,0 +1,43 @@
+.panel { grid-column: 1 / -1; min-width: 0; max-width: 100%; padding: 20px; color: var(--fg-1); background: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); font-family: var(--font-body); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.header h2 { margin: 0; font: 800 21px/1.2 var(--font-body); letter-spacing: 0; }
+.tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.tools > span { color: var(--fg-2); font-size: 14px; white-space: nowrap; }
+.refresh { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--fg-1); background: var(--paper); cursor: pointer; }
+.refresh:hover:not(:disabled) { background: var(--paper-sunk); border-color: var(--border-strong); }
+.refresh:disabled { cursor: wait; background: var(--paper-sunk); }
+.refresh:focus-visible { outline: 2px solid var(--brand-rot); outline-offset: 3px; }
+.notice { margin: 0 0 12px; color: var(--status-warning); font-size: 14px; }
+.empty { margin: 20px 0 8px; color: var(--fg-2); font-size: 14px; }
+.tableWrap { width: 100%; max-width: 100%; overflow: hidden; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15px; }
+.table th, .table td { padding: 12px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border-hairline); }
+.table thead th { color: var(--fg-2); background: var(--paper-sunk); font-size: 14px; font-weight: 700; }
+.table tbody tr:last-child th, .table tbody tr:last-child td { border-bottom: 0; }
+.table .metric { width: 28%; text-align: left; font-size: 16px; font-weight: 800; color: var(--fg-1); }
+.table thead .metric { background: var(--paper-sunk); }
+.table td { font-size: 18px; font-weight: 800; }
+.table .latest { color: var(--fg-1); background: var(--paper-sunk); }
+.table thead .latest { color: var(--fg-1); }
+.mobileLabel { display: none; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.spinning { animation: rotate 1s linear infinite; }
+@keyframes rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+
+/* Phone: the table always fits the screen — never wider, never sideways (Owner 2026-11-09). */
+@media (max-width: 767px) {
+  .panel { padding: 14px 12px; }
+  .header h2 { font-size: 19px; }
+  .tools { gap: 8px; }
+  .tableWrap > table.table.table { display: table !important; width: 100% !important; max-width: 100% !important; table-layout: fixed !important; }
+  .tableWrap > table.table.table > thead { display: table-header-group !important; width: auto !important; }
+  .tableWrap > table.table.table > tbody { display: table-row-group !important; width: auto !important; }
+  .tableWrap > table.table.table tr { display: table-row !important; }
+  .tableWrap > table.table.table th, .tableWrap > table.table.table td { padding: 10px 3px !important; }
+  .tableWrap > table.table.table .metric { width: 30% !important; padding-left: 0 !important; font-size: 13px; white-space: normal !important; line-height: 1.2; }
+  .tableWrap > table.table.table thead th { font-size: 12px !important; }
+  .tableWrap > table.table.table td { font-size: clamp(12px, 3.6vw, 15px) !important; }
+  .desktopLabel { display: none; }
+  .mobileLabel { display: inline; }
+}

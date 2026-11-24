@@ -16,6 +16,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { parseOzonArticle, OZON_STOCK_PRODUCT_SQL } from '../lib/marketplace-articles';
+import { parseShopDays, shopDaysWindow, SHOP_DAYS_METRICS } from '../lib/ozon-shop-days';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -401,6 +402,37 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
     history_complete: allDates.length >= 14,  // tells UI whether week-over-week deltas are reliable
     days_available: allDates.length,
   });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/ozon-shop-days?days=5
+// Owner 2026-11-24 — «Магазин по дням»: orders, revenue, average price, views
+// and carts for the last complete Moscow days, straight from Ozon analytics.
+// KV-cached for 30 minutes: the analytics endpoint is rate-limited.
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/ozon-shop-days', async (c) => {
+  const { from, to } = shopDaysWindow(Date.now(), Number(c.req.query('days') || 5));
+  const cacheKey = `pulse:ozon-shop-days:${from}:${to}`;
+  if (c.env.CACHE && c.req.query('refresh') !== '1') {
+    const cached = await c.env.CACHE.get(cacheKey, 'json');
+    if (cached) return ok(c, cached);
+  }
+  const clientId = c.env.OZON_CLIENT_ID;
+  const apiKey = c.env.OZON_API_KEY;
+  if (!clientId || !apiKey) return fail(c, 503, [{ code: 'ozon_not_configured', message: 'OZON credentials not configured' }]);
+  try {
+    const resp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
+      method: 'POST',
+      headers: { 'Client-Id': clientId, 'Api-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_from: from, date_to: to, metrics: SHOP_DAYS_METRICS, dimension: ['day'], limit: 100, offset: 0 }),
+    });
+    if (!resp.ok) throw new Error(`Ozon HTTP ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+    const result = { from, to, timezone: 'Europe/Moscow', fetched_at: Math.floor(Date.now() / 1000), days: parseShopDays(await resp.json(), from, to) };
+    if (c.env.CACHE) await c.env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 1800 });
+    return ok(c, result);
+  } catch (e: any) {
+    return fail(c, 502, [{ code: 'ozon_analytics_failed', message: String(e?.message || e) }]);
+  }
 });
 
 // ---------------------------------------------------------------------------
